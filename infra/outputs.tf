@@ -1,0 +1,40 @@
+output "dynamodb_table_name" {
+  value = module.dynamodb.table_name
+}
+
+output "cognito_user_pool_id" {
+  value = module.cognito.user_pool_id
+}
+
+output "cognito_user_pool_client_id" {
+  value = module.cognito.user_pool_client_id
+}
+
+output "cognito_hosted_ui_domain" {
+  value = module.cognito.hosted_ui_domain
+}
+
+output "cognito_issuer" {
+  value = module.cognito.issuer
+}
+
+output "api_endpoint" {
+  description = "HTTP API base URL for the frontend"
+  value       = module.api.api_endpoint
+}
+
+output "frontend_bucket_name" {
+  value = module.frontend.bucket_name
+}
+
+output "frontend_site_url" {
+  value = module.frontend.site_url
+}
+
+output "cloudfront_distribution_id" {
+  value = module.frontend.cloudfront_distribution_id
+}
+
+output "agent_runtime_arn" {
+  value = module.agentcore.agent_runtime_arn
+}

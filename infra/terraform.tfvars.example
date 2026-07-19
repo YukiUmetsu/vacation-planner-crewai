@@ -1,0 +1,22 @@
+aws_region   = "us-east-1"
+project_name = "vacation-planner"
+environment  = "dev"
+
+# Cognito Hosted UI + Google (optional — leave empty to use Cognito email/password only)
+google_client_id     = ""
+google_client_secret = ""
+
+# After first CloudFront deploy, add the site URL here and re-apply
+callback_urls = [
+  "http://localhost:5173/callback",
+  # "https://d111111abcdef8.cloudfront.net/callback",
+]
+logout_urls = [
+  "http://localhost:5173/",
+  # "https://d111111abcdef8.cloudfront.net/",
+]
+
+# AgentCore (off by default — set enable_agentcore = true and an ECR image URI)
+enable_agentcore            = false
+agent_runtime_container_uri = ""
+# serper_api_key            = ""  # prefer TF_VAR_serper_api_key env var
