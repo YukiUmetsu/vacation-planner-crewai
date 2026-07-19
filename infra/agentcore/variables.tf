@@ -17,6 +17,17 @@ variable "container_uri" {
   default     = ""
 }
 
+variable "bedrock_model_arns" {
+  description = "Exact Bedrock foundation model, inference profile, or provisioned model ARNs the agent runtime may invoke"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for arn in var.bedrock_model_arns : can(regex("^arn:", arn))])
+    error_message = "Each Bedrock model entry must be an ARN."
+  }
+}
+
 variable "serper_api_key" {
   type      = string
   default   = ""

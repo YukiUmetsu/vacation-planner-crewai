@@ -24,11 +24,6 @@ resource "aws_iam_role" "lambda" {
   })
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_basic" {
-  role       = aws_iam_role.lambda.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-}
-
 resource "aws_iam_role_policy" "lambda_app" {
   name = "${local.name_prefix}-api-app"
   role = aws_iam_role.lambda.id
@@ -40,14 +35,14 @@ resource "aws_iam_role_policy" "lambda_app" {
         {
           Sid      = "DynamoDB"
           Effect   = "Allow"
-          Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query", "dynamodb:DeleteItem"]
+          Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query"]
           Resource = [var.dynamodb_table_arn, "${var.dynamodb_table_arn}/index/*"]
         },
         {
-          Sid      = "Logs"
+          Sid      = "WriteOwnLogs"
           Effect   = "Allow"
-          Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
-          Resource = "arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:*"
+          Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+          Resource = "arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:${aws_cloudwatch_log_group.lambda.name}:*"
         }
       ],
       var.agent_runtime_arn != "" ? [

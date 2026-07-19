@@ -18,12 +18,13 @@ module "cognito" {
 }
 
 module "agentcore" {
-  source         = "./agentcore"
-  project_name   = var.project_name
-  environment    = var.environment
-  enabled        = var.enable_agentcore
-  container_uri  = var.agent_runtime_container_uri
-  serper_api_key = var.serper_api_key
+  source             = "./agentcore"
+  project_name       = var.project_name
+  environment        = var.environment
+  enabled            = var.enable_agentcore
+  container_uri      = var.agent_runtime_container_uri
+  bedrock_model_arns = var.agent_allowed_bedrock_model_arns
+  serper_api_key     = var.serper_api_key
 }
 
 module "api" {

@@ -43,15 +43,21 @@ variable "logout_urls" {
 }
 
 variable "enable_agentcore" {
-  description = "Create Bedrock AgentCore runtime (requires container_uri)"
+  description = "Create Bedrock AgentCore runtime"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "agent_runtime_container_uri" {
   description = "ECR image URI for AgentCore runtime (e.g. 123.dkr.ecr.us-east-1.amazonaws.com/vacation-agent:latest)"
   type        = string
   default     = ""
+}
+
+variable "agent_allowed_bedrock_model_arns" {
+  description = "Exact Bedrock model or inference profile ARNs the AgentCore runtime may invoke"
+  type        = list(string)
+  default     = []
 }
 
 variable "serper_api_key" {
