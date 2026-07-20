@@ -39,7 +39,9 @@ def main() -> None:
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent
-    load_dotenv(project_root / ".env", override=True)
+    agent_root = project_root.parents[1]  # agent/
+    load_dotenv(agent_root / ".env", override=True)
+    (project_root / "logs").mkdir(exist_ok=True)
 
     project_name = "vacation_planner"
     tracer_provider = register(

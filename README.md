@@ -24,7 +24,7 @@ Three deployable codebases at the top level — no shared `apps/` umbrella:
 ├── backend/                    # HTTP API: Cognito JWT, DynamoDB, invoke AgentCore
 ├── agent/                      # CrewAI crews + AgentCore Runtime package
 │   ├── crews/day_plan/         # Working local crew (Phoenix)
-│   ├── crews/city_route/       # Placeholder
+│   ├── crews/city_route/       # Country/region → CityRoute (structured)
 │   ├── models/
 │   └── main.py
 ├── docs/DATA_MODEL.md          # Place, CityRoute, DayPlan, Trip + DynamoDB
@@ -100,7 +100,7 @@ Working piece today: **day plan crew** under `agent/crews/day_plan`.
 
 - Python 3.10–3.13, `uv`
 - AWS credentials with Bedrock access (Nova)
-- `SERPER_API_KEY` in `agent/crews/day_plan/.env` (see `.env.example`)
+- `SERPER_API_KEY` in `agent/.env` (see `agent/.env.example`)
 
 ### Run without TUI streaming (Bedrock tools)
 

@@ -126,7 +126,7 @@
   // "embedder": {},
   "output_log_file": "logs/crew.log",
   "stream": false,
-  "tracing": false,
+  "tracing": true,
   // "security_config": {},
 
   // Optional runtime input defaults.

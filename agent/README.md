@@ -7,7 +7,7 @@ CrewAI crews packaged for **Amazon Bedrock AgentCore Runtime**.
 | Path | Purpose |
 | --- | --- |
 | `crews/day_plan/` | Active crew: research → itinerary (local + runtime) |
-| `crews/city_route/` | Placeholder: propose cities for country destinations |
+| `crews/city_route/` | City route crew: research → `CityRoute` (structured) |
 | `models/` | Installable package `vacation_planner_models` (Pydantic + `place_key`) |
 | `main.py` | AgentCore entrypoint (stub) |
 | `tests/` | Model/crew unit tests |
@@ -20,11 +20,13 @@ CrewAI crews packaged for **Amazon Bedrock AgentCore Runtime**.
 vacation-planner-models = { path = "../../models", editable = true }
 ```
 
-Later task wiring:
+Later task wiring uses a local re-export (CrewAI requires the class under the crew root), e.g. city_route:
 
 ```jsonc
-"output_pydantic": { "python": "vacation_planner_models.DayPlan" }
+"output_pydantic": { "python": "models.CityRoute" }
 ```
+
+(`crews/city_route/models.py` re-exports `vacation_planner_models`.)
 
 ```bash
 cd models && uv sync --extra dev && uv run pytest ../tests
@@ -36,6 +38,7 @@ cd models && uv sync --extra dev && uv run pytest ../tests
 cd crews/day_plan
 uv sync
 # Terminal 1: uv run python -m phoenix.server.main serve
+# Secrets: copy agent/.env.example → agent/.env (shared by all crews)
 uv run python run_with_phoenix.py --topic "Tokyo"
 ```
 

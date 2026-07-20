@@ -1,0 +1,35 @@
+{
+  "name": "city_route",
+  "agents": ["city_route_researcher", "city_route_planner"],
+  "tasks": [
+    {
+      "name": "research_cities_task",
+      "description": "Research a multi-city route inside {destination} (destination_type={destination_type}) for a trip from {origin}. Trip window: {start_date} to {end_date} inclusive ({day_count} days). Traveler preferences: {preferences}.\n\nUse web search to find: which cities are worth overnighting, typical nights per city for this length of trip, and realistic travel order (geography / train / flight).\n\nDo NOT produce day-by-day attraction itineraries. Focus on city selection, nights, and travel logistics between cities.",
+      "expected_output": "A concise research brief listing candidate cities with suggested nights, order rationale, and a few highlight teasers per city (names only, not full day plans).",
+      "agent": "city_route_researcher"
+    },
+    {
+      "name": "propose_city_route_task",
+      "description": "Using the research brief, propose a CityRoute the traveler can confirm before day planning.\n\nConstraints:\n- destination_type must be {destination_type}\n- Cover the trip window {start_date}..{end_date} ({day_count} days)\n- Each CityStop needs: city, country, nights (>=0), arrival_day_index, departure_day_index, reason, highlights (short teaser strings only)\n- departure_day_index >= arrival_day_index for every stop\n- Day indices are 1..{day_count}\n- total_nights should equal the sum of city nights (or leave 0 to auto-fill)\n- status must be \"proposed\"\n- Do not invent full day itineraries or Place lists",
+      "expected_output": "A CityRoute object with destination_type, cities (ordered CityStop list), rationale, total_nights, and status=\"proposed\". Each CityStop includes city, country, nights, arrival_day_index, departure_day_index, reason, and highlights[].",
+      "agent": "city_route_planner",
+      "context": ["research_cities_task"],
+      "output_pydantic": { "python": "models.CityRoute" }
+    }
+  ],
+  "process": "sequential",
+  "verbose": true,
+  "memory": false,
+  "output_log_file": "logs/crew.log",
+  "stream": false,
+  "tracing": true,
+  "inputs": {
+    "origin": "San Francisco",
+    "destination": "Japan",
+    "destination_type": "country",
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-10",
+    "day_count": "10",
+    "preferences": "mix of big cities and culture; moderate pace"
+  }
+}
