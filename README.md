@@ -128,6 +128,31 @@ In Phoenix, select project **`vacation_planner`** → **Traces**.
 
 > **Note:** `custom:<name>` tool refs execute `tools/<name>.py` when the crew loads. Only run projects you trust.
 
+## Local development (backend / DynamoDB)
+
+Two layers for the single-table store:
+
+| Mode | Tool | When |
+| --- | --- | --- |
+| Automated tests | **moto** (pytest) | Fast, in-process, no Docker |
+| Manual local use | **DynamoDB Local** (Docker) | Real DynamoDB-compatible endpoint |
+
+```bash
+# Access-pattern tests (moto)
+cd backend
+uv sync --group dev
+uv run pytest
+
+# DynamoDB Local (Docker Desktop must be running)
+cd backend
+docker compose up -d
+uv run python scripts/create_local_table.py
+```
+
+Defaults: `http://localhost:8000`, table `vacation-planner-local-table`. Data persists in the Docker named volume `dynamodb_data` (not under this repo); `docker compose down -v` deletes it.
+
+See [`backend/README.md`](./backend/README.md) for env vars and details.
+
 ## Infrastructure (Terraform)
 
 AWS is defined under [`infra/`](./infra) (DynamoDB, Cognito, HTTP API + Lambda, S3/CloudFront, optional AgentCore).

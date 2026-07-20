@@ -21,3 +21,15 @@ def day_sk(trip_id: str, day_index: int) -> str:
 
 def gsi1_pk(trip_id: str) -> str:
     return f"TRIP#{trip_id}"
+
+
+def gsi1_sk_user(sub: str) -> str:
+    return f"USER#{sub}"
+
+
+def gsi1_sk_route() -> str:
+    return "ROUTE"
+
+
+def gsi1_sk_day(day_index: int) -> str:
+    return f"DAY#{day_index:02d}"
