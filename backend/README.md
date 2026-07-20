@@ -1,17 +1,19 @@
 # Backend
 
-HTTP API (API Gateway + Lambda): verify Cognito JWT, read/write DynamoDB, invoke AgentCore.
+HTTP API (API Gateway + Lambda): Cognito JWT (via API Gateway authorizer + `sub` claims), DynamoDB, and crew invocation (`fake` locally / AgentCore in AWS).
 
 The frontend talks only to this API — never to AgentCore or DynamoDB directly.
 
-## Planned routes
+## Routes
+
+Implemented and covered by moto tests. **Local use requires `AUTH_MODE=dev`.** Deployed Lambda uses `AUTH_MODE=cognito` and expects API Gateway JWT claims (`requestContext.authorizer.jwt.claims.sub`).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/trips` | Create trip meta |
-| `POST` | `/trips/{id}/propose-cities` | Propose city route |
+| `POST` | `/trips` | Create trip meta (city destinations auto-confirm a synthetic route) |
+| `POST` | `/trips/{id}/propose-cities` | Propose city route via crew |
 | `PUT` | `/trips/{id}/cities` | Confirm / edit city route |
-| `POST` | `/trips/{id}/plan-next-day` | Plan + persist next day |
+| `POST` | `/trips/{id}/plan-next-day` | Plan + persist next day (dedupe places) |
 | `GET` | `/trips/{id}` | Trip + route + days |
 | `GET` | `/trips` | List current user’s trips |
 
@@ -20,26 +22,67 @@ The frontend talks only to this API — never to AgentCore or DynamoDB directly.
 ```text
 src/
   handler.py          # Lambda / HTTP entry
-  auth.py             # Cognito JWT verify
+  auth.py             # AUTH_MODE=dev | cognito (APIGW JWT claims)
+  http_utils.py
   routes/trips.py
-  db/                 # single-table helpers + repository
-  agentcore/client.py
-  services/           # dedupe, trip orchestration
-  models/             # Pydantic (align with docs/DATA_MODEL.md)
+  crews/              # CrewRunner: fake (default) | local | agentcore
+  db/
+  services/
+  models/api.py
 scripts/
+  build_lambda.sh     # package src + deps for Terraform zip
   create_local_table.py
+  smoke_trip_flow.py
 tests/
-docker-compose.yml    # DynamoDB Local
+docker-compose.yml
 ```
 
-## Local DynamoDB
+## Environment
 
-Two layers:
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AUTH_MODE` | `cognito` | **Fail closed.** Local: set `dev` (`X-Dev-User-Sub` / `DEV_USER_SUB`). Deploy: `cognito` reads `sub` from API Gateway JWT authorizer claims |
+| `CREW_MODE` | `fake` (code default) | Local/tests: `fake` (no CrewAI). `local` = CrewAI in-process (needs `agent/crews`). Deployed Lambda (Terraform): **`agentcore`** = InvokeAgentRuntime |
+| `SAFETY_MODE` | `keyword` | `keyword` deny-list stub; `off` disables |
+| `DYNAMODB_ENDPOINT` | unset | Set to `http://localhost:8000` for DynamoDB Local |
+| `DYNAMODB_TABLE_NAME` | `vacation-planner-local-table` | Table name |
+| `AGENT_ROOT` | `<repo>/agent` | Used by `CREW_MODE=local` only |
 
-1. **moto** (in pytest) — no Docker; CI-friendly access-pattern tests
-2. **DynamoDB Local** (Docker) — manual exploration against a real Local endpoint
+## Local development
 
-### Unit / access-pattern tests (moto)
+```bash
+cd backend
+uv sync --group dev
+export AUTH_MODE=dev CREW_MODE=fake
+uv run pytest
+```
+
+Trip smoke against DynamoDB Local:
+
+```bash
+docker compose up -d
+uv run python scripts/create_local_table.py
+export DYNAMODB_ENDPOINT=http://localhost:8000
+export DYNAMODB_TABLE_NAME=vacation-planner-local-table
+export AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local AWS_REGION=us-east-1
+export AUTH_MODE=dev CREW_MODE=fake SAFETY_MODE=off
+uv run python scripts/smoke_trip_flow.py
+```
+
+Real CrewAI from the backend process (`CREW_MODE=local`) is optional and **not** how Lambda runs. Prefer crew smoke tests under `agent/crews/*`, or wait for AgentCore.
+
+## Lambda package (required before `terraform apply`)
+
+Terraform zips `backend/.build/lambda` (source **plus** production deps such as pydantic). Build first:
+
+```bash
+cd backend
+./scripts/build_lambda.sh
+```
+
+Then from `infra/`: `terraform plan` / `apply`. The zip does **not** include CrewAI; Terraform sets Lambda `CREW_MODE=agentcore` (production). Use `CREW_MODE=fake` only for local/backend-only work.
+
+## Tests (moto)
 
 ```bash
 cd backend
@@ -47,36 +90,12 @@ uv sync --group dev
 uv run pytest
 ```
 
-### DynamoDB Local (manual)
-
-Data is stored in a Docker volume (`dynamodb_data`), so tables survive `docker compose restart` / container recreate. `docker compose down -v` deletes that volume.
+These offline tests also run on `git push` via [`.githooks/pre-push`](../.githooks/pre-push). Install once:
 
 ```bash
-cd backend
-docker compose up -d
-uv run python scripts/create_local_table.py
+./scripts/install-git-hooks.sh
 ```
 
-Default endpoint: `http://localhost:8000`  
-Default table: `vacation-planner-local-table`
-
-Point the backend at Local with:
-
-```bash
-export DYNAMODB_ENDPOINT=http://localhost:8000
-export DYNAMODB_TABLE_NAME=vacation-planner-local-table
-export AWS_ACCESS_KEY_ID=local
-export AWS_SECRET_ACCESS_KEY=local
-export AWS_REGION=us-east-1
-```
-
-Stop Local (`-v` also wipes persisted data):
-
-```bash
-docker compose down      # keep volume
-docker compose down -v  # delete volume
-```
+`plan-next-day` claims the day slot with a conditional `next_day_index` update, then writes the DAY only if absent (conflict → 409 + claim rollback). Duplicate-only crew output returns 422 without saving.
 
 Schema matches `infra/dynamodb` (pk/sk + gsi1). See `docs/DATA_MODEL.md`.
-
-Scaffold only — not deployed yet.

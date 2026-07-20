@@ -79,6 +79,10 @@ resource "aws_lambda_function" "api" {
       COGNITO_ISSUER      = var.cognito_issuer
       COGNITO_AUDIENCE    = var.cognito_user_pool_client_id
       AGENT_RUNTIME_ARN   = var.agent_runtime_arn
+      AUTH_MODE           = "cognito"
+      # Production planning path (InvokeAgentRuntime). Local/dev uses CREW_MODE=fake.
+      CREW_MODE           = "agentcore"
+      SAFETY_MODE         = "keyword"
     }
   }
 

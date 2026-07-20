@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Block `git push` unless offline backend unit tests pass (moto; no Bedrock / DynamoDB Local).
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+BACKEND="$ROOT/backend"
+
+if [[ ! -d "$BACKEND" ]]; then
+  echo "pre-push: backend/ not found; skipping" >&2
+  exit 0
+fi
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "pre-push: uv is required to run backend tests. Install: https://docs.astral.sh/uv/" >&2
+  exit 1
+fi
+
+echo "pre-push: running backend unit tests (moto / offline)…"
+cd "$BACKEND"
+uv sync --group dev --quiet
+uv run pytest -q
+echo "pre-push: backend tests passed"

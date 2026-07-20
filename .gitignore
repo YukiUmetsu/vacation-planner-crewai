@@ -15,6 +15,7 @@ report.md
 .ruff_cache/
 .aws-sam/
 cdk.out/
+backend/.build/
 # Terraform
 **/.terraform/
 **/*.tfstate

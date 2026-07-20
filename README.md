@@ -151,21 +151,41 @@ uv run python scripts/create_local_table.py
 
 Defaults: `http://localhost:8000`, table `vacation-planner-local-table`. Data persists in the Docker named volume `dynamodb_data` (not under this repo); `docker compose down -v` deletes it.
 
-See [`backend/README.md`](./backend/README.md) for env vars and details.
+See [`backend/README.md`](./backend/README.md) for env vars, trip API routes, Lambda packaging, and `smoke_trip_flow.py`.
+
+Local backend work always needs:
+
+```bash
+export AUTH_MODE=dev CREW_MODE=fake
+```
+
+(`AUTH_MODE` defaults to `cognito` for deploy; code default `CREW_MODE=fake` is for local/backend-only work. Deployed Lambda uses `CREW_MODE=agentcore`.)
+
+### Git pre-push (offline backend tests)
+
+A `pre-push` hook runs `backend` pytest (moto only — no Bedrock, no DynamoDB Local). Install once after clone:
+
+```bash
+./scripts/install-git-hooks.sh
+```
 
 ## Infrastructure (Terraform)
 
 AWS is defined under [`infra/`](./infra) (DynamoDB, Cognito, HTTP API + Lambda, S3/CloudFront, optional AgentCore).
 
 ```bash
-cd infra
+# Required: package backend src + production deps (not raw backend/src)
+cd backend && ./scripts/build_lambda.sh
+
+cd ../infra
 cp terraform.tfvars.example terraform.tfvars
+# leave enable_agentcore=false until ECR image + model ARNs are ready
 terraform init
 terraform plan
 terraform apply
 ```
 
-See [`infra/README.md`](./infra/README.md) for Google IdP vars, frontend sync, and enabling AgentCore.
+See [`infra/README.md`](./infra/README.md) for Google IdP vars, frontend sync, and enabling AgentCore. Deployed Lambda uses `CREW_MODE=agentcore`.
 
 ## Cost notes
 

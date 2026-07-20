@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-import os
-
 import boto3
 import pytest
 from moto import mock_aws
 
 from db.client import reset_clients
 from db.schema import ensure_table
+
+
+@pytest.fixture(autouse=True)
+def _dev_auth_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests use forgeable identity; production default remains cognito."""
+    monkeypatch.setenv("AUTH_MODE", "dev")
 
 
 @pytest.fixture()

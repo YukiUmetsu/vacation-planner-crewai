@@ -29,6 +29,6 @@ variable "agent_runtime_arn" {
 }
 
 variable "backend_source_dir" {
-  description = "Path to backend Python package root (zipped for Lambda)"
+  description = "Path to built Lambda package dir (run backend/scripts/build_lambda.sh → backend/.build/lambda)"
   type        = string
 }

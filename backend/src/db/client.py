@@ -8,7 +8,7 @@ from typing import Any
 
 import boto3
 
-from db.protocols import DynamoDBClient
+from db.protocols import DynamoDBClient, DynamoDBResource, DynamoDBTable
 
 
 DEFAULT_TABLE_NAME = "vacation-planner-local-table"
@@ -27,30 +27,28 @@ def dynamodb_endpoint() -> str | None:
     return endpoint or None
 
 
-@lru_cache(maxsize=1)
-def get_dynamodb_resource() -> Any:
-    """boto3 DynamoDB resource (cached). Clear cache in tests via get_dynamodb_resource.cache_clear()."""
+def _endpoint_kwargs() -> dict[str, Any]:
     kwargs: dict[str, Any] = {"region_name": aws_region()}
     endpoint = dynamodb_endpoint()
     if endpoint:
         kwargs["endpoint_url"] = endpoint
         kwargs["aws_access_key_id"] = os.getenv("AWS_ACCESS_KEY_ID", "local")
         kwargs["aws_secret_access_key"] = os.getenv("AWS_SECRET_ACCESS_KEY", "local")
-    return boto3.resource("dynamodb", **kwargs)
+    return kwargs
+
+
+@lru_cache(maxsize=1)
+def get_dynamodb_resource() -> DynamoDBResource:
+    """boto3 DynamoDB resource (cached). Clear via reset_clients() after env changes."""
+    return boto3.resource("dynamodb", **_endpoint_kwargs())
 
 
 @lru_cache(maxsize=1)
 def get_dynamodb_client() -> DynamoDBClient:
-    kwargs: dict[str, Any] = {"region_name": aws_region()}
-    endpoint = dynamodb_endpoint()
-    if endpoint:
-        kwargs["endpoint_url"] = endpoint
-        kwargs["aws_access_key_id"] = os.getenv("AWS_ACCESS_KEY_ID", "local")
-        kwargs["aws_secret_access_key"] = os.getenv("AWS_SECRET_ACCESS_KEY", "local")
-    return boto3.client("dynamodb", **kwargs)
+    return boto3.client("dynamodb", **_endpoint_kwargs())
 
 
-def get_table(name: str | None = None) -> Any:
+def get_table(name: str | None = None) -> DynamoDBTable:
     """Return a boto3 Table resource for the vacation planner single-table."""
     return get_dynamodb_resource().Table(name or table_name())
 
