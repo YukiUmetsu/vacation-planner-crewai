@@ -5250,7 +5250,7 @@ wheels = [
 ]
 
 [[package]]
-name = "vacation-planner"
+name = "vacation-planner-day-plan"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -5260,6 +5260,7 @@ dependencies = [
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-sdk" },
     { name = "python-dotenv" },
+    { name = "vacation-planner-models" },
 ]
 
 [package.metadata]
@@ -5270,7 +5271,23 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.31.0" },
     { name = "opentelemetry-sdk", specifier = ">=1.31.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "vacation-planner-models", editable = "../../models" },
 ]
+
+[[package]]
+name = "vacation-planner-models"
+version = "0.1.0"
+source = { editable = "../../models" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "watchfiles"

@@ -8,9 +8,27 @@ CrewAI crews packaged for **Amazon Bedrock AgentCore Runtime**.
 | --- | --- |
 | `crews/day_plan/` | Active crew: research → itinerary (local + runtime) |
 | `crews/city_route/` | Placeholder: propose cities for country destinations |
-| `models/` | Shared Pydantic shapes (`Place`, `DayPlan`, `CityRoute`, …) |
+| `models/` | Installable package `vacation_planner_models` (Pydantic + `place_key`) |
 | `main.py` | AgentCore entrypoint (stub) |
-| `tests/` | Agent/crew tests |
+| `tests/` | Model/crew unit tests |
+
+### Shared models
+
+`models/` is the package **`vacation-planner-models`**. Import as `vacation_planner_models`. Crews pull it in via editable uv path, e.g. day_plan:
+
+```toml
+vacation-planner-models = { path = "../../models", editable = true }
+```
+
+Later task wiring:
+
+```jsonc
+"output_pydantic": { "python": "vacation_planner_models.DayPlan" }
+```
+
+```bash
+cd models && uv sync --extra dev && uv run pytest ../tests
+```
 
 ## Local run (day plan crew)
 

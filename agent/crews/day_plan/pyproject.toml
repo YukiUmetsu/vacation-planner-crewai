@@ -11,6 +11,7 @@ dependencies = [
     "opentelemetry-sdk>=1.31.0",
     "opentelemetry-exporter-otlp>=1.31.0",
     "python-dotenv>=1.0.0",
+    "vacation-planner-models",
 ]
 
 [build-system]
@@ -19,6 +20,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 only-include = ["agents", "crew.jsonc", "tools", "knowledge", "skills"]
+
+[tool.uv.sources]
+vacation-planner-models = { path = "../../models", editable = true }
 
 [tool.crewai]
 type = "crew"

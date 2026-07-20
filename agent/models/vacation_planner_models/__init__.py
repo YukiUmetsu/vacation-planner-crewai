@@ -1,6 +1,7 @@
-"""Domain models shared by crews — see docs/DATA_MODEL.md."""
+"""Shared domain models for Vacation Planner crews and APIs."""
 
-from .trip import (
+from vacation_planner_models.keys import make_place_key, normalize_place_text
+from vacation_planner_models.trip import (
     CityRoute,
     CityStop,
     DayPlan,
@@ -18,4 +19,6 @@ __all__ = [
     "Place",
     "PlaceCategory",
     "Trip",
+    "make_place_key",
+    "normalize_place_text",
 ]
