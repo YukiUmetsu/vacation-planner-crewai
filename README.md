@@ -23,7 +23,7 @@ Three deployable codebases at the top level — no shared `apps/` umbrella:
 ├── frontend/                   # React TypeScript SPA (Vite)
 ├── backend/                    # HTTP API: Cognito JWT, DynamoDB, invoke AgentCore
 ├── agent/                      # CrewAI crews + AgentCore Runtime package
-│   ├── crews/day_plan/         # Working local crew (Phoenix)
+│   ├── crews/day_plan/         # One-day crew → DayPlan (structured)
 │   ├── crews/city_route/       # Country/region → CityRoute (structured)
 │   ├── models/
 │   └── main.py
@@ -94,7 +94,7 @@ See [docs/DATA_MODEL.md](./docs/DATA_MODEL.md).
 
 ## Local development (crew)
 
-Working piece today: **day plan crew** under `agent/crews/day_plan`.
+Working piece today: **day plan** and **city route** crews under `agent/crews/`.
 
 ### Prerequisites
 
@@ -107,10 +107,10 @@ Working piece today: **day plan crew** under `agent/crews/day_plan`.
 ```bash
 cd agent/crews/day_plan
 uv sync
-CREWAI_DMN=1 uv run crewai run --inputs '{"topic":"Tokyo"}'
+CREWAI_DMN=1 uv run crewai run
 ```
 
-Or with Phoenix:
+Or with Phoenix / smoke test:
 
 ```bash
 # Terminal 1
@@ -120,7 +120,8 @@ uv run python -m phoenix.server.main serve
 
 # Terminal 2
 cd agent/crews/day_plan
-uv run python run_with_phoenix.py --topic "Tokyo"
+uv run python smoke_test.py --overnight-city Tokyo --day-index 1 --date 2026-09-01
+# or: uv run python run_with_phoenix.py --overnight-city Tokyo --day-index 1 --date 2026-09-01
 ```
 
 In Phoenix, select project **`vacation_planner`** → **Traces**.

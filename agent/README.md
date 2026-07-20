@@ -6,7 +6,7 @@ CrewAI crews packaged for **Amazon Bedrock AgentCore Runtime**.
 
 | Path | Purpose |
 | --- | --- |
-| `crews/day_plan/` | Active crew: research → itinerary (local + runtime) |
+| `crews/day_plan/` | Day crew: research → `DayPlan` (structured, one day) |
 | `crews/city_route/` | City route crew: research → `CityRoute` (structured) |
 | `models/` | Installable package `vacation_planner_models` (Pydantic + `place_key`) |
 | `main.py` | AgentCore entrypoint (stub) |
@@ -37,9 +37,10 @@ cd models && uv sync --extra dev && uv run pytest ../tests
 ```bash
 cd crews/day_plan
 uv sync
+# Secrets: agent/.env (shared)
 # Terminal 1: uv run python -m phoenix.server.main serve
-# Secrets: copy agent/.env.example → agent/.env (shared by all crews)
-uv run python run_with_phoenix.py --topic "Tokyo"
+uv run python smoke_test.py --overnight-city Tokyo --day-index 1 --date 2026-09-01
+# or: uv run python run_with_phoenix.py --overnight-city Tokyo --day-index 1 --date 2026-09-01
 ```
 
 Or:

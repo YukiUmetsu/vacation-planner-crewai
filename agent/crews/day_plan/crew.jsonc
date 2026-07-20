@@ -1,137 +1,38 @@
 {
-  // Display name for this crew
-  "name": "vacation_planner",
-
-  // Agents to include — each must have a matching agents/<name>.jsonc file
-  "agents": ["senior_vacation_researcher", "itinerary_planner"],
-
-  // Task definitions — executed in order for sequential process
+  "name": "day_plan",
+  "agents": ["day_plan_researcher", "day_plan_planner"],
   "tasks": [
     {
-      // Task identifier
-      "name": "conduct_thorough_research_about_task",
-
-      // What the task should accomplish
-      // Use {placeholder} inputs here; crewai run prompts for missing values
-      "description": "Conduct thorough research about the travel destination {topic}.",
-
-      // Clear definition of what the output should look like
-      "expected_output": "A list of 15 bullet points highlighting the most important and exciting facts about {topic}.",
-
-      // Optional task guardrail(s) validate output before completion
-      // Use "guardrail" for one rule or "guardrails" for many
-      // Failed guardrails retry up to guardrail_max_retries times
-      // "guardrail": "Every factual claim needs context support.",
-      // "guardrails": [
-      //   "Every factual claim must be supported by context.",
-      //   "The answer must match the expected output format."
-      // ],
-      // "guardrail_max_retries": 2,
-
-      // Advanced task options:
-      // Docs: https://docs.crewai.com/concepts/tasks
-      // "type": "ConditionalTask",
-      // "condition": { "python": "my_project.conditions.should_run" },
-      // "output_json": { "python": "my_project.models.ReportOutput" },
-      // "output_pydantic": null,
-      // "response_model": null,
-      // "converter_cls": { "python": "my_project.converters.CustomConverter" },
-      // "markdown": false,
-      // "input_files": { "brief": "data/brief.txt" },
-      // "security_config": {},
-
-      // Which agent handles this task
-      "agent": "senior_vacation_researcher",
-
-      // "tools": [],
-      // "human_input": false,
-      // "async_execution": false
+      "name": "research_day_places_task",
+      "description": "Research places for a single travel day.\n\nContext:\n- overnight_city: {overnight_city}\n- day_index: {day_index}\n- date: {date}\n- origin: {origin}\n- destination: {destination} (destination_type={destination_type})\n- preferences: {preferences}\n- already_visited (do NOT recommend these place_keys or obvious duplicates): {already_visited}\n- prior_days_summary: {prior_days_summary}\n- city_route_json (confirmed route; overnight_city must match): {city_route_json}\n\nUse web search for real venues in {overnight_city}. Gather name, address, maps/website URLs when possible, category, why it fits this day, estimated visit minutes, and bathroom availability if known.\n\nDo not plan other days. Do not change overnight_city.",
+      "expected_output": "A research brief listing 5–10 candidate places for this day with practical details (name, address, URLs, category, minutes, bathroom if known). Exclude anything matching already_visited.",
+      "agent": "day_plan_researcher"
     },
     {
-      // Task identifier
-      "name": "review_the_research_findings_task",
-
-      // What the task should accomplish
-      // Use {placeholder} inputs here; crewai run prompts for missing values
-      "description": "Review the research findings and create a detailed report about {topic}.",
-
-      // Clear definition of what the output should look like
-      "expected_output": "A fully fledged report summarizing key information about {topic}, formatted in Markdown without using code block syntax (do not use triple backticks).",
-
-      // Optional task guardrail(s) validate output before completion
-      // Use "guardrail" for one rule or "guardrails" for many
-      // Failed guardrails retry up to guardrail_max_retries times
-      // "guardrail": "Every factual claim needs context support.",
-      // "guardrails": [
-      //   "Every factual claim must be supported by context.",
-      //   "The answer must match the expected output format."
-      // ],
-      // "guardrail_max_retries": 2,
-
-      // Advanced task options:
-      // Docs: https://docs.crewai.com/concepts/tasks
-      // "type": "ConditionalTask",
-      // "condition": { "python": "my_project.conditions.should_run" },
-      // "output_json": { "python": "my_project.models.ReportOutput" },
-      // "output_pydantic": null,
-      // "response_model": null,
-      // "converter_cls": { "python": "my_project.converters.CustomConverter" },
-      // "markdown": false,
-      // "input_files": { "brief": "data/brief.txt" },
-      // "security_config": {},
-
-      // Which agent handles this task
-      "agent": "itinerary_planner",
-      "context": ["conduct_thorough_research_about_task"],
-      // "tools": [],
-      // "human_input": false,
-      // "async_execution": false
-    },
+      "name": "compose_day_plan_task",
+      "description": "Using the research brief, produce a DayPlan for day {day_index} on {date}.\n\nConstraints:\n- overnight_city must be exactly: {overnight_city}\n- day_index must be {day_index}\n- date must be {date}\n- Include 3–6 Place stops (paced for one day)\n- Each Place needs: name, address (if known), category, reason_to_visit, details, estimated_minutes (>0), order_in_day, maps_url/website_url when known, has_bathroom (true/false/null), place_key (normalize name|address lowercase)\n- Do not reuse keys in already_visited: {already_visited}\n- theme and summary should be short\n- No Markdown report — structured DayPlan only",
+      "expected_output": "A DayPlan object with day_index, date, theme, summary, overnight_city, and places[3-6] each with name, category, reason_to_visit, details, estimated_minutes, order_in_day, place_key, and optional address/urls/has_bathroom.",
+      "agent": "day_plan_planner",
+      "context": ["research_day_places_task"],
+      "output_pydantic": { "python": "models.DayPlan" }
+    }
   ],
-
-  // Execution process
-  // "sequential" — tasks run in order, each receiving prior task outputs
-  // "hierarchical" — a manager agent delegates tasks (requires manager_llm)
   "process": "sequential",
-
-  // Enable verbose logging during execution
   "verbose": true,
-
-  // Enable crew memory — persists context and learnings across tasks
   "memory": false,
-
-  // Automatically plan the execution strategy before running tasks
-  // "planning": false,
-
-  // LLM for the planning step (used when planning is true)
-  // "planning_llm": "openai/gpt-4o",
-
-  // LLM for the manager agent (required when process is "hierarchical")
-  // "manager_llm": "openai/gpt-4o",
-
-  // Crew-level LLM fields also accept object form for custom endpoints
-  // "chat_llm": {"model": "llama3", "provider": "ollama", "base_url": "http://localhost:11434"},
-
-  // Advanced crew options:
-  // Docs: https://docs.crewai.com/concepts/crews
-  // For hierarchical crews, manager_agent can reference an agents/<name>.jsonc file
-  // that is not included in the "agents" list.
-  // "manager_agent": "senior_vacation_researcher",
-  // "before_kickoff_callbacks": [{"python": "my_project.callbacks.before_kickoff"}],
-  // "after_kickoff_callbacks": [{"python": "my_project.callbacks.after_kickoff"}],
-  // "function_calling_llm": "openai/gpt-4o-mini",
-  // "max_rpm": null,
-  // "cache": true,
-  // "knowledge_sources": [],
-  // "embedder": {},
   "output_log_file": "logs/crew.log",
   "stream": false,
   "tracing": true,
-  // "security_config": {},
-
-  // Optional runtime input defaults.
-  // Use {placeholder} in agent or task text, for example:
-  // "description": "Research {topic} and write a brief"
-  // `crewai run` prompts for any placeholders missing from this object.
-  "inputs": {},
+  "inputs": {
+    "origin": "San Francisco",
+    "destination": "Japan",
+    "destination_type": "country",
+    "day_index": "1",
+    "date": "2026-09-01",
+    "overnight_city": "Tokyo",
+    "preferences": "culture, food, moderate pace",
+    "already_visited": "",
+    "prior_days_summary": "",
+    "city_route_json": ""
+  }
 }
