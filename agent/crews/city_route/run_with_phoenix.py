@@ -107,11 +107,19 @@ def main() -> None:
     }
     result = crew.kickoff(inputs=inputs)
 
+    from models import CityRoute
+
     pydantic_out = getattr(result, "pydantic", None)
     if pydantic_out is not None:
-        print(pydantic_out.model_dump_json(indent=2))
+        route = (
+            pydantic_out
+            if isinstance(pydantic_out, CityRoute)
+            else CityRoute.model_validate(pydantic_out)
+        )
+        print(route.model_dump_json(indent=2))
     else:
         print(result)
+        raise SystemExit("Smoke failure: kickoff did not return output_pydantic CityRoute")
 
     if hasattr(tracer_provider, "force_flush"):
         tracer_provider.force_flush(timeout_millis=10_000)

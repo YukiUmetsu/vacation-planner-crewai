@@ -20,6 +20,20 @@ cd crews/city_route
 uv sync
 ```
 
+## Smoke test
+
+End-to-end check: kickoff → valid `CityRoute` JSON (exit `0` / `1`).
+
+```bash
+# Phoenix already on :6006
+uv run python smoke_test.py \
+  --destination Japan \
+  --start-date 2026-09-01 \
+  --end-date 2026-09-10
+```
+
+Or without Phoenix instrumentation: `uv run python smoke_test.py --skip-phoenix`.
+
 ## Run with Phoenix
 
 ```bash
