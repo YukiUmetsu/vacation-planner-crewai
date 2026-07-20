@@ -8,6 +8,8 @@ from typing import Any
 
 import boto3
 
+from db.protocols import DynamoDBClient
+
 
 DEFAULT_TABLE_NAME = "vacation-planner-local-table"
 
@@ -38,7 +40,7 @@ def get_dynamodb_resource() -> Any:
 
 
 @lru_cache(maxsize=1)
-def get_dynamodb_client() -> Any:
+def get_dynamodb_client() -> DynamoDBClient:
     kwargs: dict[str, Any] = {"region_name": aws_region()}
     endpoint = dynamodb_endpoint()
     if endpoint:

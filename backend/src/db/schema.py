@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from db.protocols import DynamoDBClient
+
 GSI1_NAME = "gsi1"
 TTL_ATTRIBUTE = "expires_at"
 
@@ -36,7 +38,7 @@ def table_definition(table_name: str) -> dict[str, Any]:
     }
 
 
-def ensure_table(dynamodb_client: Any, table_name: str, *, enable_ttl: bool = True) -> str:
+def ensure_table(dynamodb_client: DynamoDBClient, table_name: str, *, enable_ttl: bool = True) -> str:
     """Create the table if it does not exist. Returns table_name."""
     existing = dynamodb_client.list_tables().get("TableNames", [])
     if table_name not in existing:
