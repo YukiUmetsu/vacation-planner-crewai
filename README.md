@@ -27,7 +27,9 @@ Three deployable codebases at the top level — no shared `apps/` umbrella:
 │   ├── crews/city_route/       # Country/region → CityRoute (structured)
 │   ├── models/
 │   └── main.py
-├── docs/DATA_MODEL.md          # Place, CityRoute, DayPlan, Trip + DynamoDB
+├── docs/
+│   ├── DATA_MODEL.md
+│   └── architecture-decisions/ # ADRs (async planning, Lambda shape, …)
 └── infra/                      # Terraform: Cognito, API, DynamoDB, AgentCore, CloudFront
 ```
 
@@ -37,30 +39,35 @@ Three deployable codebases at the top level — no shared `apps/` umbrella:
 | [`backend`](./backend) | Auth, persistence, orchestration |
 | [`agent`](./agent) | Crews + AgentCore runtime (no DynamoDB / Cognito) |
 | [`infra`](./infra) | Terraform modules for AWS |
+| [`docs/architecture-decisions`](./docs/architecture-decisions) | Architecture decision records |
 
 ## Architecture (target)
 
 ```mermaid
-flowchart LR
+flowchart TB
   user[User] --> spa[React TypeScript]
   spa --> cognito[Cognito Google Hosted UI]
-  spa -->|"JWT"| api[Backend HTTP API Lambda]
-  api --> cognito
+  spa -->|"JWT"| apigw[API Gateway HTTP API]
+  apigw --> api[API Lambda]
   api --> ddb[(DynamoDB)]
-  api -->|"invoke_agent_runtime"| runtime[AgentCore Runtime]
+  api -.->|"async start"| runtime[AgentCore Runtime]
   runtime --> crew[CrewAI day crew]
+  runtime --> ddb
   crew --> bedrock[Bedrock Nova]
   crew --> serper[Serper]
+  spa -.->|"poll trip"| apigw
 ```
 
-**Backend:** verifies Cognito JWT, reads/writes DynamoDB, calls AgentCore with server-side IAM. The browser never holds AWS credentials or talks to AgentCore directly.
+**Backend:** verifies Cognito JWT (via API Gateway authorizer), reads/writes DynamoDB, starts AgentCore with server-side IAM. The browser never holds AWS credentials or talks to AgentCore directly.
+
+Long LLM work uses **async claim + client polling** (API Gateway HTTP API ~30s sync limit). The browser never calls AgentCore; MVP uses **Runtime only** (no Memory/Gateway/Browser). See [docs/architecture-decisions](./docs/architecture-decisions/).
 
 ### Planning sequence (city route, then days)
 
 ```mermaid
 sequenceDiagram
   participant UI as React
-  participant API as Backend
+  participant API as API Lambda
   participant DDB as DynamoDB
   participant AC as AgentCore
 
@@ -68,6 +75,7 @@ sequenceDiagram
   API->>DDB: Put TRIP meta
   alt destination is country or multi-city region
     UI->>API: POST /trips/id/propose-cities
+    Note over API,AC: May also go async if crew is slow; MVP may sync while under ~25s
     API->>AC: city_route_crew
     AC-->>API: CityRouteProposal
     API->>DDB: Put ROUTE item
@@ -77,12 +85,15 @@ sequenceDiagram
   end
   loop Each day until complete
     UI->>API: POST /trips/id/plan-next-day
-    API->>DDB: Get trip route prior DAY items
-    API->>AC: plan_day city already_visited
-    AC-->>API: DayPlan JSON
-    API->>API: Dedupe places
-    API->>DDB: Put DAY Update TRIP
-    API-->>UI: DayPlan
+    API->>DDB: Claim next day / status=planning
+    API->>AC: Start plan_day (async)
+    API-->>UI: 202 planning
+    loop Poll with backoff
+      UI->>API: GET /trips/id
+      API->>DDB: Read trip + days
+      API-->>UI: bundle
+    end
+    Note over AC,DDB: Crew finishes → Put DAY
   end
 ```
 
