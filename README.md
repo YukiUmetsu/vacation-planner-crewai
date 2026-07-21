@@ -161,6 +161,35 @@ export AUTH_MODE=dev CREW_MODE=fake
 
 (`AUTH_MODE` defaults to `cognito` for deploy; code default `CREW_MODE=fake` is for local/backend-only work. Deployed Lambda uses `CREW_MODE=agentcore`.)
 
+## Local development (frontend)
+
+Demo UI (no API required):
+
+```bash
+cd frontend
+npm install
+npm run dev
+# http://localhost:5173
+```
+
+Demo mode is on by default. Live create against a local backend:
+
+```bash
+# Terminal A — API on :8787 (see backend/README.md)
+export AUTH_MODE=dev CREW_MODE=fake
+# …start local Lambda adapter when you have it
+
+# Terminal B
+cd frontend
+VITE_USE_DEMO_DATA=false npm run dev
+```
+
+Vite proxies `/api` → `http://127.0.0.1:8787`. For a remote API set `VITE_API_URL`. Details: [`frontend/README.md`](./frontend/README.md).
+
+```bash
+cd frontend && npm test
+```
+
 ### Git pre-push (offline backend tests)
 
 A `pre-push` hook runs `backend` pytest (moto only — no Bedrock, no DynamoDB Local). Install once after clone:
