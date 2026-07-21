@@ -9,6 +9,7 @@ report.md
 **/node_modules/
 **/dist/
 **/.vite/
+*.tsbuildinfo
 *.pyc
 .pytest_cache/
 .mypy_cache/
