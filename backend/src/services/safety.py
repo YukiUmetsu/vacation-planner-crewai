@@ -49,4 +49,14 @@ def get_safety_gate() -> SafetyGate:
     mode = safety_mode()
     if mode in {"off", "noop", "none"}:
         return NoopSafetyGate()
-    return KeywordSafetyGate()
+    if mode in {"bedrock", "guardrails"}:
+        from services.bedrock_safety import BedrockGuardrailsSafetyGate
+
+        return BedrockGuardrailsSafetyGate.from_env()
+    if mode in {"keyword", "keywords"}:
+        return KeywordSafetyGate()
+    raise ApiError(
+        500,
+        f"Unknown SAFETY_MODE={mode!r} (expected keyword|bedrock|off)",
+        code="safety_misconfigured",
+    )

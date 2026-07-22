@@ -43,7 +43,9 @@ docker-compose.yml
 | --- | --- | --- |
 | `AUTH_MODE` | `cognito` | **Fail closed.** Local: set `dev` (`X-Dev-User-Sub` / `DEV_USER_SUB`). Deploy: `cognito` reads `sub` from API Gateway JWT authorizer claims |
 | `CREW_MODE` | `fake` (code default) | Local/tests: `fake` (no CrewAI). `local` = CrewAI in-process (needs `agent/crews`). Deployed Lambda (Terraform): **`agentcore`** = InvokeAgentRuntime |
-| `SAFETY_MODE` | `keyword` | `keyword` deny-list stub; `off` disables |
+| `SAFETY_MODE` | `keyword` | `keyword` deny-list; `bedrock` / `guardrails` → Bedrock gate (needs `BEDROCK_GUARDRAIL_ID`; `check_text` is a LEARNING stub); `off` disables |
+| `BEDROCK_GUARDRAIL_ID` | unset | Required when `SAFETY_MODE=bedrock` |
+| `BEDROCK_GUARDRAIL_VERSION` | `DRAFT` | Guardrail version for ApplyGuardrail |
 | `DYNAMODB_ENDPOINT` | unset | Set to `http://localhost:8000` for DynamoDB Local |
 | `DYNAMODB_TABLE_NAME` | `vacation-planner-local-table` | Table name |
 | `AGENT_ROOT` | `<repo>/agent` | Used by `CREW_MODE=local` only |
