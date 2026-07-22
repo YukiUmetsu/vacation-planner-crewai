@@ -20,6 +20,44 @@ _ENVELOPE_STATUS: dict[str, int] = {
     "crew_failed": 502,
 }
 
+# SDK / IAM / config failures that will not recover on Lambda Event retry.
+_TERMINAL_INVOKE_ERROR_NAMES = frozenset(
+    {
+        "AccessDeniedException",
+        "UnauthorizedException",
+        "ValidationException",
+        "ResourceNotFoundException",
+        "InvalidParameterException",
+        "InvalidRequestException",
+    }
+)
+
+
+def _is_retryable_invoke_error(exc: BaseException) -> bool:
+    """True for throttle / timeout / 5xx-style InvokeAgentRuntime failures."""
+    name = type(exc).__name__
+    if name in _TERMINAL_INVOKE_ERROR_NAMES:
+        return False
+
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        err = response.get("Error") or {}
+        code = str(err.get("Code") or "")
+        if code in _TERMINAL_INVOKE_ERROR_NAMES:
+            return False
+        status = (response.get("ResponseMetadata") or {}).get("HTTPStatusCode")
+        if status is not None:
+            try:
+                code_i = int(status)
+            except (TypeError, ValueError):
+                return True
+            # 429 and 5xx → retry; other 4xx → terminal.
+            if code_i == 429 or code_i >= 500:
+                return True
+            if 400 <= code_i < 500:
+                return False
+    return True
+
 
 def invoke_agent(payload: dict[str, Any]) -> dict[str, Any]:
     """
@@ -46,10 +84,13 @@ def invoke_agent(payload: dict[str, Any]) -> dict[str, Any]:
             accept="application/json",
         )
     except Exception as exc:  # noqa: BLE001 — map AWS SDK errors at the BFF boundary
+        # Transport / throttle / 5xx-class SDK failures are retryable so the async
+        # plan-next-day worker can leave the claim held for Lambda Event retries.
         raise ApiError(
             502,
             f"AgentCore invoke failed: {type(exc).__name__}",
             code="agent_invoke_failed",
+            retryable=_is_retryable_invoke_error(exc),
         ) from exc
 
     stream = response.get("response")

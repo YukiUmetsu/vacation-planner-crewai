@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from decimal import Decimal
+from typing import Any, Callable
 
 from pydantic import ValidationError
 
 from crews.runner import CrewRunner, get_crew_runner
 from db import repository as repo
+from db.place_keys import make_place_key
 from db.protocols import DynamoDBTable
 from http_utils import ApiError, public_item
 from models.api import ConfirmCitiesRequest, CreateTripRequest
@@ -23,11 +25,13 @@ from services.place_quality import (
     profile_visited_name_keys,
     validate_suggested_place,
 )
+from services.plan_day_worker import (
+    enqueue_plan_next_day_worker,
+    plan_next_day_async_enabled,
+)
 from services.places_enrich import enrich_place, enrich_places
 from services.profile_service import ProfileService
 from services.safety import SafetyGate, get_safety_gate
-from db.place_keys import make_place_key
-from decimal import Decimal
 
 
 def _json_safe(value: Any) -> Any:
@@ -189,10 +193,12 @@ class TripService:
         table: DynamoDBTable | None = None,
         runner: CrewRunner | None = None,
         safety: SafetyGate | None = None,
+        enqueue_plan_day: Callable[[str, str, int], None] | None = None,
     ) -> None:
         self._table = table
         self._runner = runner
         self._safety = safety
+        self._enqueue_plan_day = enqueue_plan_day
 
     @property
     def runner(self) -> CrewRunner:
@@ -332,10 +338,19 @@ class TripService:
         return {"trip": public_item(trip), "route": public_item(route)}
 
     def plan_next_day(self, user_sub: str, trip_id: str) -> dict[str, Any]:
-        trip, route, days = self._load_owned_bundle(user_sub, trip_id)
+        """Plan the next day — sync 200 body, or async 202 body when agentcore."""
+        if plan_next_day_async_enabled():
+            return self.start_plan_next_day(user_sub, trip_id)
+        return self._plan_next_day_sync(user_sub, trip_id)
+
+    def start_plan_next_day(self, user_sub: str, trip_id: str) -> dict[str, Any]:
+        """Claim planning slot and enqueue worker; returns async response shape."""
+        trip, route, _days = self._load_owned_bundle(user_sub, trip_id)
         status = trip.get("status")
-        if status not in {"routing_confirmed", "planning"}:
-            raise ApiError(409, f"cannot plan day from status={status!r}", code="bad_status")
+        if status not in {"routing_confirmed", "planning", "failed"}:
+            raise ApiError(
+                409, f"cannot plan day from status={status!r}", code="bad_status"
+            )
 
         day_count = int(trip["day_count"])
         next_index = int(trip.get("next_day_index") or 1)
@@ -346,13 +361,271 @@ class TripService:
             if not route or route.get("status") != "confirmed":
                 raise ApiError(409, "confirmed city route required", code="route_required")
 
+        # DAY already present (worker died after Put) — finish cursor without re-crew.
+        recovered = self._finalize_existing_planned_day(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            trip=trip,
+            day_index=next_index,
+            ensure_claim=True,
+        )
+        if recovered is not None:
+            return recovered
+
+        try:
+            claimed = repo.claim_planning_in_progress(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                expected_next_day_index=next_index,
+                table=self._table,
+            )
+        except repo.ConcurrentModificationError as exc:
+            trip = self._require_trip(user_sub, trip_id)
+            recovered = self._finalize_existing_planned_day(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                trip=trip,
+                day_index=next_index,
+                ensure_claim=False,
+            )
+            if recovered is not None:
+                return recovered
+            raise ApiError(409, str(exc), code="conflict") from exc
+
+        enqueue = self._enqueue_plan_day or enqueue_plan_next_day_worker
+        try:
+            enqueue(user_sub, trip_id, next_index)
+        except Exception as exc:
+            repo.fail_planning_in_progress(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                planned_day_index=next_index,
+                error_message=f"failed to start planner: {type(exc).__name__}",
+                table=self._table,
+            )
+            raise ApiError(
+                502,
+                "failed to start async plan-next-day worker",
+                code="enqueue_failed",
+            ) from exc
+
+        return {
+            "async": True,
+            "trip": public_item(claimed),
+            "planning_day_index": next_index,
+        }
+
+    def execute_plan_next_day(
+        self, user_sub: str, trip_id: str, day_index: int
+    ) -> dict[str, Any]:
+        """Worker path: run crew + enrich + persist for an already-claimed day."""
+        trip, route, _days = self._load_owned_bundle(user_sub, trip_id)
+        claimed = trip.get("planning_day_index")
+        try:
+            claimed_i = int(claimed) if claimed is not None else None
+        except (TypeError, ValueError):
+            claimed_i = None
+        if claimed_i != day_index:
+            raise ApiError(
+                409,
+                f"planning claim mismatch (expected {day_index}, got {claimed!r})",
+                code="claim_mismatch",
+            )
+
+        next_index = int(trip.get("next_day_index") or 1)
+        if next_index != day_index:
+            raise ApiError(
+                409,
+                "next_day_index no longer matches claimed day",
+                code="claim_mismatch",
+            )
+
+        recovered = self._finalize_existing_planned_day(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            trip=trip,
+            day_index=day_index,
+            ensure_claim=False,
+        )
+        if recovered is not None:
+            return recovered
+
+        try:
+            return self._run_plan_day_and_persist(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                trip=trip,
+                route=route,
+                next_index=next_index,
+                async_claimed=True,
+            )
+        except ApiError as exc:
+            # Retryable AgentCore transport errors: keep claim so Event retries run.
+            if (
+                not exc.retryable
+                and not self._day_exists(user_sub, trip_id, day_index)
+            ):
+                repo.fail_planning_in_progress(
+                    user_sub=user_sub,
+                    trip_id=trip_id,
+                    planned_day_index=day_index,
+                    error_message=str(exc),
+                    table=self._table,
+                )
+            raise
+        except Exception as exc:
+            if not self._day_exists(user_sub, trip_id, day_index):
+                repo.fail_planning_in_progress(
+                    user_sub=user_sub,
+                    trip_id=trip_id,
+                    planned_day_index=day_index,
+                    error_message=f"{type(exc).__name__}: {exc}",
+                    table=self._table,
+                )
+            raise
+
+    def _day_exists(self, user_sub: str, trip_id: str, day_index: int) -> bool:
+        return (
+            repo.get_day(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                day_index=day_index,
+                table=self._table,
+            )
+            is not None
+        )
+
+    def _finalize_existing_planned_day(
+        self,
+        *,
+        user_sub: str,
+        trip_id: str,
+        trip: dict[str, Any],
+        day_index: int,
+        ensure_claim: bool,
+    ) -> dict[str, Any] | None:
+        """If DAY already exists, advance cursors / clear claim. Returns sync body or None."""
+        existing = repo.get_day(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            day_index=day_index,
+            table=self._table,
+        )
+        if existing is None:
+            return None
+
+        if ensure_claim and trip.get("planning_day_index") is None:
+            try:
+                trip = repo.claim_planning_in_progress(
+                    user_sub=user_sub,
+                    trip_id=trip_id,
+                    expected_next_day_index=day_index,
+                    table=self._table,
+                )
+            except repo.ConcurrentModificationError:
+                trip = self._require_trip(user_sub, trip_id)
+
+        claimed = trip.get("planning_day_index")
+        try:
+            claimed_i = int(claimed) if claimed is not None else None
+        except (TypeError, ValueError):
+            claimed_i = None
+        if claimed_i != day_index:
+            # Cursor already advanced past this day — treat as done.
+            if int(trip.get("next_day_index") or 0) > day_index:
+                return {
+                    "async": False,
+                    "day": public_item(existing),
+                    "trip": public_item(trip),
+                }
+            return None
+
+        day_count = int(trip["day_count"])
+        next_day_index = day_index + 1
+        new_status = "complete" if next_day_index > day_count else "planning"
+        visited, summary = self._cursors_from_existing_day(
+            trip=trip,
+            day_item=existing,
+            next_index=day_index,
+            fallback_visited=list(trip.get("visited_place_keys") or []),
+            fallback_summary=str(trip.get("prior_days_summary") or ""),
+        )
+        try:
+            repo.complete_planning_after_day_write(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                planned_day_index=day_index,
+                next_day_index=next_day_index,
+                visited_place_keys=visited,
+                prior_days_summary=summary,
+                new_status=new_status,
+                table=self._table,
+            )
+        except repo.ConcurrentModificationError as exc:
+            trip_out = self._require_trip(user_sub, trip_id)
+            if int(trip_out.get("next_day_index") or 0) > day_index:
+                return {
+                    "async": False,
+                    "day": public_item(existing),
+                    "trip": public_item(trip_out),
+                }
+            raise ApiError(409, str(exc), code="conflict") from exc
+
+        trip_out = self._require_trip(user_sub, trip_id)
+        return {
+            "async": False,
+            "day": public_item(existing),
+            "trip": public_item(trip_out),
+        }
+
+    def _plan_next_day_sync(self, user_sub: str, trip_id: str) -> dict[str, Any]:
+        trip, route, _days = self._load_owned_bundle(user_sub, trip_id)
+        status = trip.get("status")
+        if status not in {"routing_confirmed", "planning", "failed"}:
+            raise ApiError(
+                409, f"cannot plan day from status={status!r}", code="bad_status"
+            )
+
+        day_count = int(trip["day_count"])
+        next_index = int(trip.get("next_day_index") or 1)
+        if next_index > day_count:
+            raise ApiError(409, "all days already planned", code="complete")
+
+        if trip["destination_type"] != "city":
+            if not route or route.get("status") != "confirmed":
+                raise ApiError(409, "confirmed city route required", code="route_required")
+
+        return self._run_plan_day_and_persist(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            trip=trip,
+            route=route,
+            next_index=next_index,
+            async_claimed=False,
+            rollback_status=str(status),
+        )
+
+    def _run_plan_day_and_persist(
+        self,
+        *,
+        user_sub: str,
+        trip_id: str,
+        trip: dict[str, Any],
+        route: dict[str, Any] | None,
+        next_index: int,
+        async_claimed: bool,
+        rollback_status: str = "planning",
+    ) -> dict[str, Any]:
+        day_count = int(trip["day_count"])
         start = parse_iso_date(str(trip["start_date"]), field="start_date")
         day_date = date_for_day_index(start, next_index)
         overnight = overnight_city_for_day(route, next_index, str(trip["destination"]))
 
         self.safety.check_text(str(trip.get("preferences") or ""), source="preferences")
 
-        profile = ProfileService(table=self._table, safety=self.safety).get_profile(user_sub)
+        profile = ProfileService(table=self._table, safety=self.safety).get_profile(
+            user_sub
+        )
         energy_level = clamp_energy_level(profile.get("energy_level"))
         max_minutes = max_minutes_for_energy(energy_level)
         interests = [str(i) for i in (profile.get("interests") or []) if str(i).strip()]
@@ -429,26 +702,134 @@ class TripService:
 
         next_day_index = next_index + 1
         new_status = "complete" if next_day_index > day_count else "planning"
+
         try:
-            day_item = repo.persist_planned_day(
-                user_sub=user_sub,
-                trip_id=trip_id,
-                day=day_data,
-                expected_next_day_index=next_index,
-                visited_place_keys=updated_visited,
-                prior_days_summary=prior_summary,
-                new_status=new_status,
-                rollback_status=str(status),
-                table=self._table,
-            )
+            if async_claimed:
+                day_item = self._persist_async_planned_day(
+                    user_sub=user_sub,
+                    trip_id=trip_id,
+                    trip=trip,
+                    day_data=day_data,
+                    next_index=next_index,
+                    next_day_index=next_day_index,
+                    updated_visited=updated_visited,
+                    prior_summary=prior_summary,
+                    new_status=new_status,
+                )
+            else:
+                day_item = repo.persist_planned_day(
+                    user_sub=user_sub,
+                    trip_id=trip_id,
+                    day=day_data,
+                    expected_next_day_index=next_index,
+                    visited_place_keys=updated_visited,
+                    prior_days_summary=prior_summary,
+                    new_status=new_status,
+                    rollback_status=rollback_status,
+                    table=self._table,
+                )
         except repo.ConcurrentModificationError as exc:
             raise ApiError(409, str(exc), code="conflict") from exc
 
-        trip = self._require_trip(user_sub, trip_id)
+        trip_out = self._require_trip(user_sub, trip_id)
         return {
+            "async": False,
             "day": public_item(day_item),
-            "trip": public_item(trip),
+            "trip": public_item(trip_out),
         }
+
+    def _persist_async_planned_day(
+        self,
+        *,
+        user_sub: str,
+        trip_id: str,
+        trip: dict[str, Any],
+        day_data: dict[str, Any],
+        next_index: int,
+        next_day_index: int,
+        updated_visited: list[str],
+        prior_summary: str,
+        new_status: str,
+    ) -> dict[str, Any]:
+        """Put DAY then clear claim; idempotent if DAY already exists."""
+        existing = repo.get_day(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            day_index=next_index,
+            table=self._table,
+        )
+        if existing is not None:
+            day_item = existing
+            visited, summary = self._cursors_from_existing_day(
+                trip=trip,
+                day_item=existing,
+                next_index=next_index,
+                fallback_visited=updated_visited,
+                fallback_summary=prior_summary,
+            )
+        else:
+            try:
+                day_item = repo.put_day_if_absent(
+                    user_sub=user_sub,
+                    trip_id=trip_id,
+                    day=day_data,
+                    table=self._table,
+                )
+                visited, summary = updated_visited, prior_summary
+            except repo.ConcurrentModificationError:
+                # Another writer finished the Put; complete the claim from that DAY.
+                day_item = repo.get_day(
+                    user_sub=user_sub,
+                    trip_id=trip_id,
+                    day_index=next_index,
+                    table=self._table,
+                )
+                if day_item is None:
+                    raise
+                visited, summary = self._cursors_from_existing_day(
+                    trip=trip,
+                    day_item=day_item,
+                    next_index=next_index,
+                    fallback_visited=updated_visited,
+                    fallback_summary=prior_summary,
+                )
+
+        repo.complete_planning_after_day_write(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            planned_day_index=next_index,
+            next_day_index=next_day_index,
+            visited_place_keys=visited,
+            prior_days_summary=summary,
+            new_status=new_status,
+            table=self._table,
+        )
+        return day_item
+
+    @staticmethod
+    def _cursors_from_existing_day(
+        *,
+        trip: dict[str, Any],
+        day_item: dict[str, Any],
+        next_index: int,
+        fallback_visited: list[str],
+        fallback_summary: str,
+    ) -> tuple[list[str], str]:
+        trip_visited = list(trip.get("visited_place_keys") or [])
+        places = list(day_item.get("places") or [])
+        new_keys = [str(p.get("place_key")) for p in places if p.get("place_key")]
+        if new_keys:
+            visited = trip_visited + [k for k in new_keys if k not in trip_visited]
+        else:
+            visited = fallback_visited
+        theme = str(day_item.get("theme") or f"Day {next_index}")
+        overnight = str(day_item.get("overnight_city") or "")
+        prior = str(trip.get("prior_days_summary") or "").strip()
+        line = f"Day {next_index}: {theme} @ {overnight}".strip()
+        if line.endswith("@"):
+            line = line[:-1].strip()
+        summary = f"{prior}\n{line}".strip() if prior else line
+        return visited, summary or fallback_summary
 
     def suggest_place(
         self, user_sub: str, trip_id: str, day_index: int

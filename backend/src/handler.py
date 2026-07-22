@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from auth import get_user_sub
+from db import repository as repo
 from http_utils import (
     ApiError,
     error_response,
@@ -16,9 +18,67 @@ from http_utils import (
 )
 from routes import profile as profile_routes
 from routes import trips as trip_routes
+from services.plan_day_worker import is_plan_next_day_worker_event
+from services.trip_service import TripService
+
+logger = logging.getLogger(__name__)
+
+
+def _planning_claim_held(
+    *,
+    user_sub: str,
+    trip_id: str,
+    day_index: int,
+    table: Any | None = None,
+) -> bool:
+    trip = repo.get_trip_meta(user_sub=user_sub, trip_id=trip_id, table=table)
+    if not trip:
+        return False
+    claimed = trip.get("planning_day_index")
+    try:
+        return int(claimed) == day_index if claimed is not None else False
+    except (TypeError, ValueError):
+        return False
+
+
+def _handle_plan_next_day_worker(event: dict[str, Any]) -> dict[str, Any]:
+    """Run the Event self-invoke worker.
+
+    On failure: log, then **re-raise while the planning claim is still held** so
+    Lambda ``InvocationType=Event`` retries can run (default: 2). That recovers
+    transient DynamoDB blips and the ``DAY written / cursor not advanced`` case.
+
+    If ``execute_plan_next_day`` already cleared the claim (terminal
+    ``fail_planning_in_progress``), return success so Lambda does not burn
+    useless retries — client/BFF reclaim paths own recovery from there.
+    """
+    user_sub = str(event["user_sub"])
+    trip_id = str(event["trip_id"])
+    day_index = int(event["day_index"])
+    service = TripService()
+    try:
+        service.execute_plan_next_day(user_sub, trip_id, day_index)
+    except Exception:
+        logger.exception(
+            "plan_next_day worker failed trip_id=%s day_index=%s",
+            trip_id,
+            day_index,
+        )
+        if _planning_claim_held(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            day_index=day_index,
+            table=getattr(service, "_table", None),
+        ):
+            raise
+        return {"ok": False, "terminal": True}
+    return {"ok": True}
 
 
 def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
+    if is_plan_next_day_worker_event(event):
+        return _handle_plan_next_day_worker(event)
+
     try:
         method = request_method(event)
         path = request_path(event)
@@ -60,7 +120,19 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
 
         if trip_id and action == "plan-next-day":
             if method == "POST":
-                return json_response(200, trip_routes.plan_next_day(event, user_sub, trip_id))
+                result = trip_routes.plan_next_day(event, user_sub, trip_id)
+                if result.get("async"):
+                    return json_response(
+                        202,
+                        {
+                            "trip": result["trip"],
+                            "planning_day_index": result["planning_day_index"],
+                        },
+                    )
+                return json_response(
+                    200,
+                    {"day": result["day"], "trip": result["trip"]},
+                )
             raise ApiError(405, f"method {method} not allowed")
 
         day_route = parse_day_action(path)

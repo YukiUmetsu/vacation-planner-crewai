@@ -120,3 +120,78 @@ def test_invoke_agent_raises_on_missing_response_body(
         agentcore_client.invoke_agent({"crew": "day_plan", "inputs": {}})
     assert exc.value.status_code == 502
     assert exc.value.code == "agent_bad_response"
+    assert exc.value.retryable is False
+
+
+def test_invoke_agent_marks_sdk_failures_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123:runtime/demo")
+
+    class FakeBotoClient:
+        def invoke_agent_runtime(self, **kwargs: Any) -> dict[str, Any]:
+            raise TimeoutError("slow")
+
+    monkeypatch.setattr(
+        agentcore_client.boto3,
+        "client",
+        lambda *args, **kwargs: FakeBotoClient(),
+    )
+
+    with pytest.raises(ApiError) as exc:
+        agentcore_client.invoke_agent({"crew": "day_plan", "inputs": {}})
+    assert exc.value.code == "agent_invoke_failed"
+    assert exc.value.retryable is True
+
+
+def test_invoke_agent_marks_access_denied_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123:runtime/demo")
+
+    class AccessDeniedException(Exception):
+        pass
+
+    class FakeBotoClient:
+        def invoke_agent_runtime(self, **kwargs: Any) -> dict[str, Any]:
+            raise AccessDeniedException("nope")
+
+    monkeypatch.setattr(
+        agentcore_client.boto3,
+        "client",
+        lambda *args, **kwargs: FakeBotoClient(),
+    )
+
+    with pytest.raises(ApiError) as exc:
+        agentcore_client.invoke_agent({"crew": "day_plan", "inputs": {}})
+    assert exc.value.code == "agent_invoke_failed"
+    assert exc.value.retryable is False
+
+
+@pytest.mark.parametrize(
+    ("code", "retryable"),
+    [
+        ("invalid_payload", False),
+        ("crew_failed", False),
+    ],
+)
+def test_envelope_errors_are_not_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+    code: str,
+    retryable: bool,
+) -> None:
+    monkeypatch.setenv("AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123:runtime/demo")
+
+    class FakeBotoClient:
+        def invoke_agent_runtime(self, **kwargs: Any) -> dict[str, Any]:
+            return {"response": _FakeBody({"error": "boom", "code": code})}
+
+    monkeypatch.setattr(
+        agentcore_client.boto3,
+        "client",
+        lambda *args, **kwargs: FakeBotoClient(),
+    )
+
+    with pytest.raises(ApiError) as exc:
+        agentcore_client.invoke_agent({"crew": "day_plan", "inputs": {}})
+    assert exc.value.retryable is retryable

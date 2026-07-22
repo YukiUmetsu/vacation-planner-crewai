@@ -18,11 +18,20 @@ _DAY_ACTION_RE = re.compile(
 
 
 class ApiError(Exception):
-    def __init__(self, status_code: int, message: str, *, code: str | None = None) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        message: str,
+        *,
+        code: str | None = None,
+        retryable: bool = False,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.message = message
         self.code = code
+        # When True (async worker): keep planning claim so Lambda Event can retry.
+        self.retryable = retryable
 
 
 def normalize_headers(event: dict[str, Any]) -> dict[str, str]:

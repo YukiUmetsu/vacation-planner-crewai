@@ -39,6 +39,12 @@ resource "aws_iam_role_policy" "lambda_app" {
           Resource = [var.dynamodb_table_arn, "${var.dynamodb_table_arn}/index/*"]
         },
         {
+          Sid      = "SelfInvokePlanWorker"
+          Effect   = "Allow"
+          Action   = ["lambda:InvokeFunction"]
+          Resource = "arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:${local.name_prefix}-api"
+        },
+        {
           Sid      = "WriteOwnLogs"
           Effect   = "Allow"
           Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
@@ -76,7 +82,7 @@ resource "aws_lambda_function" "api" {
   role          = aws_iam_role.lambda.arn
   handler       = "handler.handler"
   runtime       = "python3.12"
-  timeout       = 60
+  timeout       = 300
   memory_size   = 256
 
   filename         = data.archive_file.backend.output_path
