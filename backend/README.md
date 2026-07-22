@@ -48,14 +48,20 @@ docker-compose.yml
 | `DYNAMODB_TABLE_NAME` | `vacation-planner-local-table` | Table name |
 | `AGENT_ROOT` | `<repo>/agent` | Used by `CREW_MODE=local` only |
 
-## Local development
+## Local API (:8787)
+
+Thin stdlib adapter maps HTTP → API Gateway–shaped events → [`handler.handler`](./src/handler.py). Vite proxies `/api` here; the adapter strips the `/api` prefix.
 
 ```bash
 cd backend
 uv sync --group dev
-export AUTH_MODE=dev CREW_MODE=fake
-uv run pytest
+export AUTH_MODE=dev CREW_MODE=fake SAFETY_MODE=off
+# Optional: DynamoDB Local (docker compose up -d + create_local_table.py)
+uv run python scripts/local_api.py
+# curl -s -H 'x-dev-user-sub: local-dev-user' http://127.0.0.1:8787/api/trips
 ```
+
+`AUTH_MODE` must be `dev` or the process exits (fail closed).
 
 Trip smoke against DynamoDB Local:
 

@@ -186,9 +186,10 @@ npm run dev
 Demo mode is on by default. Live create against a local backend:
 
 ```bash
-# Terminal A — API on :8787 (see backend/README.md)
-export AUTH_MODE=dev CREW_MODE=fake
-# …start local Lambda adapter when you have it
+# Terminal A — API on :8787
+cd backend
+export AUTH_MODE=dev CREW_MODE=fake SAFETY_MODE=off
+uv run python scripts/local_api.py
 
 # Terminal B
 cd frontend
