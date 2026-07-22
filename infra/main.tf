@@ -27,6 +27,36 @@ module "agentcore" {
   serper_api_key     = var.serper_api_key
 }
 
+module "guardrails" {
+  source       = "./guardrails"
+  project_name = var.project_name
+  environment  = var.environment
+  enabled      = var.enable_bedrock_guardrails
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+locals {
+  # Prefer Terraform-managed Guardrail; allow external overrides when the module is off.
+  bedrock_guardrail_id = (
+    var.enable_bedrock_guardrails
+    ? module.guardrails.guardrail_id
+    : var.bedrock_guardrail_id
+  )
+  bedrock_guardrail_version = (
+    var.enable_bedrock_guardrails
+    ? module.guardrails.version
+    : var.bedrock_guardrail_version
+  )
+  bedrock_guardrail_arn = (
+    var.enable_bedrock_guardrails
+    ? module.guardrails.guardrail_arn
+    : var.bedrock_guardrail_arn
+  )
+}
+
 module "api" {
   source = "./api"
 
@@ -37,6 +67,10 @@ module "api" {
   cognito_user_pool_client_id = module.cognito.user_pool_client_id
   cognito_issuer              = module.cognito.issuer
   agent_runtime_arn           = module.agentcore.agent_runtime_arn
+  safety_mode                 = var.safety_mode
+  bedrock_guardrail_id        = local.bedrock_guardrail_id
+  bedrock_guardrail_version   = local.bedrock_guardrail_version
+  bedrock_guardrail_arn       = local.bedrock_guardrail_arn
   # Built package (src + pip deps). Run: ../backend/scripts/build_lambda.sh
   backend_source_dir = "${path.root}/../backend/.build/lambda"
 }

@@ -52,6 +52,15 @@ resource "aws_iam_role_policy" "lambda_app" {
           Action   = ["bedrock-agentcore:InvokeAgentRuntime"]
           Resource = [var.agent_runtime_arn, "${var.agent_runtime_arn}/*"]
         }
+      ] : [],
+      # Least privilege: only when Lambda will call ApplyGuardrail (SAFETY_MODE=bedrock).
+      contains(["bedrock", "guardrails"], var.safety_mode) && var.bedrock_guardrail_arn != "" ? [
+        {
+          Sid      = "BedrockApplyGuardrail"
+          Effect   = "Allow"
+          Action   = ["bedrock:ApplyGuardrail"]
+          Resource = [var.bedrock_guardrail_arn]
+        }
       ] : []
     )
   })
@@ -75,13 +84,15 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE_NAME = var.dynamodb_table_name
-      COGNITO_ISSUER      = var.cognito_issuer
-      COGNITO_AUDIENCE    = var.cognito_user_pool_client_id
-      AGENT_RUNTIME_ARN   = var.agent_runtime_arn
-      AUTH_MODE           = "cognito"
-      CREW_MODE           = "agentcore"
-      SAFETY_MODE         = "keyword"
+      DYNAMODB_TABLE_NAME       = var.dynamodb_table_name
+      COGNITO_ISSUER            = var.cognito_issuer
+      COGNITO_AUDIENCE          = var.cognito_user_pool_client_id
+      AGENT_RUNTIME_ARN         = var.agent_runtime_arn
+      AUTH_MODE                 = "cognito"
+      CREW_MODE                 = "agentcore"
+      SAFETY_MODE               = var.safety_mode
+      BEDROCK_GUARDRAIL_ID      = var.bedrock_guardrail_id
+      BEDROCK_GUARDRAIL_VERSION = var.bedrock_guardrail_version
     }
   }
 
@@ -89,6 +100,11 @@ resource "aws_lambda_function" "api" {
     precondition {
       condition     = var.agent_runtime_arn != ""
       error_message = "API Lambda requires an AgentCore runtime ARN. Set enable_agentcore=true with a container URI and Bedrock model ARNs before apply."
+    }
+    # Remove once BedrockGuardrailsSafetyGate.check_text calls ApplyGuardrail; then require ID+ARN instead.
+    precondition {
+      condition     = !contains(["bedrock", "guardrails"], var.safety_mode)
+      error_message = "SAFETY_MODE=bedrock is blocked until ApplyGuardrail is implemented (BedrockGuardrailsSafetyGate.check_text still raises safety_not_implemented). Keep safety_mode=keyword (or off)."
     }
   }
 

@@ -212,7 +212,9 @@ A `pre-push` hook runs `backend` pytest (moto only — no Bedrock, no DynamoDB L
 
 ## Infrastructure (Terraform)
 
-AWS is defined under [`infra/`](./infra) (DynamoDB, Cognito, HTTP API + Lambda, S3/CloudFront, optional AgentCore).
+AWS is defined under [`infra/`](./infra) (DynamoDB, Cognito, HTTP API + Lambda, S3/CloudFront, AgentCore runtime, Bedrock Guardrails).
+
+AgentCore is **required for AWS deploy** (API Lambda always uses `CREW_MODE=agentcore`). Set the ECR image URI and Bedrock model ARNs before apply.
 
 ```bash
 # Required: package backend src + production deps (not raw backend/src)
@@ -220,13 +222,16 @@ cd backend && ./scripts/build_lambda.sh
 
 cd ../infra
 cp terraform.tfvars.example terraform.tfvars
-# leave enable_agentcore=false until ECR image + model ARNs are ready
+# Prefer env vars for account-specific / secret values:
+#   export TF_VAR_agent_runtime_container_uri=...
+#   export TF_VAR_agent_allowed_bedrock_model_arns='["arn:..."]'
+#   export TF_VAR_serper_api_key=...
 terraform init
 terraform plan
 terraform apply
 ```
 
-See [`infra/README.md`](./infra/README.md) for Google IdP vars, frontend sync, and enabling AgentCore. Deployed Lambda uses `CREW_MODE=agentcore`.
+See [`infra/README.md`](./infra/README.md) for Google IdP vars, frontend sync, and AgentCore/Guardrails details.
 
 ## Cost notes
 

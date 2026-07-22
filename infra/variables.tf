@@ -66,3 +66,39 @@ variable "serper_api_key" {
   default     = ""
   sensitive   = true
 }
+
+variable "safety_mode" {
+  description = "API Lambda SAFETY_MODE. Only keyword|off until ApplyGuardrail is implemented; then re-allow bedrock."
+  type        = string
+  default     = "keyword"
+
+  validation {
+    # LEARNING: add "bedrock" / "guardrails" back after BedrockGuardrailsSafetyGate.check_text is real.
+    condition     = contains(["keyword", "off", "noop", "none"], var.safety_mode)
+    error_message = "safety_mode must be keyword or off until ApplyGuardrail is implemented (bedrock would 500 every safety-checked route)."
+  }
+}
+
+variable "enable_bedrock_guardrails" {
+  description = "Create the Bedrock Guardrail module (content/PII/topics/words). Safe to enable before SAFETY_MODE=bedrock."
+  type        = bool
+  default     = true
+}
+
+variable "bedrock_guardrail_id" {
+  description = "Override Guardrail ID when enable_bedrock_guardrails=false (external Guardrail)"
+  type        = string
+  default     = ""
+}
+
+variable "bedrock_guardrail_version" {
+  description = "Override Guardrail version when enable_bedrock_guardrails=false"
+  type        = string
+  default     = "DRAFT"
+}
+
+variable "bedrock_guardrail_arn" {
+  description = "Override Guardrail ARN when enable_bedrock_guardrails=false (required for ApplyGuardrail IAM)"
+  type        = string
+  default     = ""
+}

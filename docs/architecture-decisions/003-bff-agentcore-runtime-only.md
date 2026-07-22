@@ -105,6 +105,8 @@ flowchart TB
 
 ## Follow-ups
 
-- [ ] Finish AgentCore invoke client in the BFF (no public AgentCore URL in frontend env)
-- [ ] Terraform: Runtime + invoke IAM only; leave Memory/Gateway flags off
-- [ ] Document `CREW_MODE=agentcore` as the only production planning path
+- [x] Finish AgentCore invoke client in the BFF (no public AgentCore URL in frontend env)
+- [x] Terraform: Runtime + invoke IAM only; leave Memory/Gateway flags off
+- [x] Document `CREW_MODE=agentcore` as the only production planning path
+- [x] Terraform: `guardrails/` module (content / topics / words / PII) + Lambda env; ApplyGuardrail IAM only when `SAFETY_MODE=bedrock`
+- [ ] Implement `BedrockGuardrailsSafetyGate.check_text`, then re-allow `safety_mode = "bedrock"` in Terraform validation / API precondition

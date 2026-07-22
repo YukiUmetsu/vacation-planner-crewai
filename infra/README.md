@@ -9,6 +9,7 @@ Provisions the AWS stack for Vacation Planner:
 | `api/` | Lambda (from `backend/.build/lambda` — run `backend/scripts/build_lambda.sh` first) + HTTP API + Cognito JWT authorizer |
 | `frontend/` | S3 + CloudFront (OAC) for the SPA |
 | `agentcore/` | Bedrock AgentCore runtime (required for API deploy; needs ECR image) |
+| `guardrails/` | Bedrock Guardrail + published version (content, topics, words, PII) |
 
 Schema details: [`docs/DATA_MODEL.md`](../docs/DATA_MODEL.md).
 
@@ -81,9 +82,23 @@ IAM policies are intentionally scoped to the resources created or configured by 
 
 | Principal | Allowed access |
 | --- | --- |
-| Backend Lambda role | `GetItem`, `PutItem`, `UpdateItem`, and `Query` on this stack's DynamoDB table and its indexes; log-stream writes only to its own `/aws/lambda/${project}-${env}-api` log group; invoke on the configured AgentCore runtime ARN. |
+| Backend Lambda role | `GetItem`, `PutItem`, `UpdateItem`, and `Query` on this stack's DynamoDB table and its indexes; log-stream writes only to its own `/aws/lambda/${project}-${env}-api` log group; invoke on the configured AgentCore runtime ARN; `bedrock:ApplyGuardrail` only when `safety_mode` is `bedrock`/`guardrails` and a Guardrail ARN is set. |
 | AgentCore runtime role | Pulls only the configured ECR repository image; gets an ECR auth token (AWS requires `Resource = "*"`); writes only to AgentCore runtime log groups under `/aws/bedrock-agentcore/runtimes/*`; invokes only ARNs listed in `agent_allowed_bedrock_model_arns`. |
 | CloudFront service principal | Reads objects from only the generated frontend bucket, constrained by the distribution `AWS:SourceArn`. |
+
+### Bedrock Guardrails
+
+`enable_bedrock_guardrails` (default `true`) creates a high-safety Guardrail:
+
+- Content filters at **HIGH** (hate, insults, sexual, violence, misconduct) + **PROMPT_ATTACK** on input
+- Denied topics: weapons/violence, self-harm, adult sexual content, illegal activity
+- Word policy: profanity managed list + prompt-injection phrases
+- PII: block on input, anonymize on output for contact/financial types (email, phone, SSN, cards, bank, password — not NAME/ADDRESS, which false-positive on travel text)
+- Publishes an immutable version (`skip_destroy = true`)
+
+Lambda env gets `BEDROCK_GUARDRAIL_ID` / `BEDROCK_GUARDRAIL_VERSION` from the module. `safety_mode` is limited to **`keyword` / `off`** until `BedrockGuardrailsSafetyGate.check_text` implements ApplyGuardrail (Terraform validation + Lambda precondition reject `bedrock`). After that, re-allow `bedrock` in `variables.tf` and swap the API precondition to require ID+ARN.
+
+When using an external Guardrail (`enable_bedrock_guardrails = false`), set `bedrock_guardrail_id`, `bedrock_guardrail_version`, and `bedrock_guardrail_arn` so Lambda env and ApplyGuardrail IAM both match.
 
 AgentCore is **required for AWS deploy** (`enable_agentcore` defaults to `true`). The API Lambda precondition requires a non-empty runtime ARN; there is no deployed `CREW_MODE=fake` path. When AgentCore is enabled, `agent_runtime_container_uri` must be a standard ECR image URI and `agent_allowed_bedrock_model_arns` must be non-empty; this avoids granting `bedrock:*` or wildcard model invocation just to make a demo work. If the crew switches models, update that list deliberately. The Bedrock ARN format depends on whether you use a foundation model, inference profile, or provisioned model, so copy the exact ARN for the resource your crew calls.
 
@@ -100,6 +115,7 @@ infra/
   api/           # zips backend/.build/lambda → Lambda (run build_lambda.sh first)
   frontend/
   agentcore/
+  guardrails/    # Bedrock Guardrail + version
 ```
 
 ## Notes

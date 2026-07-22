@@ -38,3 +38,15 @@ output "cloudfront_distribution_id" {
 output "agent_runtime_arn" {
   value = module.agentcore.agent_runtime_arn
 }
+
+output "bedrock_guardrail_id" {
+  value = local.bedrock_guardrail_id
+}
+
+output "bedrock_guardrail_version" {
+  value = local.bedrock_guardrail_version
+}
+
+output "bedrock_guardrail_arn" {
+  value = local.bedrock_guardrail_arn
+}
