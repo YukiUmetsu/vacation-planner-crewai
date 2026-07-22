@@ -1,6 +1,6 @@
 # City route crew
 
-Final task output is structured `CityRoute` via `"output_pydantic": { "python": "models.CityRoute" }` (local re-export of `vacation_planner_models`; CrewAI requires the class under the crew project root).
+Final task output is structured `CityRoute` via `"output_pydantic": { "python": "city_models.CityRoute" }` (local re-export of `vacation_planner_models`; unique module name avoids clashing with `day_models`).
 
 
 ## Agents

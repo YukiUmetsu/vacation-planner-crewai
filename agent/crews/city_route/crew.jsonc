@@ -14,7 +14,7 @@
       "expected_output": "A CityRoute object with destination_type, cities (ordered CityStop list), rationale, total_nights, and status=\"proposed\". Each CityStop includes city, country, nights, arrival_day_index, departure_day_index, reason, and highlights[].",
       "agent": "city_route_planner",
       "context": ["research_cities_task"],
-      "output_pydantic": { "python": "models.CityRoute" }
+      "output_pydantic": { "python": "city_models.CityRoute" }
     }
   ],
   "process": "sequential",

@@ -1,7 +1,8 @@
-"""Re-export shared models for CrewAI JSON `python` refs.
+"""Re-export shared models for CrewAI JSON ``python`` refs.
 
-CrewAI only resolves classes under this crew's project root. The real
-definitions live in the `vacation-planner-models` package.
+Unique module name (not ``models``) so day_plan and city_route can share one
+process without ``sys.modules`` clashes. Definitions live in
+``vacation_planner_models``.
 """
 
 from vacation_planner_models import (

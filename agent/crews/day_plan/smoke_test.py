@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 
 def _extract_day_plan(result):  # noqa: ANN001
-    from models import DayPlan
+    from day_models import DayPlan
 
     pydantic_out = getattr(result, "pydantic", None)
     if pydantic_out is not None:

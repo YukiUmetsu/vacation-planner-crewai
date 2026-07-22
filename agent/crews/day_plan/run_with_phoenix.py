@@ -79,7 +79,7 @@ def main() -> None:
     CrewAIInstrumentor().instrument(skip_dep_check=True, tracer_provider=tracer_provider)
 
     from crewai.project import load_crew
-    from models import DayPlan
+    from day_models import DayPlan
 
     crew, default_inputs = load_crew(project_root / "crew.jsonc")
     _disable_llm_streaming(crew)

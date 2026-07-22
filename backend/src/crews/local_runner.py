@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import sys
 from functools import lru_cache
@@ -52,60 +51,23 @@ def _disable_llm_stream(crew: Any) -> None:
             llm.stream = False
 
 
-def _is_crew_project_path(path: str, crews_root: Path) -> bool:
-    try:
-        resolved = Path(path).resolve()
-        return crews_root.resolve() in resolved.parents or resolved == crews_root.resolve()
-    except OSError:
-        return False
-
-
-def activate_crew_dir(crew_dir: Path) -> None:
-    """Put ``crew_dir`` first on ``sys.path`` and drop a stale ``models`` module.
-
-    Both crew projects expose ``models.py``. Caching the first import as
-    ``sys.modules['models']`` breaks the second crew in the same process.
-    """
-    crew_dir = crew_dir.resolve()
-    crews_root = _crews_root().resolve()
-    sys.path[:] = [
-        p
-        for p in sys.path
-        if not _is_crew_project_path(p, crews_root) or Path(p).resolve() == crew_dir
-    ]
-    crew_str = str(crew_dir)
+def _ensure_import_paths(crew_dir: Path) -> None:
+    """Crew dir (day_models/city_models) + shared models package on sys.path."""
+    models_root = str((_repo_agent_root() / "models").resolve())
+    if models_root not in sys.path:
+        sys.path.insert(0, models_root)
+    crew_str = str(crew_dir.resolve())
     if crew_str in sys.path:
         sys.path.remove(crew_str)
     sys.path.insert(0, crew_str)
-    sys.modules.pop("models", None)
 
 
-def load_crew_model_class(crew_dir: Path, class_name: str) -> type:
-    """Load a Pydantic model from a crew's ``models.py`` without polluting ``models``."""
-    models_root = _repo_agent_root() / "models"
-    models_root_str = str(models_root.resolve())
-    if models_root_str not in sys.path:
-        sys.path.insert(0, models_root_str)
-
-    models_path = crew_dir.resolve() / "models.py"
-    module_name = f"vacation_planner_crew_models_{crew_dir.name}"
-    spec = importlib.util.spec_from_file_location(module_name, models_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load models from {models_path}")
-    module = importlib.util.module_from_spec(spec)
-    # Register under a unique name so city_route and day_plan do not clash.
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, class_name)
-
-
-def _kickoff(crew_dir: Path, inputs: dict[str, Any], model_name: str) -> dict[str, Any]:
+def _kickoff(crew_dir: Path, inputs: dict[str, Any], model_cls: type) -> dict[str, Any]:
     _load_dotenv_once()
     os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
     (crew_dir / "logs").mkdir(exist_ok=True)
 
-    activate_crew_dir(crew_dir)
-    model_cls = load_crew_model_class(crew_dir, model_name)
+    _ensure_import_paths(crew_dir)
 
     from crewai.project import load_crew
 
@@ -117,7 +79,11 @@ def _kickoff(crew_dir: Path, inputs: dict[str, Any], model_name: str) -> dict[st
 
 class LocalCrewRunner:
     def propose_cities(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        return _kickoff(_crews_root() / "city_route", inputs, "CityRoute")
+        from vacation_planner_models import CityRoute
+
+        return _kickoff(_crews_root() / "city_route", inputs, CityRoute)
 
     def plan_day(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        return _kickoff(_crews_root() / "day_plan", inputs, "DayPlan")
+        from vacation_planner_models import DayPlan
+
+        return _kickoff(_crews_root() / "day_plan", inputs, DayPlan)

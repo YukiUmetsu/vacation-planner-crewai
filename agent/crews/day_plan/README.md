@@ -1,7 +1,7 @@
 # Day plan crew
 
 Plans **one day** at a time. Final task output is structured `DayPlan` via
-`"output_pydantic": { "python": "models.DayPlan" }` (local re-export of `vacation_planner_models`).
+`"output_pydantic": { "python": "day_models.DayPlan" }` (local re-export of `vacation_planner_models`; unique module name avoids clashing with `city_models`).
 
 ## Agents
 

@@ -27,7 +27,7 @@ def _inclusive_days(start: date, end: date) -> int:
 
 
 def _extract_city_route(result):  # noqa: ANN001
-    from models import CityRoute
+    from city_models import CityRoute
 
     pydantic_out = getattr(result, "pydantic", None)
     if pydantic_out is not None:

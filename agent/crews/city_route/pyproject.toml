@@ -18,7 +18,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-only-include = ["agents", "crew.jsonc", "tools", "knowledge", "skills", "models.py", "smoke_test.py"]
+only-include = ["agents", "crew.jsonc", "tools", "knowledge", "skills", "city_models.py", "smoke_test.py"]
 
 [tool.uv.sources]
 vacation-planner-models = { path = "../../models", editable = true }

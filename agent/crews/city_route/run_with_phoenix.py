@@ -107,7 +107,7 @@ def main() -> None:
     }
     result = crew.kickoff(inputs=inputs)
 
-    from models import CityRoute
+    from city_models import CityRoute
 
     pydantic_out = getattr(result, "pydantic", None)
     if pydantic_out is not None:

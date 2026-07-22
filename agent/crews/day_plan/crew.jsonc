@@ -14,7 +14,7 @@
       "expected_output": "A DayPlan object with day_index, date, theme, summary, overnight_city, and places[3-6] each with name, category, reason_to_visit, details, estimated_minutes, order_in_day, place_key, and optional address/urls/has_bathroom.",
       "agent": "day_plan_planner",
       "context": ["research_day_places_task"],
-      "output_pydantic": { "python": "models.DayPlan" }
+      "output_pydantic": { "python": "day_models.DayPlan" }
     }
   ],
   "process": "sequential",
