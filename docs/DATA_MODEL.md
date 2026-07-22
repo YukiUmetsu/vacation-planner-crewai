@@ -125,10 +125,13 @@ Keys are designed **from the access patterns**, not from a normalized ER diagram
 
 ```text
 pk = USER#{cognito_sub}
+sk = PROFILE                        → user prefs / energy / interests / visited (not under TRIP#)
 sk = TRIP#{trip_id}                 → trip metadata
 sk = TRIP#{trip_id}#ROUTE           → city route (0 or 1)
 sk = TRIP#{trip_id}#DAY#{nn}        → day nn (01..14)
 ```
+
+**`sk = PROFILE`** — Cross-trip traveler defaults (preferences, `energy_level` 1–5, interests, visited places). Listed trips still filter `begins_with TRIP#` + `entity_type=TRIP`, so profile rows never appear in trip lists. `plan-next-day` loads PROFILE and merges prefs/energy/interests/visited into crew inputs (see [`PLANNING_QUALITY.md`](./PLANNING_QUALITY.md)).
 
 **`pk = USER#{sub}`** — Every primary query is “for this signed-in user.” Cognito `sub` as partition key enforces isolation by construction: a user cannot query another user’s partition without knowing/forging their `sub` (and the BFF only uses the JWT’s `sub`).
 

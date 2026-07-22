@@ -16,6 +16,8 @@ Implemented and covered by moto tests. **Local use requires `AUTH_MODE=dev`.** D
 | `POST` | `/trips/{id}/plan-next-day` | Plan + persist next day (dedupe places) |
 | `GET` | `/trips/{id}` | Trip + route + days |
 | `GET` | `/trips` | List current user’s trips |
+| `GET` | `/profile` | Load user profile (defaults if missing) |
+| `PUT` | `/profile` | Upsert prefs, energy_level, interests, visited_places |
 
 ## Layout
 

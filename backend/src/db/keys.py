@@ -33,3 +33,8 @@ def gsi1_sk_route() -> str:
 
 def gsi1_sk_day(day_index: int) -> str:
     return f"DAY#{day_index:02d}"
+
+
+def profile_sk() -> str:
+    """User profile meta — not under TRIP# so list_trips ignores it."""
+    return "PROFILE"
