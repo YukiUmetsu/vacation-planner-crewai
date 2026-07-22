@@ -94,6 +94,9 @@ In DynamoDB this is stored as one `ROUTE` item on the trip.
 | `day_count` | int | Derived from dates |
 | `next_day_index` | int | Next day to plan |
 | `status` | enum | `drafting` \| `awaiting_city_confirm` \| `routing_confirmed` \| `planning` \| `complete` \| `failed` |
+| `planning_day_index` | int \| null | In-flight async plan-next-day lock (unset when idle) |
+| `planning_started_at` | string \| null | ISO timestamp for stale-claim reclaim (~6 min) |
+| `planning_error` | string \| null | Last async planning failure message |
 | `preferences` | string | Budget, pace, interests |
 | `city_route` | CityRoute \| null | Set after propose/confirm; null for single-city trips |
 | `visited_place_keys` | string[] | Keys already used (dedupe) |

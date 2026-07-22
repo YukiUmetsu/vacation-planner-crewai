@@ -4,6 +4,8 @@ Vite + React 19 + TypeScript + TanStack Query + Tailwind CSS v4.
 
 Talks only to the **backend** API (`/api/...` or `VITE_API_URL`). Local `AUTH_MODE=dev` uses `X-Dev-User-Sub` (sent only in Vite DEV builds).
 
+Env vars: [`docs/ENVIRONMENT.md`](../docs/ENVIRONMENT.md) (frontend section + deploy).
+
 ## Run
 
 ```bash

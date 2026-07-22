@@ -13,6 +13,8 @@ Provisions the AWS stack for Vacation Planner:
 
 Schema details: [`docs/DATA_MODEL.md`](../docs/DATA_MODEL.md).
 
+**Environment / `TF_VAR_*` reference:** [`docs/ENVIRONMENT.md`](../docs/ENVIRONMENT.md).
+
 ## Prerequisites
 
 - Terraform `>= 1.5`

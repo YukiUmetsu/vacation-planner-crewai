@@ -37,6 +37,8 @@ cd models && uv sync --extra dev && uv run pytest ../tests
 
 ## Local run (day plan crew)
 
+Secrets: copy [`agent/.env.example`](./.env.example) → `agent/.env`. Full env map: [`docs/ENVIRONMENT.md`](../docs/ENVIRONMENT.md).
+
 ```bash
 cd crews/day_plan
 uv sync

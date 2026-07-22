@@ -29,6 +29,7 @@ Three deployable codebases at the top level — no shared `apps/` umbrella:
 │   └── main.py
 ├── docs/
 │   ├── DATA_MODEL.md
+│   ├── ENVIRONMENT.md          # Local + Terraform env / TF_VAR reference
 │   ├── PLANNING_QUALITY.md     # Energy↔hours, safety/guardrail/evals index
 │   └── architecture-decisions/ # ADRs (async planning, Lambda shape, …)
 └── infra/                      # Terraform: Cognito, API, DynamoDB, AgentCore, CloudFront
@@ -41,6 +42,7 @@ Three deployable codebases at the top level — no shared `apps/` umbrella:
 | [`agent`](./agent) | Crews + AgentCore runtime (no DynamoDB / Cognito) |
 | [`infra`](./infra) | Terraform modules for AWS |
 | [`docs/architecture-decisions`](./docs/architecture-decisions) | Architecture decision records |
+| [`docs/ENVIRONMENT.md`](./docs/ENVIRONMENT.md) | Local + Terraform env vars / `TF_VAR_*` |
 | [`docs/PLANNING_QUALITY.md`](./docs/PLANNING_QUALITY.md) | Energy load caps; pointers to safety, Guardrails, evals |
 
 ## Architecture
@@ -60,9 +62,7 @@ flowchart TB
 
 **Backend:** verifies Cognito JWT (via API Gateway authorizer), reads/writes DynamoDB, invokes AgentCore with server-side IAM. The browser never holds AWS credentials or talks to AgentCore directly.
 
-**MVP planning:** `POST /trips/{id}/plan-next-day` is **synchronous** (claim day → wait for crew → **200** with the day). Fine for `CREW_MODE=fake` and short runs.
-
-**Target:** async claim + **202** + client polling when AgentCore exceeds API Gateway’s ~30s sync limit ([ADR 001](./docs/architecture-decisions/001-async-plan-next-day-polling.md)). MVP uses **Runtime only** (no Memory/Gateway/Browser). See [docs/architecture-decisions](./docs/architecture-decisions/).
+**MVP / deploy planning:** `CREW_MODE=fake` / `local` keep sync **200**. Deployed AgentCore: async claim → **202** → poll `GET /trips/{id}` ([ADR 001](./docs/architecture-decisions/001-async-plan-next-day-polling.md) — includes pros/cons of sync vs Event self-invoke vs SQS vs push). Runtime only (no Memory/Gateway/Browser). See [docs/architecture-decisions](./docs/architecture-decisions/).
 
 ### Planning sequence (city route, then days) — MVP
 

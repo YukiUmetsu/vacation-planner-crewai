@@ -41,6 +41,8 @@ docker-compose.yml
 
 ## Environment
 
+Full map (local + Terraform `TF_VAR_*` + injected Lambda/AgentCore env): **[`docs/ENVIRONMENT.md`](../docs/ENVIRONMENT.md)**.
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `AUTH_MODE` | `cognito` | **Fail closed.** Local: set `dev` (`X-Dev-User-Sub` / `DEV_USER_SUB`). Deploy: `cognito` reads `sub` from API Gateway JWT authorizer claims |
@@ -51,8 +53,11 @@ docker-compose.yml
 | `DYNAMODB_ENDPOINT` | unset | Set to `http://localhost:8000` for DynamoDB Local |
 | `DYNAMODB_TABLE_NAME` | `vacation-planner-local-table` | Table name |
 | `AGENT_ROOT` | `<repo>/agent` | Used by `CREW_MODE=local` only |
+| `AGENT_RUNTIME_ARN` | unset | Required for `CREW_MODE=agentcore` |
 | `CREW_INPUT_MAX_CHARS` | `16000` | Soft budget for crew `inputs` (char proxy). Over budget → slim advisory fields only; full visited list still used for BFF dedupe |
 | `GOOGLE_PLACES_API_KEY` | unset | Optional Places API (New) enrich before `place_quality` |
+| `PLACES_ENRICH` | `on` | `off` disables enrich even if a key is set |
+| `PLAN_NEXT_DAY_ASYNC` | `auto` | `auto` = async 202 when `CREW_MODE=agentcore`; `on`/`off` force async or sync |
 
 ## Local API (:8787)
 

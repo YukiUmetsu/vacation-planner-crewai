@@ -13,7 +13,7 @@ Short, dated decisions about how this system is shaped — especially cost, AWS 
 
 | # | Title | Status |
 | --- | --- | --- |
-| [001](./001-async-plan-next-day-polling.md) | Async plan-next-day + client polling | Accepted (target; MVP still sync 200) |
+| [001](./001-async-plan-next-day-polling.md) | Async plan-next-day + client polling | Accepted (AgentCore: 202+poll; fake/local: sync 200) |
 | [002](./002-single-api-lambda.md) | Single API Lambda behind HTTP API | Accepted |
 | [003](./003-bff-agentcore-runtime-only.md) | BFF-only AgentCore + Runtime-only MVP | Accepted |
 
@@ -52,30 +52,30 @@ flowchart TB
   spa -->|"HTTPS + JWT"| apigw
   apigw -->|"proxy event"| lambda
   lambda --> ddb
-  lambda -.->|"async start plan-next-day"| agentcore
+  lambda -.->|"Event worker InvokeAgentRuntime"| agentcore
   agentcore --> bedrock
   agentcore --> serper
-  agentcore -->|"write DAY when done"| ddb
+  lambda -->|"Put DAY after crew"| ddb
   spa -.->|"poll GET /trips/id"| apigw
 ```
 
 ## Sync vs async (why polling)
 
-**MVP:** `plan-next-day` is still **synchronous** (200 after the crew finishes). That works for fake/local crews and short runs; AgentCore can exceed API Gateway’s ~30s sync limit.
+**Deployed (`CREW_MODE=agentcore`):** `plan-next-day` is **async** — claim + Lambda Event worker + **202**, client polls `GET /trips/{id}` until the DAY appears ([001](./001-async-plan-next-day-polling.md)). Fake/local stay sync **200** for fast tests.
 
-**Target ([001](./001-async-plan-next-day-polling.md)):** claim + 202 + client poll — diagram below.
+**Still sync on the gateway path:** `propose-cities` (and other short routes). City-route crews that exceed ~30s can still 504 — deferred follow-up in ADR 001.
 
 ```mermaid
 flowchart LR
-  subgraph bad [Sync LLM through API GW — avoid]
+  subgraph bad [Sync LLM through API GW — avoid for long crews]
     b1[POST plan-next-day] --> b2[API GW waits]
     b2 --> b3[Lambda waits on AgentCore]
     b3 --> b4{"> ~30s?"}
     b4 -->|yes| b5[504 Gateway Timeout]
   end
 
-  subgraph good [Async + poll — accepted]
-    g1[POST plan-next-day] --> g2[Claim + start work]
+  subgraph good [Async + poll — plan-next-day AgentCore]
+    g1[POST plan-next-day] --> g2[Claim + Event worker]
     g2 --> g3[202 planning]
     g3 --> g4[Poll GET trip]
     g4 --> g5[DAY ready in DynamoDB]
