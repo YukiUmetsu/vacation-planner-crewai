@@ -1,0 +1,16 @@
+{
+  "id": "day_plan_example_shape",
+  "crew": "day_plan",
+  "inputs": {
+    "overnight_city": "Tokyo",
+    "day_index": 1,
+    "date": "2026-09-01",
+    "preferences": "culture, food",
+    "already_visited": []
+  },
+  "expected": {
+    "min_places": 3,
+    "max_places": 6,
+    "forbidden_place_keys": []
+  }
+}
