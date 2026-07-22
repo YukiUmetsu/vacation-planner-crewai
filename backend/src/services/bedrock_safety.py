@@ -6,6 +6,8 @@ import os
 
 from http_utils import ApiError
 
+import boto3
+from services.safety import SafetyRejected
 
 class BedrockGuardrailsSafetyGate:
     """Calls Bedrock ApplyGuardrail once ``check_text`` is implemented."""
@@ -13,6 +15,7 @@ class BedrockGuardrailsSafetyGate:
     def __init__(self, guardrail_id: str, version: str) -> None:
         self.guardrail_id = guardrail_id
         self.version = version
+        self.client = boto3.client("bedrock-runtime")
 
     @classmethod
     def from_env(cls) -> BedrockGuardrailsSafetyGate:
@@ -28,10 +31,14 @@ class BedrockGuardrailsSafetyGate:
 
     def check_text(self, text: str, *, source: str) -> None:
         """LEARNING: call ``bedrock:ApplyGuardrail`` and map intervene → SafetyRejected."""
-        _ = (text, source)
-        raise ApiError(
-            500,
-            "BedrockGuardrailsSafetyGate.check_text is not implemented yet "
-            f"(guardrail_id={self.guardrail_id!r}, version={self.version!r})",
-            code="safety_not_implemented",
+        if len(text.strip()) == 0:
+            return
+
+        response = self.client.apply_guardrail(
+            guardrailIdentifier=self.guardrail_id,
+            guardrailVersion=self.version,
+            source='INPUT',
+            content=[{'text': {'text': text}}],
         )
+        if response['action'] == 'GUARDRAIL_INTERVENED':
+            raise SafetyRejected(source, "content rejected by safety gate")
