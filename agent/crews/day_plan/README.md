@@ -1,14 +1,19 @@
 # Day plan crew
 
-Plans **one day** at a time. Final task output is structured `DayPlan` via
-`"output_pydantic": { "python": "day_models.DayPlan" }` (local re-export of `vacation_planner_models`; unique module name avoids clashing with `city_models`).
+Plans **one day** at a time. Final task output is structured `DayPlan` from the
+**reviewer** via `"output_pydantic": { "python": "day_models.DayPlan" }` (local re-export of `vacation_planner_models`; unique module name avoids clashing with `city_models`).
 
 ## Agents
 
 | Agent | Role |
 | --- | --- |
 | `day_plan_researcher` | Serper research for places in `overnight_city` |
-| `day_plan_planner` | Assemble `DayPlan` (`output_pydantic`) |
+| `day_plan_planner` | Draft `DayPlan` |
+| `day_plan_reviewer` | No tools — revise draft using the research brief only (swap dubious/closed stops; keep 3–6) |
+
+Traveler context inputs: `preferences`, `interests`, `energy_level`, `max_comfortable_minutes`, `already_visited`.
+
+The API also applies hard post-crew filters for permanently closed / weekday-closed places and energy load (`place_quality`).
 
 ## Setup
 

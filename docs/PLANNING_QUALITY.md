@@ -71,12 +71,14 @@ Keep this table and `MAX_COMFORTABLE_TOTAL_MINUTES` in sync. If you change one, 
 | --- | --- |
 | Dedupe places across days (`place_key`) | Backend `dedupe_places` + crew `already_visited` prompt |
 | Place count 3–6 / schema | Agent `DayPlan` Pydantic + eval scorers |
+| Suggest one more place | `suggest_place` crew + `validate_suggested_place` + eval `score_suggest_place` |
 | User preference / destination text safety | Backend safety gate (keyword or ApplyGuardrail) |
 
 ---
 
 ## Roadmap (quality)
 
-1. Persist profile (prefs, energy, interests) in DynamoDB; inject into `plan-next-day`.
-2. Enforce energy caps in scorers / optional reviewer task (same table as above).
-3. Venue open status: permanently closed + closed on that weekday (tool-assisted discovery + structured fields; hard reject when known closed).
+1. [x] Persist profile (prefs, energy, interests) in DynamoDB; inject into `plan-next-day`.
+2. [x] Enforce energy caps + closed / weekday-closed checks in offline scorers **and** API post-crew `place_quality` filter; reviewer crew task (brief-only swaps, no new research tools).
+3. [x] Suggest one more place: `suggest_place` crew + `POST /trips/{id}/days/{n}/suggest-place` with `validate_suggested_place` (day cap 6, closed/visited, energy vs remaining) + offline scorer.
+4. Venue open status via Places API when Serper is not enough (tool-assisted discovery remains soft).

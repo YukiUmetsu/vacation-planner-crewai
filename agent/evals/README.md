@@ -9,8 +9,8 @@ Traveler energy hour caps (for future scorers): [`docs/PLANNING_QUALITY.md`](../
 | Path | Purpose |
 | --- | --- |
 | `case.py` / `harness.py` | Load fixtures + run cases (done) |
-| `scorers.py` | Place/city count, keys, dedupe, nights checks |
-| `fixtures/*.json` | Case inputs + expected hints (add more goldens as needed) |
+| `scorers.py` | Place/city count, keys, dedupe, nights, energy/closed, `suggest_place` |
+| `fixtures/*.json` | Case inputs + expected hints (`day_plan_*`, `suggest_place_*`, …) |
 | `test_harness.py` | Smoke tests for loading / scorers / producer errors |
 
 ## Fixture shape

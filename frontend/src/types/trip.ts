@@ -61,6 +61,9 @@ export type Place = {
   /** Rich detail (demo / later crew enrichment) */
   cost?: string;
   open_hours?: string;
+  operational_status?: "open" | "closed" | "unknown";
+  /** Monday=0 … Sunday=6 */
+  closed_weekdays?: number[];
   main_attraction?: string;
   map_url?: string;
   map_embed_query?: string;

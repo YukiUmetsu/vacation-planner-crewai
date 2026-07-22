@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -45,6 +45,29 @@ class Place(BaseModel):
     notes: Optional[str] = None
     order_in_day: int = Field(default=0, ge=0)
     place_key: str = ""
+    # open | closed | unknown — permanently closed businesses must be "closed"
+    operational_status: Literal["open", "closed", "unknown"] = "unknown"
+    # ISO weekday ints: Monday=0 … Sunday=6 (datetime.date.weekday())
+    closed_weekdays: list[int] = Field(default_factory=list)
+    open_hours: Optional[str] = None
+    travel_minutes_from_previous: Optional[int] = Field(default=None, ge=0)
+
+    @field_validator("closed_weekdays", mode="before")
+    @classmethod
+    def normalize_closed_weekdays(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return value
+        out: list[int] = []
+        for item in value:
+            try:
+                day = int(item)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= day <= 6 and day not in out:
+                out.append(day)
+        return out
 
     @model_validator(mode="after")
     def fill_place_key(self) -> Place:

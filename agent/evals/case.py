@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-CrewName = Literal["day_plan", "city_route"]
+CrewName = Literal["day_plan", "city_route", "suggest_place"]
 
 
 @dataclass(frozen=True)
@@ -44,8 +44,8 @@ def load_cases(directory: Path | None = None) -> list[EvalCase]:
             raise ValueError(f"{path}: fixture root must be a JSON object")
         case_id = str(raw.get("id") or path.stem)
         crew = raw.get("crew")
-        if crew not in ("day_plan", "city_route"):
-            raise ValueError(f"{path}: crew must be day_plan or city_route")
+        if crew not in ("day_plan", "city_route", "suggest_place"):
+            raise ValueError(f"{path}: crew must be day_plan, city_route, or suggest_place")
         inputs = raw.get("inputs")
         if not isinstance(inputs, dict):
             raise ValueError(f"{path}: inputs must be an object")

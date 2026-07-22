@@ -60,6 +60,98 @@ def test_scorer_rejects_already_visited_overlap() -> None:
     assert any("already_visited" in msg for msg in result.failures)
 
 
+def test_scorer_already_visited_accepts_comma_string() -> None:
+    case = EvalCase(
+        id="dedupe_csv",
+        crew="day_plan",
+        inputs={"already_visited": "sensoji, other"},
+        expected={"min_places": 1},
+        source_path=Path("dedupe_csv.json"),
+    )
+    result = run_case(
+        case,
+        {"places": [{"name": "Senso-ji", "place_key": "sensoji"}], "overnight_city": "Tokyo"},
+    )
+    assert result.passed is False
+    assert any("already_visited" in msg for msg in result.failures)
+
+
+def test_scorer_accepts_valid_suggest_place() -> None:
+    case = EvalCase(
+        id="suggest_ok",
+        crew="suggest_place",
+        inputs={
+            "date": "2026-09-01",
+            "remaining_minutes": 120,
+            "already_visited": ["senso-ji|tokyo"],
+            "energy_level": 3,
+            "existing_places": [
+                {"name": "A", "place_key": "a", "estimated_minutes": 60},
+                {"name": "B", "place_key": "b", "estimated_minutes": 60},
+                {"name": "C", "place_key": "c", "estimated_minutes": 60},
+            ],
+        },
+        expected={"max_total_minutes": 510},
+        source_path=Path("suggest_ok.json"),
+    )
+    result = run_case(
+        case,
+        {
+            "name": "Yanaka",
+            "place_key": "yanaka|tokyo",
+            "estimated_minutes": 45,
+            "travel_minutes_from_previous": 15,
+            "operational_status": "open",
+        },
+    )
+    assert result.passed is True
+
+
+def test_scorer_rejects_suggest_place_over_remaining() -> None:
+    case = EvalCase(
+        id="suggest_heavy",
+        crew="suggest_place",
+        inputs={"remaining_minutes": 30, "date": "2026-09-01"},
+        expected={},
+        source_path=Path("suggest_heavy.json"),
+    )
+    result = run_case(
+        case,
+        {
+            "name": "Long Museum",
+            "place_key": "long|tokyo",
+            "estimated_minutes": 90,
+            "operational_status": "open",
+        },
+    )
+    assert result.passed is False
+    assert any("remaining_minutes" in msg for msg in result.failures)
+
+
+def test_scorer_rejects_suggest_place_duplicate_existing() -> None:
+    case = EvalCase(
+        id="suggest_dupe",
+        crew="suggest_place",
+        inputs={
+            "remaining_minutes": 120,
+            "existing_places": [{"name": "A", "place_key": "a|tokyo", "estimated_minutes": 60}],
+        },
+        expected={},
+        source_path=Path("suggest_dupe.json"),
+    )
+    result = run_case(
+        case,
+        {
+            "name": "A again",
+            "place_key": "a|tokyo",
+            "estimated_minutes": 30,
+            "operational_status": "open",
+        },
+    )
+    assert result.passed is False
+    assert any("existing day place_key" in msg for msg in result.failures)
+
+
 def test_scorer_accepts_valid_day_plan() -> None:
     case = EvalCase(
         id="ok_day",
@@ -120,6 +212,52 @@ def test_scorer_rejects_malformed_nights_without_raising() -> None:
     assert result.passed is False
     assert any("cities[0].nights" in msg for msg in result.failures)
     assert any("total_nights" in msg for msg in result.failures)
+
+
+def test_scorer_rejects_energy_overload_and_closed_venues() -> None:
+    case = EvalCase(
+        id="quality",
+        crew="day_plan",
+        inputs={
+            "overnight_city": "Tokyo",
+            "energy_level": "1",
+            "date": "2026-09-07",  # Monday
+        },
+        expected={"min_places": 1},
+        source_path=Path("quality.json"),
+    )
+    result = run_case(
+        case,
+        {
+            "overnight_city": "Tokyo",
+            "places": [
+                {
+                    "name": "Closed Shop",
+                    "place_key": "closed|tokyo",
+                    "estimated_minutes": 60,
+                    "operational_status": "closed",
+                },
+                {
+                    "name": "Monday Closed Museum",
+                    "place_key": "museum|tokyo",
+                    "estimated_minutes": 200,
+                    "operational_status": "open",
+                    "closed_weekdays": [0],
+                },
+                {
+                    "name": "Long Hike",
+                    "place_key": "hike|tokyo",
+                    "estimated_minutes": 300,
+                    "travel_minutes_from_previous": 0,
+                    "operational_status": "open",
+                },
+            ],
+        },
+    )
+    assert result.passed is False
+    assert any("permanently closed" in msg for msg in result.failures)
+    assert any("closed on weekday 0" in msg for msg in result.failures)
+    assert any("exceeds energy warning threshold 270" in msg for msg in result.failures)
 
 
 def test_example_offline_output_passes_scorer() -> None:
