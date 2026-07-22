@@ -84,6 +84,13 @@ variable "serper_api_key" {
   sensitive   = true
 }
 
+variable "google_places_api_key" {
+  description = "Optional Google Places API (New) key for BFF open-status enrichment on plan-next-day / suggest-place"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "safety_mode" {
   description = "API Lambda SAFETY_MODE: keyword (default), bedrock/guardrails (ApplyGuardrail), or off."
   type        = string

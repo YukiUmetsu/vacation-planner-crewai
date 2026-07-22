@@ -55,3 +55,10 @@ variable "backend_source_dir" {
   description = "Path to built Lambda package dir (run backend/scripts/build_lambda.sh → backend/.build/lambda)"
   type        = string
 }
+
+variable "google_places_api_key" {
+  description = "Optional Google Places API (New) key for open-status enrichment (BFF)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}

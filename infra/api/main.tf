@@ -83,17 +83,22 @@ resource "aws_lambda_function" "api" {
   source_code_hash = data.archive_file.backend.output_base64sha256
 
   environment {
-    variables = {
-      DYNAMODB_TABLE_NAME       = var.dynamodb_table_name
-      COGNITO_ISSUER            = var.cognito_issuer
-      COGNITO_AUDIENCE          = var.cognito_user_pool_client_id
-      AGENT_RUNTIME_ARN         = var.agent_runtime_arn
-      AUTH_MODE                 = "cognito"
-      CREW_MODE                 = "agentcore"
-      SAFETY_MODE               = var.safety_mode
-      BEDROCK_GUARDRAIL_ID      = var.bedrock_guardrail_id
-      BEDROCK_GUARDRAIL_VERSION = var.bedrock_guardrail_version
-    }
+    variables = merge(
+      {
+        DYNAMODB_TABLE_NAME       = var.dynamodb_table_name
+        COGNITO_ISSUER            = var.cognito_issuer
+        COGNITO_AUDIENCE          = var.cognito_user_pool_client_id
+        AGENT_RUNTIME_ARN         = var.agent_runtime_arn
+        AUTH_MODE                 = "cognito"
+        CREW_MODE                 = "agentcore"
+        SAFETY_MODE               = var.safety_mode
+        BEDROCK_GUARDRAIL_ID      = var.bedrock_guardrail_id
+        BEDROCK_GUARDRAIL_VERSION = var.bedrock_guardrail_version
+      },
+      var.google_places_api_key != "" ? {
+        GOOGLE_PLACES_API_KEY = var.google_places_api_key
+      } : {}
+    )
   }
 
   lifecycle {
