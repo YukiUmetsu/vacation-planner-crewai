@@ -250,4 +250,35 @@ def test_confirm_rejects_route_with_day_gaps(service: TripService) -> None:
             },
         )
     assert exc.value.status_code == 400
-    assert exc.value.code == "route_gap"
+    # 7-day trip expects 6 nights; incomplete coverage may surface as nights or gap.
+    assert exc.value.code in {"route_gap", "route_nights_mismatch"}
+
+
+def test_confirm_rejects_nights_not_matching_day_count(service: TripService) -> None:
+    """1 night stretched across all days must not pass just because coverage is contiguous."""
+    trip_id = _create_country(service)
+    service.propose_cities(USER, trip_id)
+    with pytest.raises(ApiError) as exc:
+        service.confirm_cities(
+            USER,
+            trip_id,
+            {
+                "destination_type": "country",
+                "cities": [
+                    {
+                        "city": "Tokyo",
+                        "country": "Japan",
+                        "nights": 1,
+                        "arrival_day_index": 1,
+                        "departure_day_index": 7,
+                        "reason": "impossible nights vs window",
+                        "highlights": [],
+                    }
+                ],
+                "rationale": "bad nights",
+                "total_nights": 1,
+                "status": "confirmed",
+            },
+        )
+    assert exc.value.status_code == 400
+    assert exc.value.code == "route_nights_mismatch"

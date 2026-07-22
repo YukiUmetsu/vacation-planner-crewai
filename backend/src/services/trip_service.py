@@ -92,6 +92,13 @@ def _assert_route_fits_window(route: dict[str, Any], day_count: int) -> None:
     total = int(route.get("total_nights") or nights_sum)
     if total != nights_sum:
         raise ApiError(400, f"total_nights ({total}) must equal sum of city nights ({nights_sum})")
+    expected_nights = max(0, day_count - 1)
+    if nights_sum != expected_nights:
+        raise ApiError(
+            400,
+            f"sum of city nights ({nights_sum}) must equal day_count - 1 ({expected_nights})",
+            code="route_nights_mismatch",
+        )
     missing = [day for day in range(1, day_count + 1) if day not in covered]
     if missing:
         raise ApiError(
