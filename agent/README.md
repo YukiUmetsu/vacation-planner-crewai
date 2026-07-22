@@ -9,7 +9,8 @@ CrewAI crews packaged for **Amazon Bedrock AgentCore Runtime**.
 | `crews/day_plan/` | Day crew: research → `DayPlan` (structured, one day) |
 | `crews/city_route/` | City route crew: research → `CityRoute` (structured) |
 | `models/` | Installable package `vacation_planner_models` (Pydantic + `place_key`) |
-| `main.py` | AgentCore entrypoint (stub) |
+| `main.py` | AgentCore Runtime entrypoint (`BedrockAgentCoreApp`) |
+| `pyproject.toml` | Runtime deps including `bedrock-agentcore` |
 | `tests/` | Model/crew unit tests |
 
 ### Shared models
@@ -20,13 +21,14 @@ CrewAI crews packaged for **Amazon Bedrock AgentCore Runtime**.
 vacation-planner-models = { path = "../../models", editable = true }
 ```
 
-Later task wiring uses a local re-export (CrewAI requires the class under the crew root), e.g. city_route:
+Later task wiring uses a **uniquely named** local re-export (CrewAI resolves under the crew root). Names differ so both crews can load in one process:
 
 ```jsonc
-"output_pydantic": { "python": "models.CityRoute" }
+"output_pydantic": { "python": "day_models.DayPlan" }
+// city_route: "city_models.CityRoute"
 ```
 
-(`crews/city_route/models.py` re-exports `vacation_planner_models`.)
+(`day_models.py` / `city_models.py` re-export `vacation_planner_models`.)
 
 ```bash
 cd models && uv sync --extra dev && uv run pytest ../tests
@@ -52,6 +54,36 @@ CREWAI_DMN=1 uv run crewai run --inputs '{"topic":"Tokyo"}'
 
 Phoenix UI: http://localhost:6006 → project **`vacation_planner`**.
 
-## Deploy note
+## Runtime entrypoint (AgentCore)
 
-Ship `main.py` + crews + models to AgentCore. Do **not** include Phoenix or `run_with_phoenix.py` in the runtime image.
+From `agent/` (not a crew subdirectory):
+
+```bash
+cd agent
+uv sync
+uv run python -c "from bedrock_agentcore import BedrockAgentCoreApp; print('ok')"
+# Local smoke of the entrypoint (needs AWS/model creds for a real kickoff):
+# uv run python main.py
+```
+
+`CREW_MODE=agentcore` on the BFF expects Lambda env **`AGENT_RUNTIME_ARN`** (set by Terraform when AgentCore is enabled), matching `backend/src/agentcore/client.py`.
+
+## Runtime packaging
+
+`crew_kickoff.py` loads `crews/<name>/crew.jsonc` relative to this package root (`Path(__file__).parent / "crews"`). The wheel therefore includes:
+
+- `main.py`, `crew_kickoff.py`, `invoke_payload.py`
+- `crews/day_plan/` and `crews/city_route/` runtime assets (`crew.jsonc`, `*_models.py`, `agents/`, `tools/`, `knowledge/`, `skills/`)
+
+Shared Pydantic models install via the **`vacation-planner-models`** dependency (`models/`). Local-only files are **not** packaged: `.venv/`, `logs/`, `uv.lock`, `run_with_phoenix.py`, `smoke_test.py`, crew `pyproject.toml` / README.
+
+Container / AgentCore image options that both work:
+
+1. **Install the wheel** from this `pyproject.toml` (preferred) so crews land next to `crew_kickoff.py`.
+2. **Copy the `agent/` tree** into the image and `uv sync`, keeping the same layout.
+
+Do **not** install only the three Python modules without `crews/` — `run_crew` will raise `crew_not_found`.
+
+```bash
+cd agent && uv build && unzip -l dist/*.whl | grep crew.jsonc
+```

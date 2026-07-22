@@ -1,0 +1,41 @@
+[project]
+name = "vacation-planner-agent-runtime"
+version = "0.1.0"
+description = "AgentCore Runtime entrypoint for Vacation Planner crews"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "bedrock-agentcore>=0.1.0",
+    "crewai[bedrock,tools]>=1.15.4,<2.0.0",
+    "python-dotenv>=1.0.0",
+    "vacation-planner-models",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Wheel must include crew projects on disk: crew_kickoff resolves
+# Path(__file__).parent / "crews" / <name> / "crew.jsonc".
+# Models come from the vacation-planner-models dependency (not duplicated here).
+# Exclude local-only artifacts (.venv, logs, Phoenix helpers, smoke tests, locks).
+[tool.hatch.build.targets.wheel]
+only-include = [
+    "main.py",
+    "crew_kickoff.py",
+    "invoke_payload.py",
+    "crews/day_plan/crew.jsonc",
+    "crews/day_plan/day_models.py",
+    "crews/day_plan/agents",
+    "crews/day_plan/tools",
+    "crews/day_plan/knowledge",
+    "crews/day_plan/skills",
+    "crews/city_route/crew.jsonc",
+    "crews/city_route/city_models.py",
+    "crews/city_route/agents",
+    "crews/city_route/tools",
+    "crews/city_route/knowledge",
+    "crews/city_route/skills",
+]
+
+[tool.uv.sources]
+vacation-planner-models = { path = "models", editable = true }
