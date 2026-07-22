@@ -1,4 +1,4 @@
-import { apiFetch } from "./http";
+import { apiFetch, ApiError, getApiBaseUrl, shouldSendDevIdentity } from "./http";
 import type { CreateTripInput, DayPlan, Place, Route, Trip, TripBundle } from "../types/trip";
 
 export async function createTrip(input: CreateTripInput) {
@@ -42,11 +42,56 @@ export function confirmCities(tripId: string, route: Route) {
   });
 }
 
-export function planNextDay(tripId: string) {
-  return apiFetch<{ day: DayPlan; trip: Trip }>(`/trips/${tripId}/plan-next-day`, {
+export type PlanNextDaySyncResult = {
+  status: 200;
+  day: DayPlan;
+  trip: Trip;
+};
+
+export type PlanNextDayAsyncResult = {
+  status: 202;
+  trip: Trip;
+  planning_day_index: number;
+};
+
+export type PlanNextDayResult = PlanNextDaySyncResult | PlanNextDayAsyncResult;
+
+export async function planNextDay(tripId: string): Promise<PlanNextDayResult> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (shouldSendDevIdentity()) {
+    headers["x-dev-user-sub"] = "local-dev-user";
+  }
+  const res = await fetch(`${getApiBaseUrl()}/trips/${tripId}/plan-next-day`, {
     method: "POST",
+    headers,
     body: "{}",
   });
+  const data = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    code?: string;
+    day?: DayPlan;
+    trip?: Trip;
+    planning_day_index?: number;
+  };
+  if (!res.ok) {
+    throw new ApiError(res.status, data.error ?? res.statusText, data.code);
+  }
+  if (res.status === 202) {
+    if (!data.trip || data.planning_day_index == null) {
+      throw new ApiError(502, "async plan-next-day missing trip payload");
+    }
+    return {
+      status: 202,
+      trip: data.trip,
+      planning_day_index: data.planning_day_index,
+    };
+  }
+  if (!data.day || !data.trip) {
+    throw new ApiError(502, "plan-next-day missing day payload");
+  }
+  return { status: 200, day: data.day, trip: data.trip };
 }
 
 export function suggestPlace(tripId: string, dayIndex: number) {

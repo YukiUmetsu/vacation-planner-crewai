@@ -148,6 +148,7 @@ describe("App live create flow", () => {
       route: { ...proposedRoute, status: "confirmed" },
     });
     vi.mocked(planNextDay).mockResolvedValue({
+      status: 200,
       trip: {
         ...createdTrip,
         status: "planning",

@@ -20,7 +20,11 @@ export type Trip = {
     preferences?: string;
     status: string;
     next_day_index?: number;
-}
+    /** Set while async plan-next-day worker is running. */
+    planning_day_index?: number | null;
+    planning_started_at?: string | null;
+    planning_error?: string | null;
+};
 
 export type CityStop = {
     city: string;

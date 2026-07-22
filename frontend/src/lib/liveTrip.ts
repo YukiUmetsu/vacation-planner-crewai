@@ -8,6 +8,7 @@ import {
 } from "../api/trips";
 import type { CityStop, DayPlan, Route, Trip, TripBundle } from "../types/trip";
 import type { SetStateAction } from "react";
+import { pollUntilDayReady } from "./pollPlanDay";
 
 export type LiveTripState = {
   trip: Trip | null;
@@ -53,12 +54,27 @@ export function buildConfirmRoute(
   };
 }
 
+/** True when trip has an in-flight plan-next-day the UI should resume polling for. */
+export function pendingPlanningDayIndex(
+  trip: Trip | null | undefined,
+  _days: DayPlan[],
+): number | null {
+  const pdi = trip?.planning_day_index;
+  if (pdi == null) return null;
+  const index = Number(pdi);
+  if (!Number.isFinite(index) || index < 1) return null;
+  // Resume even if DAY already appears — cursor may still need completion.
+  return index;
+}
+
 type LiveTripActionsArgs = {
   tripId: string | null;
   /** Functional updater so mutation success never stomps concurrent local edits. */
   onApplied: (updater: SetStateAction<LiveTripState>) => void;
   onActionError: (message: string | null) => void;
 };
+
+type PlanDayVars = { id: string; resumeDayIndex?: number };
 
 function invalidateTrip(queryClient: QueryClient, id: string) {
   void queryClient.invalidateQueries({ queryKey: ["trip", id] });
@@ -106,8 +122,31 @@ export function useLiveTripActions({
   });
 
   const planDayMutation = useMutation({
-    mutationFn: (id: string) => planNextDay(id),
-    onSuccess: (data, id) => {
+    mutationFn: async ({ id, resumeDayIndex }: PlanDayVars) => {
+      // On resume (refresh), POST again so the BFF can finalize a stuck DAY+claim.
+      if (resumeDayIndex != null) {
+        try {
+          const started = await planNextDay(id);
+          if (started.status === 200) {
+            return { day: started.day, trip: started.trip };
+          }
+          onApplied((prev) => ({ ...prev, trip: started.trip }));
+          return pollUntilDayReady(id, started.planning_day_index);
+        } catch {
+          return pollUntilDayReady(id, resumeDayIndex);
+        }
+      }
+      const started = await planNextDay(id);
+      if (started.status === 200) {
+        return { day: started.day, trip: started.trip };
+      }
+      onApplied((prev) => ({
+        ...prev,
+        trip: started.trip,
+      }));
+      return pollUntilDayReady(id, started.planning_day_index);
+    },
+    onSuccess: (data, { id }) => {
       onActionError(null);
       const day = data.day;
       onApplied((prev) => {
@@ -151,6 +190,10 @@ export function useLiveTripActions({
   async function hydrateFromApi(id: string) {
     const bundle = await getTrip(id);
     onApplied(applyTripBundle(bundle));
+    const resume = pendingPlanningDayIndex(bundle.trip, bundle.days);
+    if (resume != null && !planDayMutation.isPending) {
+      planDayMutation.mutate({ id, resumeDayIndex: resume });
+    }
     return bundle;
   }
 
@@ -166,7 +209,7 @@ export function useLiveTripActions({
 
   function runPlanNextDay() {
     if (!tripId) return;
-    planDayMutation.mutate(tripId);
+    planDayMutation.mutate({ id: tripId });
   }
 
   function runSuggestPlace(dayIndex: number) {

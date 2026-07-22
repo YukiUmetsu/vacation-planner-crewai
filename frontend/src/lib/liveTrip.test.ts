@@ -3,6 +3,7 @@ import {
   applyTripBundle,
   buildConfirmRoute,
   emptyLiveTripState,
+  pendingPlanningDayIndex,
 } from "./liveTrip";
 import type { TripBundle } from "../types/trip";
 
@@ -69,5 +70,32 @@ describe("buildConfirmRoute", () => {
     const route = buildConfirmRoute(live, []);
     expect(route.destination_type).toBe("country");
     expect(route.total_nights).toBe(0);
+  });
+});
+
+describe("pendingPlanningDayIndex", () => {
+  it("returns planning_day_index while claim is held", () => {
+    const trip = {
+      ...sampleBundle.trip,
+      planning_day_index: 1,
+      next_day_index: 1,
+      status: "planning" as const,
+    };
+    expect(pendingPlanningDayIndex(trip, [])).toBe(1);
+    expect(
+      pendingPlanningDayIndex(trip, [
+        {
+          day_index: 1,
+          date: "2026-08-01",
+          theme: "Day 1",
+          overnight_city: "Tokyo",
+          places: [],
+        },
+      ]),
+    ).toBe(1);
+  });
+
+  it("returns null when no claim", () => {
+    expect(pendingPlanningDayIndex(sampleBundle.trip, [])).toBeNull();
   });
 });
