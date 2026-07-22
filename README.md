@@ -29,6 +29,7 @@ Three deployable codebases at the top level — no shared `apps/` umbrella:
 │   └── main.py
 ├── docs/
 │   ├── DATA_MODEL.md
+│   ├── PLANNING_QUALITY.md     # Energy↔hours, safety/guardrail/evals index
 │   └── architecture-decisions/ # ADRs (async planning, Lambda shape, …)
 └── infra/                      # Terraform: Cognito, API, DynamoDB, AgentCore, CloudFront
 ```
@@ -40,6 +41,7 @@ Three deployable codebases at the top level — no shared `apps/` umbrella:
 | [`agent`](./agent) | Crews + AgentCore runtime (no DynamoDB / Cognito) |
 | [`infra`](./infra) | Terraform modules for AWS |
 | [`docs/architecture-decisions`](./docs/architecture-decisions) | Architecture decision records |
+| [`docs/PLANNING_QUALITY.md`](./docs/PLANNING_QUALITY.md) | Energy load caps; pointers to safety, Guardrails, evals |
 
 ## Architecture
 

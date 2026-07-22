@@ -19,7 +19,7 @@ def test_load_example_fixture() -> None:
     assert "overnight_city" in example.inputs
 
 
-def test_run_case_with_empty_expected_passes_until_scorers_exist() -> None:
+def test_run_case_with_empty_expected_skips_bounds_checks() -> None:
     case = EvalCase(
         id="manual",
         crew="day_plan",
@@ -27,21 +27,149 @@ def test_run_case_with_empty_expected_passes_until_scorers_exist() -> None:
         expected={},
         source_path=Path("manual.json"),
     )
-    result = run_case(case, {"places": []})
+    result = run_case(case, {"places": [], "overnight_city": "Tokyo"})
     assert result.passed is True
 
 
-def test_stub_scorer_fails_closed_when_expected_is_set() -> None:
+def test_scorer_rejects_too_few_places() -> None:
     case = EvalCase(
-        id="needs_scorer",
+        id="needs_more_places",
         crew="day_plan",
         inputs={},
         expected={"min_places": 3},
-        source_path=Path("needs_scorer.json"),
+        source_path=Path("needs_more_places.json"),
     )
-    result = run_case(case, {"places": [{"name": "A"}]})
+    result = run_case(case, {"places": [{"name": "A", "place_key": "a"}]})
     assert result.passed is False
-    assert any("LEARNING" in msg for msg in result.failures)
+    assert any("at least 3 places" in msg for msg in result.failures)
+
+
+def test_scorer_rejects_already_visited_overlap() -> None:
+    case = EvalCase(
+        id="dedupe",
+        crew="day_plan",
+        inputs={"already_visited": ["sensoji"]},
+        expected={"min_places": 1},
+        source_path=Path("dedupe.json"),
+    )
+    result = run_case(
+        case,
+        {"places": [{"name": "Senso-ji", "place_key": "sensoji"}], "overnight_city": "Tokyo"},
+    )
+    assert result.passed is False
+    assert any("already_visited" in msg for msg in result.failures)
+
+
+def test_scorer_accepts_valid_day_plan() -> None:
+    case = EvalCase(
+        id="ok_day",
+        crew="day_plan",
+        inputs={"overnight_city": "Tokyo", "already_visited": ["old"]},
+        expected={"min_places": 3, "max_places": 6, "forbidden_place_keys": ["banned"]},
+        source_path=Path("ok_day.json"),
+    )
+    result = run_case(
+        case,
+        {
+            "overnight_city": "Tokyo",
+            "places": [
+                {"name": "A", "place_key": "a"},
+                {"name": "B", "place_key": "b"},
+                {"name": "C", "place_key": "c"},
+            ],
+        },
+    )
+    assert result.passed is True
+    assert result.failures == ()
+
+
+def test_scorer_rejects_city_route_nights_mismatch() -> None:
+    case = EvalCase(
+        id="bad_nights",
+        crew="city_route",
+        inputs={},
+        expected={"min_cities": 1},
+        source_path=Path("bad_nights.json"),
+    )
+    result = run_case(
+        case,
+        {
+            "cities": [{"city": "Tokyo", "nights": 2}],
+            "total_nights": 5,
+        },
+    )
+    assert result.passed is False
+    assert any("total_nights" in msg for msg in result.failures)
+
+
+def test_scorer_rejects_malformed_nights_without_raising() -> None:
+    case = EvalCase(
+        id="bad_nights_str",
+        crew="city_route",
+        inputs={},
+        expected={},
+        source_path=Path("bad_nights_str.json"),
+    )
+    result = run_case(
+        case,
+        {
+            "cities": [{"city": "Tokyo", "nights": "two"}],
+            "total_nights": "five",
+        },
+    )
+    assert result.passed is False
+    assert any("cities[0].nights" in msg for msg in result.failures)
+    assert any("total_nights" in msg for msg in result.failures)
+
+
+def test_example_offline_output_passes_scorer() -> None:
+    cases = load_cases()
+    example = next(c for c in cases if c.id == "day_plan_example_shape")
+    output_path = example.source_path.with_suffix(".output.json")
+    assert output_path.is_file(), "expected day_plan_example_shape.output.json golden"
+    output = json.loads(output_path.read_text(encoding="utf-8"))
+    result = run_case(example, output)
+    assert result.passed is True, result.failures
+
+
+def test_offline_cli_skips_missing_outputs_and_passes_golden(tmp_path: Path) -> None:
+    from evals.__main__ import main
+
+    fixtures = tmp_path / "fixtures"
+    fixtures.mkdir()
+    (fixtures / "with_output.json").write_text(
+        json.dumps(
+            {
+                "id": "with_output",
+                "crew": "day_plan",
+                "inputs": {"overnight_city": "Tokyo"},
+                "expected": {"min_places": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (fixtures / "with_output.output.json").write_text(
+        json.dumps(
+            {
+                "overnight_city": "Tokyo",
+                "places": [{"name": "A", "place_key": "a"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (fixtures / "no_output.json").write_text(
+        json.dumps(
+            {
+                "id": "no_output",
+                "crew": "day_plan",
+                "inputs": {"overnight_city": "Tokyo"},
+                "expected": {"min_places": 3},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert main(["--fixtures-dir", str(fixtures)]) == 0
+
 
 
 def test_run_cases_records_producer_errors() -> None:

@@ -30,7 +30,6 @@ class BedrockGuardrailsSafetyGate:
         return cls(guardrail_id, version)
 
     def check_text(self, text: str, *, source: str) -> None:
-        """LEARNING: call ``bedrock:ApplyGuardrail`` and map intervene → SafetyRejected."""
         if len(text.strip()) == 0:
             return
 

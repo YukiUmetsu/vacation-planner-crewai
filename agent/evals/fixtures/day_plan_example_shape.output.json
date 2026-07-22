@@ -1,0 +1,30 @@
+{
+  "day_index": 1,
+  "date": "2026-09-01",
+  "theme": "Example offline golden",
+  "summary": "Minimal valid DayPlan for offline eval CLI",
+  "overnight_city": "Tokyo",
+  "places": [
+    {
+      "name": "Senso-ji",
+      "place_key": "senso-ji|tokyo",
+      "category": "other",
+      "estimated_minutes": 90,
+      "order_in_day": 1
+    },
+    {
+      "name": "Nakamise Street",
+      "place_key": "nakamise|tokyo",
+      "category": "shopping",
+      "estimated_minutes": 60,
+      "order_in_day": 2
+    },
+    {
+      "name": "Sumida Park",
+      "place_key": "sumida-park|tokyo",
+      "category": "park",
+      "estimated_minutes": 45,
+      "order_in_day": 3
+    }
+  ]
+}

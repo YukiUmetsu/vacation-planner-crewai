@@ -1,7 +1,7 @@
 """CLI for offline / live eval runs: ``uv run python -m evals``.
 
 Examples:
-  uv run python -m evals                 # fixtures + stub scorers (expect LEARNING failures)
+  uv run python -m evals                 # score fixtures with sibling *.output.json
   uv run python -m evals --live          # call crew_kickoff.run_crew (needs AWS/model creds)
 """
 
@@ -18,16 +18,16 @@ from evals.harness import run_cases
 
 
 def _offline_producer(case: EvalCase) -> dict[str, Any]:
-    """Load optional ``fixtures/<id>.output.json``; otherwise return a minimal empty shape."""
+    """Load ``fixtures/<id>.output.json`` (required for offline scoring)."""
     sibling = case.source_path.with_suffix(".output.json")
-    if sibling.is_file():
-        data = json.loads(sibling.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            raise ValueError(f"{sibling}: output must be a JSON object")
-        return data
-    if case.crew == "day_plan":
-        return {"places": [], "overnight_city": case.inputs.get("overnight_city", "")}
-    return {"cities": []}
+    if not sibling.is_file():
+        raise FileNotFoundError(
+            f"missing offline output {sibling.name}; add a golden or run with --live"
+        )
+    data = json.loads(sibling.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{sibling}: output must be a JSON object")
+    return data
 
 
 def _live_producer(case: EvalCase) -> dict[str, Any]:
@@ -59,6 +59,19 @@ def main(argv: list[str] | None = None) -> int:
     if not cases:
         print("No fixtures found.", file=sys.stderr)
         return 2
+
+    if not args.live:
+        runnable: list[EvalCase] = []
+        for case in cases:
+            sibling = case.source_path.with_suffix(".output.json")
+            if sibling.is_file():
+                runnable.append(case)
+            else:
+                print(f"SKIP  {case.id} (no {sibling.name})")
+        cases = runnable
+        if not cases:
+            print("No offline outputs found (add fixtures/<id>.output.json or use --live).")
+            return 0
 
     producer = _live_producer if args.live else _offline_producer
     results = run_cases(cases, producer)

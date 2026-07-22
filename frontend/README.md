@@ -46,7 +46,7 @@ npm test
 
 Mockups (approved): [`docs/mockups/`](./docs/mockups/)
 
-Theme: ocean teal + sand, Newsreader + DM Sans (`src/index.css`).
+Theme: ocean teal + sand, Newsreader + DM Sans (`src/index.css`). Energy load caps: see [`docs/PLANNING_QUALITY.md`](../docs/PLANNING_QUALITY.md).
 
 ## Status vs still to wire
 

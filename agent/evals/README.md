@@ -2,14 +2,16 @@
 
 Plumbing for golden-set checks against crew JSON outputs. **No AWS required** for harness tests.
 
+Traveler energy hour caps (for future scorers): [`docs/PLANNING_QUALITY.md`](../../docs/PLANNING_QUALITY.md).
+
 ## Layout
 
 | Path | Purpose |
 | --- | --- |
 | `case.py` / `harness.py` | Load fixtures + run cases (done) |
-| `scorers.py` | **LEARNING** — implement real failure checks |
-| `fixtures/*.json` | **LEARNING** — add goldens; one example shape is included |
-| `test_harness.py` | Smoke tests for loading / producer errors |
+| `scorers.py` | Place/city count, keys, dedupe, nights checks |
+| `fixtures/*.json` | Case inputs + expected hints (add more goldens as needed) |
+| `test_harness.py` | Smoke tests for loading / scorers / producer errors |
 
 ## Fixture shape
 
@@ -38,15 +40,14 @@ uv run pytest evals/test_harness.py -q
 
 ```bash
 cd agent
-uv run python -m evals            # fixtures + optional sibling *.output.json
+uv run python -m evals            # score fixtures that have sibling *.output.json
 uv run python -m evals --live     # call crew_kickoff (needs credentials)
 ```
 
-Stub scorers will FAIL until you implement them — that is expected.
+Offline mode **skips** cases without `fixtures/<id>.output.json` (prints `SKIP`). A golden for `day_plan_example_shape` is included so the default command exits 0.
 
-Optional offline outputs: `fixtures/<id>.output.json` (skipped by the case loader).
+Optional offline outputs: `fixtures/<id>.output.json` (skipped by the case loader; used only as eval input).
 
-## LEARNING next steps
+## Extending
 
-1. Implement `score_day_plan` / `score_city_route` in `scorers.py` (schema, `place_key`, dedupe vs `already_visited`, place count).
-2. Add fixtures that encode pass/fail expectations.
+Add fixtures with `expected` keys such as `min_places` / `max_places` / `forbidden_place_keys` (day) or `min_cities` / `max_cities` (route). Pair with `*.output.json` for offline CLI runs without `--live`.

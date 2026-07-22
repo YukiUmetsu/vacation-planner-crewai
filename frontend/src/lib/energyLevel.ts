@@ -11,13 +11,16 @@ export const ENERGY_LEVEL_LABELS: Record<EnergyLevel, string> = {
   5: "Very high — packed itineraries OK",
 };
 
-/** Soft cap on total day minutes (activity + travel) by energy level. */
+/** Soft warning threshold: total day minutes (activity + travel) by energy level.
+ * Canonical table: docs/PLANNING_QUALITY.md — keep in sync.
+ * Caution starts above this; overloaded above 1.2×.
+ */
 export const MAX_COMFORTABLE_TOTAL_MINUTES: Record<EnergyLevel, number> = {
-  1: 180, // 3h
-  2: 270, // 4.5h
-  3: 360, // 6h
-  4: 480, // 8h
-  5: 600, // 10h
+  1: 270, // 4.5h
+  2: 390, // 6.5h
+  3: 510, // 8.5h
+  4: 720, // 12h
+  5: 840, // 14h
 };
 
 export type DayEnergyLoad = {
