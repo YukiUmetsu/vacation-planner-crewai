@@ -4,8 +4,6 @@ Canonical product rules for how we judge a day’s plan. Package READMEs hold im
 
 ## Doc map (safety / guardrails / evals)
 
-There is **no** older standalone safety-only markdown. Use:
-
 | Topic | Where |
 | --- | --- |
 | **Traveler energy ↔ day load** | This file (canonical thresholds) |
@@ -13,8 +11,6 @@ There is **no** older standalone safety-only markdown. Use:
 | **Bedrock Guardrail policies + IAM** | [`infra/README.md`](../infra/README.md) (Guardrails section), [`infra/guardrails/`](../infra/guardrails/) |
 | **Offline crew evals** | [`agent/evals/README.md`](../agent/evals/README.md) |
 | **AgentCore trust boundary** | [ADR 003](./architecture-decisions/003-bff-agentcore-runtime-only.md) |
-
-Future work (not enforced yet): permanently closed venues, closed-on-weekday checks, server-side profile prefs, crew reviewer pass — see “Roadmap” below.
 
 ---
 
@@ -27,9 +23,11 @@ Traveler **energy level** is an integer **1–5** (signal bars in the profile UI
 - sum of place `estimated_minutes` (activity), plus  
 - sum of `travel_minutes_from_previous` between stops (travel).
 
-Code: `frontend/src/lib/energyLevel.ts` (`MAX_COMFORTABLE_TOTAL_MINUTES`) and `frontend/src/demo/dayTimes.ts`.
+Canonical minute table (keep in sync):
 
-These values are **when the UI starts warning** (`caution`), not “ideal day length.” A typical moderate sightseeing day can sit well under the level-3 line.
+- Frontend: `frontend/src/lib/energyLevel.ts` (`MAX_COMFORTABLE_TOTAL_MINUTES`)
+- Backend: `backend/src/services/energy.py`
+- Offline scorers: `agent/evals/scorers.py`
 
 ### Warning thresholds (canonical)
 
@@ -41,11 +39,18 @@ These values are **when the UI starts warning** (`caution`), not “ideal day le
 | **4** | High — long active days | **12 hours** | 720 |
 | **5** | Very high — packed itineraries OK | **14 hours** | 840 |
 
-These are **soft** UX thresholds today (banner on the Days step). They are **not** yet enforced in the day crew or backend. When a reviewer / scorer is added, use the same minute table.
+### Soft vs hard enforcement
 
-### Severity bands
+| Layer | Behavior |
+| --- | --- |
+| **Frontend** | Soft banner via `assessDayEnergyLoad` (`ok` / `caution` / `overloaded`) |
+| **Crew prompts** | `energy_level` + `max_comfortable_minutes` / `remaining_minutes` in day_plan + suggest_place |
+| **API hard gate** | `place_quality.filter_quality_places` (plan-next-day) and `validate_suggested_place` (suggest-place) reject over-budget days |
+| **Offline evals** | Scorers fail when day/suggestion exceeds the threshold |
 
-Let `ratio = totalMinutes / comfortMaxMinutes` (where comfort max = warning threshold above).
+### Severity bands (UI)
+
+Let `ratio = totalMinutes / comfortMaxMinutes`.
 
 | Band | Condition | UI |
 | --- | --- | --- |
@@ -53,15 +58,7 @@ Let `ratio = totalMinutes / comfortMaxMinutes` (where comfort max = warning thre
 | `caution` | `1 < ratio ≤ 1.2` | Soft “a bit packed” message |
 | `overloaded` | `ratio > 1.2` | Stronger “too full” message |
 
-Example: energy **3** → warn after **510** min (8.5h). Day with **540** min → caution. Day with **620** min → overloaded (&gt;1.2× ≈ 612 min).
-
-### Using the mapping elsewhere
-
-- **Frontend:** `assessDayEnergyLoad(energyLevel, totalMinutes)`.
-- **Crew / reviewer (planned):** pass `energy_level` and `max_comfortable_minutes` in planning context; reject or revise if overloaded.
-- **Offline evals (planned):** optional `expected.max_total_minutes` or derive from fixture `energy_level`.
-
-Keep this table and `MAX_COMFORTABLE_TOTAL_MINUTES` in sync. If you change one, change both.
+Example: energy **3** → warn after **510** min. Day with **540** min → caution. Day with **620** min → overloaded.
 
 ---
 
@@ -71,7 +68,10 @@ Keep this table and `MAX_COMFORTABLE_TOTAL_MINUTES` in sync. If you change one, 
 | --- | --- |
 | Dedupe places across days (`place_key`) | Backend `dedupe_places` + crew `already_visited` prompt |
 | Place count 3–6 / schema | Agent `DayPlan` Pydantic + eval scorers |
-| Suggest one more place | `suggest_place` crew + `validate_suggested_place` + eval `score_suggest_place` |
+| Permanently closed / weekday-closed | Crew reviewer + `place_quality` + scorers |
+| Energy budget | Crew prompts + `place_quality` / `validate_suggested_place` + scorers |
+| Suggest one more place | `suggest_place` crew + `validate_suggested_place` + `score_suggest_place` |
+| Profile prefs / energy / interests | DynamoDB `PROFILE` injected into plan-next-day + suggest-place |
 | User preference / destination text safety | Backend safety gate (keyword or ApplyGuardrail) |
 
 ---
@@ -80,5 +80,5 @@ Keep this table and `MAX_COMFORTABLE_TOTAL_MINUTES` in sync. If you change one, 
 
 1. [x] Persist profile (prefs, energy, interests) in DynamoDB; inject into `plan-next-day`.
 2. [x] Enforce energy caps + closed / weekday-closed checks in offline scorers **and** API post-crew `place_quality` filter; reviewer crew task (brief-only swaps, no new research tools).
-3. [x] Suggest one more place: `suggest_place` crew + `POST /trips/{id}/days/{n}/suggest-place` with `validate_suggested_place` (day cap 6, closed/visited, energy vs remaining) + offline scorer.
+3. [x] Suggest one more place: `suggest_place` crew + `POST /trips/{id}/days/{n}/suggest-place` with `validate_suggested_place` + offline scorer.
 4. Venue open status via Places API when Serper is not enough (tool-assisted discovery remains soft).
