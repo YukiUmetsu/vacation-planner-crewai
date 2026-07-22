@@ -34,8 +34,19 @@ uv sync
 uv run pytest evals/test_harness.py -q
 ```
 
+## CLI
+
+```bash
+cd agent
+uv run python -m evals            # fixtures + optional sibling *.output.json
+uv run python -m evals --live     # call crew_kickoff (needs credentials)
+```
+
+Stub scorers will FAIL until you implement them — that is expected.
+
+Optional offline outputs: `fixtures/<id>.output.json` (skipped by the case loader).
+
 ## LEARNING next steps
 
 1. Implement `score_day_plan` / `score_city_route` in `scorers.py` (schema, `place_key`, dedupe vs `already_visited`, place count).
 2. Add fixtures that encode pass/fail expectations.
-3. Optional: a CLI that calls `crew_kickoff.run_crew` as the producer (live; keep out of default CI).

@@ -86,10 +86,12 @@ Container / AgentCore image options that both work:
 cd agent
 uv build && unzip -l dist/*.whl | grep crew.jsonc
 docker build -t vacation-planner-agent:latest .
+# Or build + push to ECR:
+# ./scripts/build_push_image.sh
 ```
 
 Do **not** install only the three Python modules without `crews/` — `run_crew` will raise `crew_not_found`.
 
 ## Offline evals
 
-Harness scaffolding lives in [`evals/`](./evals/). Implement scorers + goldens yourself (see `evals/README.md`).
+Harness scaffolding lives in [`evals/`](./evals/). CLI: `uv run python -m evals`. Implement scorers + goldens yourself (see `evals/README.md`).

@@ -37,7 +37,7 @@ def load_cases(directory: Path | None = None) -> list[EvalCase]:
 
     cases: list[EvalCase] = []
     for path in sorted(root.glob("*.json")):
-        if path.name.startswith("_"):
+        if path.name.startswith("_") or path.name.endswith(".output.json"):
             continue
         raw = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
