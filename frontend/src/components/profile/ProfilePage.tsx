@@ -31,7 +31,7 @@ const INTEREST_OPTIONS = [
 const fieldClass =
   "mt-1.5 w-full rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:border-teal focus:ring-2 focus:ring-teal-soft";
 
-/** Profile preferences + visited places (demo-local until Cognito/API). */
+/** Profile preferences + visited places (browser localStorage until Cognito/API). */
 export function ProfilePage({ profile, onChange, onBack }: Props) {
   const [newInterest, setNewInterest] = useState("");
   const [newPlaceName, setNewPlaceName] = useState("");
@@ -326,7 +326,7 @@ export function ProfilePage({ profile, onChange, onBack }: Props) {
         </fieldset>
 
         <p className="text-xs text-ink-muted">
-          Demo: changes stay in memory until refresh. Later: save via backend /
+          Saved in this browser (localStorage). Later: sync via backend /
           Cognito user.
         </p>
       </div>
