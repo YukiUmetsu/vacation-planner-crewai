@@ -31,7 +31,7 @@ def test_local_mode_fails_clearly_without_crewai(monkeypatch: pytest.MonkeyPatch
         crew_runner.get_crew_runner()
 
 
-def test_agentcore_mode_not_implemented(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_agentcore_mode_returns_agentcore_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CREW_MODE", "agentcore")
-    with pytest.raises(NotImplementedError, match="AgentCore CrewRunner"):
-        crew_runner.get_crew_runner()
+    runner = crew_runner.get_crew_runner()
+    assert runner.__class__.__name__ == "AgentCoreRunner"

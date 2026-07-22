@@ -37,8 +37,6 @@ def get_crew_runner() -> CrewRunner:
 
         return FakeCrewRunner()
     if mode == "agentcore":
-        raise NotImplementedError(
-            "AgentCore CrewRunner not implemented yet — set CREW_MODE=fake for local "
-            "backend tests, or finish Day 2 AgentCore wiring before deploying planning routes"
-        )
+        from crews.agentcore_runner import AgentCoreRunner
+        return AgentCoreRunner()
     raise ValueError(f"Unknown CREW_MODE={mode!r}")
