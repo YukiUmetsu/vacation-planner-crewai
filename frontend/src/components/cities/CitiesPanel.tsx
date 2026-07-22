@@ -7,7 +7,6 @@ type Props = {
   cities: CityStop[];
   feasibilityMessage?: string | null;
   checkingCity?: string | null;
-  /** LEARNING: wire these from App / Cities step */
   onPropose?: () => void;
   onConfirm?: () => void;
   onNightsChange?: (index: number, nights: number) => void;
@@ -20,7 +19,7 @@ type Props = {
 
 /**
  * Presentational Cities step chrome (mockup-aligned).
- * LEARNING: create a parent that owns draft route + mutations, then pass props here.
+ * Parent owns draft route + mutations (see App live mode).
  */
 export function CitiesPanel({
   cities,
@@ -73,7 +72,7 @@ export function CitiesPanel({
         <button
           type="button"
           className="flex-1 rounded-lg border border-teal bg-surface px-4 py-3 text-sm font-semibold text-teal hover:bg-teal-soft disabled:opacity-50"
-          disabled={!onPropose || proposePending}
+          disabled={!onPropose || proposePending || confirmPending}
           onClick={onPropose}
         >
           {proposePending ? "Proposing…" : "Propose cities"}
@@ -81,7 +80,7 @@ export function CitiesPanel({
         <button
           type="button"
           className="flex-1 rounded-lg bg-teal px-4 py-3 text-sm font-semibold text-white hover:bg-teal-deep disabled:opacity-50"
-          disabled={!onConfirm || confirmPending}
+          disabled={!onConfirm || confirmPending || proposePending}
           onClick={onConfirm}
         >
           {confirmPending ? "Confirming…" : "Confirm route"}
@@ -90,10 +89,7 @@ export function CitiesPanel({
 
       {!onPropose && !onConfirm && (
         <p className="mt-4 text-xs text-ink-muted">
-          {/* LEARNING */}
-          Wire <code className="text-teal">onPropose</code> /{" "}
-          <code className="text-teal">onConfirm</code> with TanStack mutations and
-          invalidate <code className="text-teal">["trip", tripId]</code>.
+          Propose and confirm handlers are not wired for this view.
         </p>
       )}
     </section>

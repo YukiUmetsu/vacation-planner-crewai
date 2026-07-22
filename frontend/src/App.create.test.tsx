@@ -13,7 +13,13 @@ vi.mock("./api/trips", () => ({
   planNextDay: vi.fn(),
 }));
 
-import { createTrip, getTrip } from "./api/trips";
+import {
+  confirmCities,
+  createTrip,
+  getTrip,
+  planNextDay,
+  proposeCities,
+} from "./api/trips";
 
 afterEach(() => {
   cleanup();
@@ -41,6 +47,26 @@ const createdTrip: Trip = {
   day_count: 7,
   preferences: "food and trains",
   status: "draft",
+};
+
+const proposedRoute = {
+  destination_type: "country" as const,
+  cities: [
+    {
+      city: "Tokyo",
+      nights: 3,
+      arrival_day_index: 1,
+      departure_day_index: 3,
+    },
+    {
+      city: "Kyoto",
+      nights: 3,
+      arrival_day_index: 4,
+      departure_day_index: 7,
+    },
+  ],
+  total_nights: 6,
+  status: "proposed" as const,
 };
 
 const bundle: TripBundle = {
@@ -88,7 +114,10 @@ describe("App live create flow", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText((content) => content.includes("New York") && content.includes("Japan")),
+        screen.getByText(
+          (content) =>
+            content.includes("New York") && content.includes("Japan"),
+        ),
       ).toBeInTheDocument();
     });
 
@@ -97,5 +126,91 @@ describe("App live create flow", () => {
     expect(
       screen.getByRole("heading", { name: /Add or edit your cities/i }),
     ).toBeInTheDocument();
+  });
+
+  it("proposes, confirms cities, and plans the next day", async () => {
+    const user = userEvent.setup();
+    vi.mocked(createTrip).mockResolvedValue({
+      trip: createdTrip,
+      route: null,
+    });
+    vi.mocked(getTrip).mockResolvedValue({
+      trip: { ...createdTrip, status: "drafting" },
+      route: null,
+      days: [],
+    });
+    vi.mocked(proposeCities).mockResolvedValue({
+      trip: { ...createdTrip, status: "awaiting_city_confirm" },
+      route: proposedRoute,
+    });
+    vi.mocked(confirmCities).mockResolvedValue({
+      trip: { ...createdTrip, status: "routing_confirmed" },
+      route: { ...proposedRoute, status: "confirmed" },
+    });
+    vi.mocked(planNextDay).mockResolvedValue({
+      trip: {
+        ...createdTrip,
+        status: "planning",
+        next_day_index: 2,
+      },
+      day: {
+        day_index: 1,
+        date: "2026-08-01",
+        theme: "Arrival",
+        overnight_city: "Tokyo",
+        places: [{ name: "Senso-ji", place_key: "senso-ji" }],
+      },
+    });
+
+    renderLiveApp();
+
+    await user.click(screen.getByRole("button", { name: "Create trip" }));
+    await waitFor(() => expect(getTrip).toHaveBeenCalled());
+
+    await user.click(
+      screen.getByRole("button", { name: /Continue to cities/i }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: /Add or edit your cities/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /Propose cities/i }));
+    await waitFor(() => {
+      expect(proposeCities).toHaveBeenCalledWith("trip-123");
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Tokyo")).toBeInTheDocument();
+      expect(screen.getByText("Kyoto")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /Confirm route/i }));
+    await waitFor(() => {
+      expect(confirmCities).toHaveBeenCalledWith(
+        "trip-123",
+        expect.objectContaining({
+          status: "confirmed",
+          cities: expect.arrayContaining([
+            expect.objectContaining({ city: "Tokyo" }),
+            expect.objectContaining({ city: "Kyoto" }),
+          ]),
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: /Plan your days/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /Plan next day/i }));
+    await waitFor(() => {
+      expect(planNextDay).toHaveBeenCalledWith("trip-123");
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Senso-ji")).toBeInTheDocument();
+    });
   });
 });

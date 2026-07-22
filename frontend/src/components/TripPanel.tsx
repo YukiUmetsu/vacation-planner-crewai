@@ -4,7 +4,6 @@ import { TripGist } from "./TripGist";
 
 type Props = {
   tripId: string;
-  /** LEARNING: pass setters when you add wizard step state in App */
   onContinueToCities?: () => void;
   onContinueToDays?: () => void;
 };

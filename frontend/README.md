@@ -50,9 +50,9 @@ Theme: ocean teal + sand, Newsreader + DM Sans (`src/index.css`).
 
 ## Status vs still to wire
 
-**Done:** Tailwind theme, wizard shell, demo App (cities/days/profile), create form + `TripPanel` for live mode, city day-range helpers, place remove-by-index, Vitest coverage for API/create/remove/a11y.
+**Done:** Tailwind theme, wizard shell, demo App (cities/days/profile), create + propose/confirm/plan-next-day live mutations (`VITE_USE_DEMO_DATA=false`), profile `localStorage`, city day-range helpers, place remove-by-index, Vitest coverage for API/create/remove/a11y.
 
-**Still to wire (live API):** propose/confirm cities mutations, plan-next-day + query invalidation, Cognito sign-in. Follow `LEARNING` comments where present.
+**Still to wire:** Cognito Hosted UI sign-in (live API still uses `AUTH_MODE=dev` locally).
 
 ## Layout
 
@@ -60,10 +60,12 @@ Theme: ocean teal + sand, Newsreader + DM Sans (`src/index.css`).
 src/
   api/           # http.ts, trips.ts (+ tests)
   types/trip.ts
-  lib/           # dayPlaces, cityRoute helpers (+ tests)
+  hooks/         # useTripWizard (demo + live wizard state)
+  lib/           # dayPlaces, cityRoute, liveTrip, profileStorage (+ tests)
   demo/          # static Japan trip / profile / place details
   components/
     WizardLayout.tsx
+    DetailsStep.tsx / ProfileScreen.tsx / TripStatusBanner.tsx
     CreateTripForm.tsx
     TripGist.tsx / TripPanel.tsx
     cities/      # Cities chrome
