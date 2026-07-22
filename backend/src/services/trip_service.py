@@ -87,7 +87,14 @@ def _assert_route_fits_window(route: dict[str, Any], day_count: int) -> None:
             raise ApiError(400, "city day indices must fall within the trip window")
         if departure < arrival:
             raise ApiError(400, "departure_day_index must be >= arrival_day_index")
-        covered.update(range(arrival, departure + 1))
+        for day in range(arrival, departure + 1):
+            if day in covered:
+                raise ApiError(
+                    400,
+                    f"route has overlapping city coverage on day {day}",
+                    code="route_overlap",
+                )
+            covered.add(day)
     nights_sum = sum(int(c.get("nights") or 0) for c in cities)
     total = int(route.get("total_nights") or nights_sum)
     if total != nights_sum:

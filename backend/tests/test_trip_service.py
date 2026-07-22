@@ -282,3 +282,42 @@ def test_confirm_rejects_nights_not_matching_day_count(service: TripService) -> 
         )
     assert exc.value.status_code == 400
     assert exc.value.code == "route_nights_mismatch"
+
+
+def test_confirm_rejects_overlapping_city_day_windows(service: TripService) -> None:
+    """Contiguous union + correct nights must not hide duplicate day coverage."""
+    trip_id = _create_country(service)
+    service.propose_cities(USER, trip_id)
+    with pytest.raises(ApiError) as exc:
+        service.confirm_cities(
+            USER,
+            trip_id,
+            {
+                "destination_type": "country",
+                "cities": [
+                    {
+                        "city": "Tokyo",
+                        "country": "Japan",
+                        "nights": 3,
+                        "arrival_day_index": 1,
+                        "departure_day_index": 4,
+                        "reason": "overlaps Kyoto on day 4",
+                        "highlights": [],
+                    },
+                    {
+                        "city": "Kyoto",
+                        "country": "Japan",
+                        "nights": 3,
+                        "arrival_day_index": 4,
+                        "departure_day_index": 7,
+                        "reason": "overlaps Tokyo on day 4",
+                        "highlights": [],
+                    },
+                ],
+                "rationale": "overlap",
+                "total_nights": 6,
+                "status": "confirmed",
+            },
+        )
+    assert exc.value.status_code == 400
+    assert exc.value.code == "route_overlap"
