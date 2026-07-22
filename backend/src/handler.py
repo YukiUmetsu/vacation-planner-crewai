@@ -9,10 +9,12 @@ from http_utils import (
     ApiError,
     error_response,
     json_response,
+    parse_day_action,
     parse_route,
     request_method,
     request_path,
 )
+from routes import profile as profile_routes
 from routes import trips as trip_routes
 
 
@@ -26,6 +28,13 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
 
         user_sub = get_user_sub(event)
         trip_id, action = parse_route(path)
+
+        if path == "/profile" or path.rstrip("/") == "/profile":
+            if method == "GET":
+                return json_response(200, profile_routes.get_profile(event, user_sub))
+            if method == "PUT":
+                return json_response(200, profile_routes.put_profile(event, user_sub))
+            raise ApiError(405, f"method {method} not allowed")
 
         if path == "/trips" or path.rstrip("/") == "/trips":
             if method == "POST":
@@ -53,6 +62,19 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
             if method == "POST":
                 return json_response(200, trip_routes.plan_next_day(event, user_sub, trip_id))
             raise ApiError(405, f"method {method} not allowed")
+
+        day_route = parse_day_action(path)
+        if day_route:
+            day_trip_id, day_index, day_action = day_route
+            if day_action == "suggest-place":
+                if method == "POST":
+                    return json_response(
+                        200,
+                        trip_routes.suggest_place(
+                            event, user_sub, day_trip_id, day_index
+                        ),
+                    )
+                raise ApiError(405, f"method {method} not allowed")
 
         raise ApiError(404, f"route not found: {method} {path}", code="not_found")
     except ApiError as exc:

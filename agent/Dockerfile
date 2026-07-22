@@ -27,12 +27,15 @@ COPY models ./models
 COPY main.py crew_kickoff.py invoke_payload.py ./
 COPY crews/day_plan ./crews/day_plan
 COPY crews/city_route ./crews/city_route
+COPY crews/suggest_place ./crews/suggest_place
 
 RUN uv sync --frozen --no-dev \
     && test -f /app/crews/day_plan/crew.jsonc \
     && test -f /app/crews/city_route/crew.jsonc \
+    && test -f /app/crews/suggest_place/crew.jsonc \
     && test -f /app/crews/day_plan/day_models.py \
-    && test -f /app/crews/city_route/city_models.py
+    && test -f /app/crews/city_route/city_models.py \
+    && test -f /app/crews/suggest_place/suggest_models.py
 
 # BedrockAgentCoreApp: `python main.py` (platform may override CMD).
 CMD ["uv", "run", "--no-sync", "python", "main.py"]

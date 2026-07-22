@@ -40,6 +40,9 @@ only-include = [
     "crews/city_route/tools",
     "crews/city_route/knowledge",
     "crews/city_route/skills",
+    "crews/suggest_place/crew.jsonc",
+    "crews/suggest_place/suggest_models.py",
+    "crews/suggest_place/agents",
 ]
 
 [tool.uv.sources]

@@ -17,3 +17,10 @@ class AgentCoreRunner():
             "crew": "day_plan",
             "inputs": inputs,
         })
+
+    def suggest_place(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Suggest one additional place for an existing day."""
+        return invoke_agent({
+            "crew": "suggest_place",
+            "inputs": inputs,
+        })

@@ -1,0 +1,13 @@
+{
+  "name": "Yanaka Ginza",
+  "address": "Yanaka, Taito, Tokyo",
+  "place_key": "yanaka-ginza|tokyo",
+  "category": "shopping",
+  "reason_to_visit": "Calm shopping street after temple time",
+  "details": "Offline golden for suggest_place eval",
+  "estimated_minutes": 60,
+  "travel_minutes_from_previous": 20,
+  "order_in_day": 4,
+  "operational_status": "open",
+  "closed_weekdays": []
+}

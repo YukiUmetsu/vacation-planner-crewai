@@ -1,5 +1,5 @@
 import { apiFetch } from "./http";
-import type { CreateTripInput, DayPlan, Route, Trip, TripBundle } from "../types/trip";
+import type { CreateTripInput, DayPlan, Place, Route, Trip, TripBundle } from "../types/trip";
 
 export async function createTrip(input: CreateTripInput) {
   return apiFetch<{ trip: Trip; route: Route | null }>("/trips", {
@@ -47,4 +47,11 @@ export function planNextDay(tripId: string) {
     method: "POST",
     body: "{}",
   });
+}
+
+export function suggestPlace(tripId: string, dayIndex: number) {
+  return apiFetch<{ place: Place; day: DayPlan; trip: Trip }>(
+    `/trips/${tripId}/days/${dayIndex}/suggest-place`,
+    { method: "POST", body: "{}" },
+  );
 }

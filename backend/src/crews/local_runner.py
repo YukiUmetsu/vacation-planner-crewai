@@ -87,3 +87,8 @@ class LocalCrewRunner:
         from vacation_planner_models import DayPlan
 
         return _kickoff(_crews_root() / "day_plan", inputs, DayPlan)
+
+    def suggest_place(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        from vacation_planner_models import Place
+
+        return _kickoff(_crews_root() / "suggest_place", inputs, Place)

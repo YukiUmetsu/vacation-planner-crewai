@@ -11,6 +11,8 @@ class CrewRunner(Protocol):
 
     def plan_day(self, inputs: dict[str, Any]) -> dict[str, Any]: ...
 
+    def suggest_place(self, inputs: dict[str, Any]) -> dict[str, Any]: ...
+
 
 def crew_mode() -> str:
     # Default to fake so the backend venv works without CrewAI installed.

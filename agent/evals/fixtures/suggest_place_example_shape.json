@@ -1,0 +1,20 @@
+{
+  "id": "suggest_place_example_shape",
+  "crew": "suggest_place",
+  "inputs": {
+    "overnight_city": "Tokyo",
+    "day_index": "1",
+    "date": "2026-09-01",
+    "preferences": "culture, food",
+    "interests": "",
+    "energy_level": "3",
+    "remaining_minutes": "120",
+    "already_visited": "senso-ji|tokyo",
+    "current_places_json": "[{\"name\": \"Senso-ji\", \"place_key\": \"senso-ji|tokyo\", \"category\": \"other\", \"estimated_minutes\": 90}, {\"name\": \"Nakamise Street\", \"place_key\": \"nakamise|tokyo\", \"category\": \"shopping\", \"estimated_minutes\": 60}, {\"name\": \"Sumida Park\", \"place_key\": \"sumida-park|tokyo\", \"category\": \"park\", \"estimated_minutes\": 45}]",
+    "next_order_in_day": "4"
+  },
+  "expected": {
+    "forbidden_place_keys": ["senso-ji|tokyo"],
+    "max_total_minutes": 510
+  }
+}

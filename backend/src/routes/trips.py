@@ -48,3 +48,13 @@ def plan_next_day(
     event: dict[str, Any], user_sub: str, trip_id: str, **kwargs: Any
 ) -> dict[str, Any]:
     return _service(**kwargs).plan_next_day(user_sub, trip_id)
+
+
+def suggest_place(
+    event: dict[str, Any],
+    user_sub: str,
+    trip_id: str,
+    day_index: int,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    return _service(**kwargs).suggest_place(user_sub, trip_id, day_index)

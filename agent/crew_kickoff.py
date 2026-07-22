@@ -16,11 +16,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-CrewName = Literal["day_plan", "city_route"]
+CrewName = Literal["day_plan", "city_route", "suggest_place"]
 
 _CREW_MODEL_ATTR: dict[CrewName, str] = {
     "day_plan": "DayPlan",
     "city_route": "CityRoute",
+    "suggest_place": "Place",
 }
 
 
@@ -101,9 +102,13 @@ def extract_pydantic_dict(result: Any, model_cls: type) -> dict[str, Any]:
 
 
 def _model_class(crew_name: CrewName) -> type:
-    from vacation_planner_models import CityRoute, DayPlan
+    from vacation_planner_models import CityRoute, DayPlan, Place
 
-    return DayPlan if crew_name == "day_plan" else CityRoute
+    if crew_name == "day_plan":
+        return DayPlan
+    if crew_name == "suggest_place":
+        return Place
+    return CityRoute
 
 
 def run_crew(crew_name: CrewName, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -162,9 +167,26 @@ def _cli() -> int:
             "date": "2026-09-01",
             "overnight_city": "Tokyo",
             "preferences": "culture, food, moderate pace",
+            "interests": "",
+            "energy_level": "3",
+            "max_comfortable_minutes": "510",
             "already_visited": "",
             "prior_days_summary": "",
             "city_route_json": "",
+            **inputs,
+        }
+    elif args.crew == "suggest_place":
+        inputs = {
+            "overnight_city": "Tokyo",
+            "day_index": "1",
+            "date": "2026-09-01",
+            "preferences": "culture, food, moderate pace",
+            "interests": "",
+            "energy_level": "3",
+            "remaining_minutes": "120",
+            "already_visited": "",
+            "current_places_json": "[]",
+            "next_order_in_day": "4",
             **inputs,
         }
 

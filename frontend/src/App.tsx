@@ -82,11 +82,9 @@ export function App({ demoMode = DEFAULT_DEMO_MODE }: AppProps) {
           pending={wizard.planPending}
           onPlanNextDay={wizard.handlePlanNextDay}
           suggestPendingDay={wizard.suggestPendingDay}
-          onAddPlace={wizard.handleAddPlace}
-          onSuggestPlace={
-            demoMode ? wizard.handleSuggestPlace : undefined
-          }
-          onRemovePlace={wizard.handleRemovePlace}
+          onAddPlace={demoMode ? wizard.handleAddPlace : undefined}
+          onSuggestPlace={wizard.handleSuggestPlace}
+          onRemovePlace={demoMode ? wizard.handleRemovePlace : undefined}
         />
       )}
     </WizardLayout>

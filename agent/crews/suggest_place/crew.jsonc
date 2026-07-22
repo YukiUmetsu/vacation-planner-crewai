@@ -1,0 +1,38 @@
+{
+  "name": "suggest_place",
+  "agents": ["suggest_place_researcher", "suggest_place_composer"],
+  "tasks": [
+    {
+      "name": "research_extra_place_task",
+      "description": "Research ONE additional place to add to an existing day plan.\n\nContext:\n- overnight_city: {overnight_city}\n- day_index: {day_index}\n- date: {date}\n- preferences: {preferences}\n- interests: {interests}\n- energy_level: {energy_level}\n- remaining_minutes available for activity+travel: {remaining_minutes}\n- already_visited (do NOT recommend): {already_visited}\n- current_places_json (existing stops on this day): {current_places_json}\n\nFind candidates that are open (not permanently closed), open on {date}'s weekday when known, and whose estimated visit + travel fits within remaining_minutes. Prefer a stop that complements current places (different area/category when sensible).\n\nDo not rewrite the whole day — research extras only.",
+      "expected_output": "A short research brief with 2–4 candidate places including operational_status / hours when known.",
+      "agent": "suggest_place_researcher"
+    },
+    {
+      "name": "compose_suggested_place_task",
+      "description": "Using the research brief, output exactly ONE Place to append.\n\nConstraints:\n- Must not be in already_visited: {already_visited}\n- operational_status must not be closed\n- closed_weekdays must not include the weekday of {date} (Mon=0..Sun=6) when hours are known\n- estimated_minutes + travel_minutes_from_previous must be <= {remaining_minutes}\n- Fill: name, address (if known), category, reason_to_visit, details, estimated_minutes (>0), order_in_day={next_order_in_day}, maps_url/website_url when known, has_bathroom, place_key, operational_status, closed_weekdays, open_hours when known, travel_minutes_from_previous\n- Prefer preferences/interests: {preferences} / {interests}\n- Do not invent venues; pick from the research brief only\n\nOutput structured Place only (no Markdown essay).",
+      "expected_output": "A single Place suitable to append to the day.",
+      "agent": "suggest_place_composer",
+      "context": ["research_extra_place_task"],
+      "output_pydantic": { "python": "suggest_models.Place" }
+    }
+  ],
+  "process": "sequential",
+  "verbose": true,
+  "memory": false,
+  "output_log_file": "logs/crew.log",
+  "stream": false,
+  "tracing": true,
+  "inputs": {
+    "overnight_city": "Tokyo",
+    "day_index": "1",
+    "date": "2026-09-01",
+    "preferences": "culture, food, moderate pace",
+    "interests": "temples, food",
+    "energy_level": "3",
+    "remaining_minutes": "120",
+    "already_visited": "",
+    "current_places_json": "[]",
+    "next_order_in_day": "4"
+  }
+}

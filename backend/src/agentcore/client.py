@@ -85,7 +85,14 @@ def invoke_agent(payload: dict[str, Any]) -> dict[str, Any]:
         )
 
     # Entrypoint error envelope: { "error": "...", "code": "..." }
-    if "error" in data and "places" not in data and "cities" not in data:
+    # Success shapes: DayPlan (places), CityRoute (cities), Place (place_key).
+    if (
+        "error" in data
+        and "code" in data
+        and "places" not in data
+        and "cities" not in data
+        and "place_key" not in data
+    ):
         code = str(data.get("code") or "agent_error")
         status = _ENVELOPE_STATUS.get(code, 502)
         raise ApiError(status, str(data["error"]), code=code)

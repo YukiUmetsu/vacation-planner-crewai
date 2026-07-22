@@ -12,6 +12,9 @@ from typing import Any
 _TRIP_ID_RE = re.compile(
     r"^/trips(?:/(?P<trip_id>[^/]+))?(?:/(?P<action>propose-cities|cities|plan-next-day))?/?$"
 )
+_DAY_ACTION_RE = re.compile(
+    r"^/trips/(?P<trip_id>[^/]+)/days/(?P<day_index>\d+)/(?P<action>suggest-place)/?$"
+)
 
 
 class ApiError(Exception):
@@ -47,6 +50,14 @@ def parse_route(path: str) -> tuple[str | None, str | None]:
     if not match:
         return None, None
     return match.group("trip_id"), match.group("action")
+
+
+def parse_day_action(path: str) -> tuple[str, int, str] | None:
+    """Return (trip_id, day_index, action) for /trips/{id}/days/{n}/… routes."""
+    match = _DAY_ACTION_RE.match(path)
+    if not match:
+        return None
+    return match.group("trip_id"), int(match.group("day_index")), match.group("action")
 
 
 def parse_body(event: dict[str, Any]) -> dict[str, Any]:

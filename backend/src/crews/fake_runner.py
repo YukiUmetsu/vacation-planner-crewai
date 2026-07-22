@@ -8,6 +8,10 @@ from db.place_keys import make_place_key
 
 
 class FakeCrewRunner:
+    def __init__(self) -> None:
+        self.last_plan_day_inputs: dict[str, Any] | None = None
+        self.last_suggest_place_inputs: dict[str, Any] | None = None
+
     def propose_cities(self, inputs: dict[str, Any]) -> dict[str, Any]:
         day_count = int(inputs.get("day_count") or 7)
         destination = str(inputs.get("destination") or "Japan")
@@ -57,6 +61,7 @@ class FakeCrewRunner:
         }
 
     def plan_day(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        self.last_plan_day_inputs = dict(inputs)
         day_index = int(inputs.get("day_index") or 1)
         overnight = str(inputs.get("overnight_city") or "Tokyo")
         date_str = str(inputs.get("date") or "2026-09-01")
@@ -84,4 +89,26 @@ class FakeCrewRunner:
             "summary": "Fake day plan",
             "overnight_city": overnight,
             "places": places,
+        }
+
+    def suggest_place(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        self.last_suggest_place_inputs = dict(inputs)
+        overnight = str(inputs.get("overnight_city") or "Tokyo")
+        day_index = int(inputs.get("day_index") or 1)
+        order = int(inputs.get("next_order_in_day") or 4)
+        name = f"{overnight} Extra Spot D{day_index}-{order}"
+        address = f"{order} Side St, {overnight}"
+        return {
+            "name": name,
+            "address": address,
+            "category": "other",
+            "reason_to_visit": "Extra stop for tests",
+            "details": "Synthetic suggested place for FakeCrewRunner",
+            "estimated_minutes": 45,
+            "travel_minutes_from_previous": 15,
+            "has_bathroom": None,
+            "order_in_day": order,
+            "place_key": make_place_key(name, address),
+            "operational_status": "open",
+            "closed_weekdays": [],
         }

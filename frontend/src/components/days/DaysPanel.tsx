@@ -91,7 +91,9 @@ export function DaysPanel({
                 : undefined
             }
             onSuggestPlace={
-              onSuggestPlace ? () => onSuggestPlace(day.day_index) : undefined
+              onSuggestPlace && day.places.length < 6
+                ? () => onSuggestPlace(day.day_index)
+                : undefined
             }
             onRemovePlace={
               onRemovePlace

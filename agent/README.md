@@ -8,6 +8,7 @@ CrewAI crews packaged for **Amazon Bedrock AgentCore Runtime**.
 | --- | --- |
 | `crews/day_plan/` | Day crew: research → `DayPlan` (structured, one day) |
 | `crews/city_route/` | City route crew: research → `CityRoute` (structured) |
+| `crews/suggest_place/` | Extra stop: research → single `Place` |
 | `models/` | Installable package `vacation_planner_models` (Pydantic + `place_key`) |
 | `main.py` | AgentCore Runtime entrypoint (`BedrockAgentCoreApp`) |
 | `pyproject.toml` | Runtime deps including `bedrock-agentcore` |

@@ -110,6 +110,180 @@ def test_full_country_flow(service: TripService) -> None:
     assert len(bundle["days"]) == 1
 
 
+def test_suggest_place_appends_to_day(service: TripService) -> None:
+    trip_id = _create_country(service)
+    proposed = service.propose_cities(USER, trip_id)
+    service.confirm_cities(
+        USER,
+        trip_id,
+        {
+            "destination_type": "country",
+            "cities": proposed["route"]["cities"],
+            "rationale": proposed["route"]["rationale"],
+            "total_nights": proposed["route"]["total_nights"],
+            "status": "confirmed",
+        },
+    )
+    planned = service.plan_next_day(USER, trip_id)
+    before = len(planned["day"]["places"])
+    assert before >= 3
+
+    suggested = service.suggest_place(USER, trip_id, 1)
+    assert suggested["place"]["name"]
+    assert suggested["place"]["place_key"]
+    assert len(suggested["day"]["places"]) == before + 1
+    assert suggested["place"]["place_key"] in suggested["trip"]["visited_place_keys"]
+    assert service.runner.last_suggest_place_inputs is not None
+    assert "remaining_minutes" in service.runner.last_suggest_place_inputs
+
+
+def test_suggest_place_atomic_when_transact_fails(
+    dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from crews.fake_runner import FakeCrewRunner
+
+    service = TripService(
+        table=dynamodb_table, runner=FakeCrewRunner(), safety=NoopSafetyGate()
+    )
+    trip_id = _create_country(service)
+    proposed = service.propose_cities(USER, trip_id)
+    service.confirm_cities(
+        USER,
+        trip_id,
+        {
+            "destination_type": "country",
+            "cities": proposed["route"]["cities"],
+            "rationale": proposed["route"]["rationale"],
+            "total_nights": proposed["route"]["total_nights"],
+            "status": "confirmed",
+        },
+    )
+    planned = service.plan_next_day(USER, trip_id)
+    before_count = len(planned["day"]["places"])
+    before_visited = list(planned["trip"]["visited_place_keys"])
+
+    def boom(**_kwargs: Any) -> Any:
+        raise RuntimeError("forced transact failure")
+
+    from db.client import get_dynamodb_client
+
+    monkeypatch.setattr(get_dynamodb_client(), "transact_write_items", boom)
+    with pytest.raises(ApiError) as exc:
+        service.suggest_place(USER, trip_id, 1)
+    assert exc.value.status_code == 502
+    assert exc.value.code == "persistence_error"
+
+    day = repo.get_day(user_sub=USER, trip_id=trip_id, day_index=1, table=dynamodb_table)
+    trip = repo.get_trip_meta(user_sub=USER, trip_id=trip_id, table=dynamodb_table)
+    assert day is not None and trip is not None
+    assert len(day["places"]) == before_count
+    assert list(trip.get("visited_place_keys") or []) == before_visited
+
+
+def test_persist_suggested_place_transaction_is_atomic(
+    dynamodb_table: Any,
+) -> None:
+    """Canceled TransactWriteItems must not change day places or visited keys."""
+    from crews.fake_runner import FakeCrewRunner
+
+    service = TripService(
+        table=dynamodb_table, runner=FakeCrewRunner(), safety=NoopSafetyGate()
+    )
+    trip_id = _create_country(service)
+    proposed = service.propose_cities(USER, trip_id)
+    service.confirm_cities(
+        USER,
+        trip_id,
+        {
+            "destination_type": "country",
+            "cities": proposed["route"]["cities"],
+            "rationale": proposed["route"]["rationale"],
+            "total_nights": proposed["route"]["total_nights"],
+            "status": "confirmed",
+        },
+    )
+    planned = service.plan_next_day(USER, trip_id)
+    places = list(planned["day"]["places"])
+    visited = list(planned["trip"]["visited_place_keys"])
+    new_place = {
+        "name": "Extra",
+        "place_key": "extra|x",
+        "estimated_minutes": 30,
+        "operational_status": "open",
+    }
+
+    with pytest.raises(repo.ConcurrentModificationError):
+        repo.persist_suggested_place(
+            user_sub=USER,
+            trip_id=trip_id,
+            day_index=1,
+            places=[*places, new_place],
+            expected_place_count=len(places),
+            place_key="extra|x",
+            # Stale visited snapshot → trip condition fails; whole txn aborts.
+            previous_visited_keys=["stale-key-only"],
+            table=dynamodb_table,
+        )
+
+    day_after = repo.get_day(user_sub=USER, trip_id=trip_id, day_index=1, table=dynamodb_table)
+    trip_after = repo.get_trip_meta(user_sub=USER, trip_id=trip_id, table=dynamodb_table)
+    assert day_after is not None and trip_after is not None
+    assert len(day_after["places"]) == len(places)
+    assert list(trip_after.get("visited_place_keys") or []) == visited
+
+
+def test_suggest_place_rejects_when_day_full(
+    dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from crews.fake_runner import FakeCrewRunner
+
+    class SixPlaceRunner(FakeCrewRunner):
+        def plan_day(self, inputs: dict[str, Any]) -> dict[str, Any]:
+            base = super().plan_day(inputs)
+            overnight = str(inputs.get("overnight_city") or "Tokyo")
+            day_index = int(inputs.get("day_index") or 1)
+            places = list(base["places"])
+            while len(places) < 6:
+                i = len(places) + 1
+                name = f"{overnight} Spot {i} D{day_index}"
+                address = f"{i} Main St, {overnight}"
+                places.append(
+                    {
+                        "name": name,
+                        "address": address,
+                        "category": "other",
+                        "reason_to_visit": "Fill",
+                        "details": "Synthetic",
+                        "estimated_minutes": 30,
+                        "order_in_day": i,
+                        "place_key": f"fill-{day_index}-{i}",
+                        "operational_status": "open",
+                    }
+                )
+            return {**base, "places": places}
+
+    service = TripService(
+        table=dynamodb_table, runner=SixPlaceRunner(), safety=NoopSafetyGate()
+    )
+    trip_id = _create_country(service)
+    proposed = service.propose_cities(USER, trip_id)
+    service.confirm_cities(
+        USER,
+        trip_id,
+        {
+            "destination_type": "country",
+            "cities": proposed["route"]["cities"],
+            "rationale": proposed["route"]["rationale"],
+            "total_nights": proposed["route"]["total_nights"],
+            "status": "confirmed",
+        },
+    )
+    service.plan_next_day(USER, trip_id)
+    with pytest.raises(ApiError) as exc:
+        service.suggest_place(USER, trip_id, 1)
+    assert exc.value.code == "day_full"
+
+
 def test_plan_before_confirm_rejected(service: TripService) -> None:
     trip_id = _create_country(service)
     with pytest.raises(ApiError) as exc:
@@ -121,6 +295,60 @@ def test_list_trips(service: TripService) -> None:
     _create_country(service)
     listed = service.list_trips(USER)
     assert len(listed["trips"]) == 1
+
+
+def test_plan_next_day_includes_profile_context(
+    dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from crews.fake_runner import FakeCrewRunner
+    from services.profile_service import ProfileService
+
+    runner = FakeCrewRunner()
+    service = TripService(table=dynamodb_table, runner=runner, safety=NoopSafetyGate())
+    ProfileService(table=dynamodb_table, safety=NoopSafetyGate()).put_profile(
+        USER,
+        {
+            "display_name": "Traveler",
+            "preferences": "quiet temples",
+            "energy_level": 2,
+            "interests": ["gardens"],
+            "visited_places": [{"name": "Old Spot", "city": "Tokyo"}],
+        },
+    )
+    trip_id = service.create_trip(
+        USER,
+        {
+            "origin": "NYC",
+            "destination": "Japan",
+            "destination_type": "country",
+            "start_date": "2026-09-01",
+            "end_date": "2026-09-07",
+            "preferences": "food",
+        },
+    )["trip"]["trip_id"]
+    service.propose_cities(USER, trip_id)
+    route = service.get_trip(USER, trip_id)["route"]
+    assert route is not None
+    service.confirm_cities(
+        USER,
+        trip_id,
+        {
+            "destination_type": "country",
+            "cities": route["cities"],
+            "rationale": route.get("rationale") or "",
+            "total_nights": route["total_nights"],
+            "status": "confirmed",
+        },
+    )
+    service.plan_next_day(USER, trip_id)
+    inputs = runner.last_plan_day_inputs
+    assert inputs is not None
+    assert inputs["energy_level"] == "2"
+    assert inputs["max_comfortable_minutes"] == "390"
+    assert "gardens" in inputs["interests"]
+    assert "quiet temples" in inputs["preferences"]
+    assert "food" in inputs["preferences"]
+    assert "old spot|tokyo" in inputs["already_visited"]
 
 
 def test_propose_cities_not_for_city(service: TripService) -> None:

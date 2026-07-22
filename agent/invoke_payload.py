@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-CrewName = Literal["day_plan", "city_route"]
-ALLOWED_CREWS = frozenset({"day_plan", "city_route"})
+CrewName = Literal["day_plan", "city_route", "suggest_place"]
+ALLOWED_CREWS = frozenset({"day_plan", "city_route", "suggest_place"})
 
 
 class PayloadError(ValueError):
@@ -15,7 +15,7 @@ class PayloadError(ValueError):
 def parse_invoke_payload(raw: Any) -> tuple[CrewName, dict[str, Any]]:
     """
     Expected shape:
-      { "crew": "day_plan" | "city_route", "inputs": { ... } }
+      { "crew": "day_plan" | "city_route" | "suggest_place", "inputs": { ... } }
 
     Also accepts a wrapped body: { "payload": { ... } }.
     """

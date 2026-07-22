@@ -4,6 +4,7 @@ import {
   getTrip,
   planNextDay,
   proposeCities,
+  suggestPlace,
 } from "../api/trips";
 import type { CityStop, DayPlan, Route, Trip, TripBundle } from "../types/trip";
 import type { SetStateAction } from "react";
@@ -125,6 +126,28 @@ export function useLiveTripActions({
     onError: (err: Error) => onActionError(err.message),
   });
 
+  const suggestPlaceMutation = useMutation({
+    mutationFn: ({ id, dayIndex }: { id: string; dayIndex: number }) =>
+      suggestPlace(id, dayIndex),
+    onSuccess: (data, { id }) => {
+      onActionError(null);
+      const day = data.day;
+      onApplied((prev) => {
+        const nextDays = [
+          ...prev.days.filter((d) => d.day_index !== day.day_index),
+          day,
+        ].sort((a, b) => a.day_index - b.day_index);
+        return {
+          ...prev,
+          trip: data.trip,
+          days: nextDays,
+        };
+      });
+      invalidateTrip(queryClient, id);
+    },
+    onError: (err: Error) => onActionError(err.message),
+  });
+
   async function hydrateFromApi(id: string) {
     const bundle = await getTrip(id);
     onApplied(applyTripBundle(bundle));
@@ -146,13 +169,20 @@ export function useLiveTripActions({
     planDayMutation.mutate(tripId);
   }
 
+  function runSuggestPlace(dayIndex: number) {
+    if (!tripId) return;
+    suggestPlaceMutation.mutate({ id: tripId, dayIndex });
+  }
+
   return {
     proposeMutation,
     confirmMutation,
     planDayMutation,
+    suggestPlaceMutation,
     hydrateFromApi,
     runPropose,
     runConfirm,
     runPlanNextDay,
+    runSuggestPlace,
   };
 }

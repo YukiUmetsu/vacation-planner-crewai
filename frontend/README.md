@@ -16,7 +16,7 @@ Open http://localhost:5173
 
 **Demo mode is on by default** (`VITE_USE_DEMO_DATA` unset / not `false`): click Details / Cities / Days with sample Japan data — no API needed.
 
-- **Days:** click a place for detail sheet (cost, hours, map, why suggested, watch-outs); min total time (incl. travel); **Add place** / **Suggest a place** / **Remove**
+- **Days:** click a place for detail sheet (cost, hours, map, why suggested, watch-outs); min total time (incl. travel); **Suggest a place** (live API); **Add/Remove** in demo only
 - **Profile** (header): preferences, energy level (1–5 signal bars), interests, places you’ve been
 - **Cities:** adjust nights (day ranges recompute); **Add city → Hiroshima** for the feasibility warning
 
@@ -52,7 +52,7 @@ Theme: ocean teal + sand, Newsreader + DM Sans (`src/index.css`). Energy load ca
 
 **Done:** Tailwind theme, wizard shell, demo App (cities/days/profile), create + propose/confirm/plan-next-day live mutations (`VITE_USE_DEMO_DATA=false`), profile `localStorage`, city day-range helpers, place remove-by-index, Vitest coverage for API/create/remove/a11y.
 
-**Still to wire:** Cognito Hosted UI sign-in (live API still uses `AUTH_MODE=dev` locally). Trip list UI can call `listTrips()` when you add a picker.
+**Still to wire:** Cognito Hosted UI sign-in (live API still uses `AUTH_MODE=dev` locally). Trip list UI can call `listTrips()` when you add a picker. Profile GET/PUT `/profile` is wired from the wizard (falls back to localStorage if the API is down).
 
 ## Layout
 

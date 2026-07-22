@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from db import keys
-from db.client import get_table
-from db.protocols import DynamoDBTable
+from db.client import get_dynamodb_client, get_table
+from db.protocols import DynamoDBClient, DynamoDBTable
 from db.schema import GSI1_NAME
 
 # DynamoDB item documents (keys + attributes). Numbers may be Decimal from boto3.
@@ -16,6 +17,10 @@ DynamoItem = dict[str, Any]
 
 class ConcurrentModificationError(Exception):
     """Raised when a conditional DynamoDB write loses a race."""
+
+
+class PersistenceError(Exception):
+    """Unexpected DynamoDB/client failure (not an optimistic-lock conflict)."""
 
 
 def _now_iso() -> str:
@@ -338,6 +343,59 @@ def put_day_if_absent(
     return item
 
 
+def get_day(
+    *,
+    user_sub: str,
+    trip_id: str,
+    day_index: int,
+    table: DynamoDBTable | None = None,
+) -> DynamoItem | None:
+    """Point-read a single DAY item."""
+    tbl = table or get_table()
+    response = tbl.get_item(
+        Key={"pk": keys.user_pk(user_sub), "sk": keys.day_sk(trip_id, day_index)},
+    )
+    item = response.get("Item")
+    if not item or item.get("entity_type") != "DAY":
+        return None
+    return item
+
+
+def replace_day_places(
+    *,
+    user_sub: str,
+    trip_id: str,
+    day_index: int,
+    places: list[DynamoItem],
+    expected_place_count: int,
+    table: DynamoDBTable | None = None,
+) -> DynamoItem:
+    """Replace DAY.places with optimistic lock on previous place count."""
+    tbl = table or get_table()
+    try:
+        response = tbl.update_item(
+            Key={"pk": keys.user_pk(user_sub), "sk": keys.day_sk(trip_id, day_index)},
+            UpdateExpression="SET #places = :places, #ua = :ua",
+            ExpressionAttributeNames={"#places": "places", "#ua": "updated_at"},
+            ExpressionAttributeValues={
+                ":places": _strip_nones(places),
+                ":ua": _now_iso(),
+                ":expected": expected_place_count,
+            },
+            ConditionExpression=(
+                "attribute_exists(pk) AND size(#places) = :expected"
+            ),
+            ReturnValues="ALL_NEW",
+        )
+    except Exception as exc:
+        if _is_conditional_failure(exc):
+            raise ConcurrentModificationError(
+                "day places changed concurrently; retry suggest-place"
+            ) from exc
+        raise
+    return response["Attributes"]
+
+
 def persist_planned_day(
     *,
     user_sub: str,
@@ -394,3 +452,264 @@ def persist_planned_day(
         table=table,
     )
     return day_item
+
+
+def _dynamo_client(_table: DynamoDBTable | None = None) -> DynamoDBClient:
+    """Low-level DynamoDB client for TransactWriteItems.
+
+    Do not use ``table.meta.client`` with TypeSerializer payloads — the resource
+    client path can re-encode AttributeValue dicts and moto/AWS then fail with
+    ``unhashable type: 'dict'``.
+    """
+    return get_dynamodb_client()
+
+
+def _table_name_for(table: DynamoDBTable | None) -> str:
+    if table is not None and getattr(table, "name", None):
+        return str(table.name)
+    return get_table().name
+
+
+def _dynamo_safe(value: Any) -> Any:
+    """Normalize Decimals / nested structures for low-level TypeSerializer."""
+    if isinstance(value, Decimal):
+        if value % 1 == 0:
+            return int(value)
+        return float(value)
+    if isinstance(value, list):
+        return [_dynamo_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _dynamo_safe(v) for k, v in value.items()}
+    return value
+
+
+def _is_transaction_canceled(exc: BaseException) -> bool:
+    response = getattr(exc, "response", None) or {}
+    if not isinstance(response, dict):
+        response = {}
+    code = (response.get("Error") or {}).get("Code", "")
+    name = type(exc).__name__
+    return code == "TransactionCanceledException" or "TransactionCanceled" in name
+
+
+def persist_suggested_place(
+    *,
+    user_sub: str,
+    trip_id: str,
+    day_index: int,
+    places: list[DynamoItem],
+    expected_place_count: int,
+    place_key: str,
+    previous_visited_keys: list[str],
+    table: DynamoDBTable | None = None,
+) -> tuple[DynamoItem, DynamoItem]:
+    """Atomically update DAY.places and TRIP.visited_place_keys via TransactWriteItems.
+
+    If the new place_key is already on the trip visited list, only the day row is
+    updated (single conditional write).
+    """
+    cleaned_places = _strip_nones(places)
+    if not isinstance(cleaned_places, list):
+        raise TypeError("places must be a list")
+    if len(cleaned_places) != expected_place_count + 1:
+        raise ValueError(
+            "places must be previous day places plus exactly one suggested place"
+        )
+
+    key = str(place_key or "").strip()
+    previous_visited = list(previous_visited_keys)
+
+    # Already tracked — day-only write (no visited mutation to coordinate).
+    if not key or key in previous_visited:
+        day_item = replace_day_places(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            day_index=day_index,
+            places=cleaned_places,  # type: ignore[arg-type]
+            expected_place_count=expected_place_count,
+            table=table,
+        )
+        trip = get_trip_meta(user_sub=user_sub, trip_id=trip_id, table=table)
+        if not trip:
+            raise ConcurrentModificationError("trip not found after day update")
+        return day_item, trip
+
+    from boto3.dynamodb.types import TypeSerializer
+
+    serializer = TypeSerializer()
+    now = _now_iso()
+    safe_places = _dynamo_safe(cleaned_places)
+    updated_visited = [*previous_visited, key]
+    client = _dynamo_client(table)
+    name = _table_name_for(table)
+    pk = keys.user_pk(user_sub)
+
+    day_update: dict[str, Any] = {
+        "Update": {
+            "TableName": name,
+            "Key": {
+                "pk": serializer.serialize(pk),
+                "sk": serializer.serialize(keys.day_sk(trip_id, day_index)),
+            },
+            "UpdateExpression": "SET #places = :places, #ua = :ua",
+            "ExpressionAttributeNames": {"#places": "places", "#ua": "updated_at"},
+            "ExpressionAttributeValues": {
+                ":places": serializer.serialize(safe_places),
+                ":ua": serializer.serialize(now),
+                ":expected": serializer.serialize(expected_place_count),
+            },
+            "ConditionExpression": "attribute_exists(pk) AND size(#places) = :expected",
+        }
+    }
+
+    trip_values: dict[str, Any] = {
+        ":new": serializer.serialize(updated_visited),
+        ":ua": serializer.serialize(now),
+        ":prev": serializer.serialize(previous_visited),
+    }
+    if previous_visited:
+        trip_condition = "attribute_exists(pk) AND #v = :prev"
+    else:
+        trip_condition = (
+            "attribute_exists(pk) AND (attribute_not_exists(#v) OR #v = :prev)"
+        )
+
+    trip_update: dict[str, Any] = {
+        "Update": {
+            "TableName": name,
+            "Key": {
+                "pk": serializer.serialize(pk),
+                "sk": serializer.serialize(keys.trip_sk(trip_id)),
+            },
+            "UpdateExpression": "SET #v = :new, #ua = :ua",
+            "ExpressionAttributeNames": {
+                "#v": "visited_place_keys",
+                "#ua": "updated_at",
+            },
+            "ExpressionAttributeValues": trip_values,
+            "ConditionExpression": trip_condition,
+        }
+    }
+
+    try:
+        client.transact_write_items(TransactItems=[day_update, trip_update])
+    except Exception as exc:
+        if _is_transaction_canceled(exc) or _is_conditional_failure(exc):
+            raise ConcurrentModificationError(
+                "suggest-place conflict on day places or visited keys; retry"
+            ) from exc
+        raise PersistenceError(
+            f"suggest-place transaction failed: {type(exc).__name__}"
+        ) from exc
+
+    day_item = get_day(
+        user_sub=user_sub, trip_id=trip_id, day_index=day_index, table=table
+    )
+    trip = get_trip_meta(user_sub=user_sub, trip_id=trip_id, table=table)
+    if not day_item or not trip:
+        raise PersistenceError(
+            "suggest-place transaction succeeded but items missing on re-read"
+        )
+    return day_item, trip
+
+
+def append_visited_place_key(
+    *,
+    user_sub: str,
+    trip_id: str,
+    place_key: str,
+    table: DynamoDBTable | None = None,
+    max_attempts: int = 5,
+) -> DynamoItem:
+    """Append one key to TRIP.visited_place_keys with optimistic concurrency.
+
+    Avoids lost updates when suggest-place races with plan-next-day (or another
+    suggest) that also rewrites the visited list.
+    """
+    tbl = table or get_table()
+    key = str(place_key or "").strip()
+    if not key:
+        trip = get_trip_meta(user_sub=user_sub, trip_id=trip_id, table=tbl)
+        if not trip:
+            raise ConcurrentModificationError("trip not found while updating visited keys")
+        return trip
+
+    for _ in range(max_attempts):
+        trip = get_trip_meta(user_sub=user_sub, trip_id=trip_id, table=tbl)
+        if not trip:
+            raise ConcurrentModificationError("trip not found while updating visited keys")
+        previous = list(trip.get("visited_place_keys") or [])
+        if key in previous:
+            return trip
+        updated = [*previous, key]
+        names = {"#v": "visited_place_keys", "#ua": "updated_at"}
+        values: DynamoItem = {
+            ":new": updated,
+            ":ua": _now_iso(),
+            ":prev": previous,
+        }
+        if previous:
+            condition = "attribute_exists(pk) AND #v = :prev"
+        else:
+            # Brand-new trips always have [], but tolerate a missing attribute.
+            condition = (
+                "attribute_exists(pk) AND (attribute_not_exists(#v) OR #v = :prev)"
+            )
+        try:
+            response = tbl.update_item(
+                Key={"pk": keys.user_pk(user_sub), "sk": keys.trip_sk(trip_id)},
+                UpdateExpression="SET #v = :new, #ua = :ua",
+                ExpressionAttributeNames=names,
+                ExpressionAttributeValues=values,
+                ConditionExpression=condition,
+                ReturnValues="ALL_NEW",
+            )
+            return response["Attributes"]
+        except Exception as exc:
+            if _is_conditional_failure(exc):
+                continue
+            raise
+    raise ConcurrentModificationError(
+        "could not append visited place key; retry suggest-place"
+    )
+
+
+def get_profile(*, user_sub: str, table: DynamoDBTable | None = None) -> DynamoItem | None:
+    tbl = table or get_table()
+    resp = tbl.get_item(Key={"pk": keys.user_pk(user_sub), "sk": keys.profile_sk()})
+    item = resp.get("Item")
+    return item if isinstance(item, dict) else None
+
+
+def put_profile(
+    *,
+    user_sub: str,
+    display_name: str = "",
+    preferences: str = "",
+    energy_level: int = 3,
+    interests: list[str] | None = None,
+    visited_places: list[dict[str, Any]] | None = None,
+    table: DynamoDBTable | None = None,
+) -> DynamoItem:
+    tbl = table or get_table()
+    now = _now_iso()
+    existing = get_profile(user_sub=user_sub, table=tbl)
+    created_at = str(existing.get("created_at") or now) if existing else now
+    item: DynamoItem = {
+        "pk": keys.user_pk(user_sub),
+        "sk": keys.profile_sk(),
+        "entity_type": "PROFILE",
+        "user_id": user_sub,
+        "display_name": display_name,
+        "preferences": preferences,
+        "energy_level": int(energy_level),
+        "interests": list(interests or []),
+        "visited_places": list(visited_places or []),
+        "created_at": created_at,
+        "updated_at": now,
+    }
+    cleaned = _strip_nones(item)
+    if not isinstance(cleaned, dict):
+        raise TypeError("profile item must be a mapping")
+    tbl.put_item(Item=cleaned)
+    return cleaned

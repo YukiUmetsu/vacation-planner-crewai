@@ -15,7 +15,16 @@ from http_utils import ApiError, public_item
 from models.api import ConfirmCitiesRequest, CreateTripRequest
 from services.dates import date_for_day_index, parse_iso_date, validate_trip_dates
 from services.dedupe import dedupe_places
+from services.energy import clamp_energy_level, max_minutes_for_energy
+from services.place_quality import (
+    day_total_minutes,
+    filter_quality_places,
+    profile_visited_name_keys,
+    validate_suggested_place,
+)
+from services.profile_service import ProfileService
 from services.safety import SafetyGate, get_safety_gate
+from db.place_keys import make_place_key
 from decimal import Decimal
 
 
@@ -124,6 +133,31 @@ def overnight_city_for_day(route: dict[str, Any] | None, day_index: int, destina
         if arrival <= day_index <= departure:
             return str(stop.get("city") or destination)
     raise ApiError(409, f"no city covers day_index={day_index}", code="route_gap")
+
+
+def _merge_preferences(trip_prefs: str, profile_prefs: str, interests: list[str]) -> str:
+    parts: list[str] = []
+    for chunk in (trip_prefs.strip(), profile_prefs.strip()):
+        if chunk and chunk not in parts:
+            parts.append(chunk)
+    if interests:
+        interest_line = "Interests: " + ", ".join(interests)
+        if interest_line not in parts:
+            parts.append(interest_line)
+    return " | ".join(parts)
+
+
+def _profile_visited_keys(visited_places: list[Any]) -> list[str]:
+    keys: list[str] = []
+    for place in visited_places:
+        if not isinstance(place, dict):
+            continue
+        name = str(place.get("name") or "").strip()
+        if not name:
+            continue
+        city = str(place.get("city") or "").strip() or None
+        keys.append(make_place_key(name, city))
+    return keys
 
 
 def synthetic_city_route(*, destination: str, day_count: int) -> dict[str, Any]:
@@ -316,7 +350,22 @@ class TripService:
 
         self.safety.check_text(str(trip.get("preferences") or ""), source="preferences")
 
+        profile = ProfileService(table=self._table, safety=self.safety).get_profile(user_sub)
+        energy_level = clamp_energy_level(profile.get("energy_level"))
+        max_minutes = max_minutes_for_energy(energy_level)
+        interests = [str(i) for i in (profile.get("interests") or []) if str(i).strip()]
+        merged_prefs = _merge_preferences(
+            str(trip.get("preferences") or ""),
+            str(profile.get("preferences") or ""),
+            interests,
+        )
+        self.safety.check_text(merged_prefs, source="preferences")
+
         visited = list(trip.get("visited_place_keys") or [])
+        for key in _profile_visited_keys(list(profile.get("visited_places") or [])):
+            if key not in visited:
+                visited.append(key)
+
         route_for_crew = _route_payload(route) if route else {}
         inputs = {
             "origin": trip["origin"],
@@ -325,7 +374,10 @@ class TripService:
             "day_index": str(next_index),
             "date": day_date.isoformat(),
             "overnight_city": overnight,
-            "preferences": trip.get("preferences") or "",
+            "preferences": merged_prefs,
+            "energy_level": str(energy_level),
+            "max_comfortable_minutes": str(max_minutes),
+            "interests": ", ".join(interests),
             "already_visited": ",".join(visited),
             "prior_days_summary": trip.get("prior_days_summary") or "",
             "city_route_json": json.dumps(_json_safe(route_for_crew)) if route_for_crew else "",
@@ -339,6 +391,14 @@ class TripService:
                 "all suggested places were already visited; retry plan-next-day",
                 code="dedupe_empty",
             )
+        filtered = filter_quality_places(
+            filtered,
+            plan_date=day_date,
+            max_comfortable_minutes=max_minutes,
+            profile_visited_names=profile_visited_name_keys(
+                list(profile.get("visited_places") or [])
+            ),
+        )
         day_data = {
             **day_data,
             "day_index": next_index,
@@ -347,8 +407,9 @@ class TripService:
             "places": filtered,
         }
 
+        trip_visited = list(trip.get("visited_place_keys") or [])
         new_keys = [str(p.get("place_key")) for p in filtered if p.get("place_key")]
-        updated_visited = visited + [k for k in new_keys if k not in visited]
+        updated_visited = trip_visited + [k for k in new_keys if k not in trip_visited]
         theme = str(day_data.get("theme") or f"Day {next_index}")
         prior = str(trip.get("prior_days_summary") or "").strip()
         line = f"Day {next_index}: {theme} @ {overnight}"
@@ -373,6 +434,146 @@ class TripService:
 
         trip = self._require_trip(user_sub, trip_id)
         return {
+            "day": public_item(day_item),
+            "trip": public_item(trip),
+        }
+
+    def suggest_place(
+        self, user_sub: str, trip_id: str, day_index: int
+    ) -> dict[str, Any]:
+        """Research and append one place to an existing planned day."""
+        if day_index < 1:
+            raise ApiError(400, "day_index must be >= 1", code="invalid_day_index")
+
+        trip = self._require_trip(user_sub, trip_id)
+        day_count = int(trip.get("day_count") or 0)
+        if day_count and day_index > day_count:
+            raise ApiError(
+                400,
+                f"day_index {day_index} is outside trip window 1..{day_count}",
+                code="invalid_day_index",
+            )
+        day = repo.get_day(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            day_index=day_index,
+            table=self._table,
+        )
+        if not day:
+            raise ApiError(404, "day not found", code="not_found")
+
+        existing = list(day.get("places") or [])
+        if len(existing) >= 6:
+            raise ApiError(422, "day already has the maximum of 6 places", code="day_full")
+
+        start = parse_iso_date(str(trip["start_date"]), field="start_date")
+        raw_date = str(day.get("date") or "").strip()
+        if raw_date:
+            day_date = parse_iso_date(raw_date[:10], field="date")
+        else:
+            day_date = date_for_day_index(start, day_index)
+        overnight = str(day.get("overnight_city") or trip["destination"])
+
+        profile = ProfileService(table=self._table, safety=self.safety).get_profile(
+            user_sub
+        )
+        energy_level = clamp_energy_level(profile.get("energy_level"))
+        max_minutes = max_minutes_for_energy(energy_level)
+        interests = [str(i) for i in (profile.get("interests") or []) if str(i).strip()]
+        merged_prefs = _merge_preferences(
+            str(trip.get("preferences") or ""),
+            str(profile.get("preferences") or ""),
+            interests,
+        )
+        self.safety.check_text(merged_prefs, source="preferences")
+
+        current_total = day_total_minutes(existing)
+        remaining = max_minutes - current_total
+        if remaining < 1:
+            raise ApiError(
+                422,
+                f"day already at or over energy warning threshold "
+                f"({current_total} >= {max_minutes} minutes)",
+                code="energy_overload",
+            )
+
+        visited = list(trip.get("visited_place_keys") or [])
+        for key in _profile_visited_keys(list(profile.get("visited_places") or [])):
+            if key not in visited:
+                visited.append(key)
+        for place in existing:
+            key = str(place.get("place_key") or "").strip()
+            if key and key not in visited:
+                visited.append(key)
+
+        slim_current = [
+            {
+                "name": p.get("name"),
+                "place_key": p.get("place_key"),
+                "category": p.get("category"),
+                "estimated_minutes": p.get("estimated_minutes"),
+            }
+            for p in existing
+        ]
+        inputs = {
+            "overnight_city": overnight,
+            "day_index": str(day_index),
+            "date": day_date.isoformat(),
+            "preferences": merged_prefs,
+            "interests": ", ".join(interests),
+            "energy_level": str(energy_level),
+            "remaining_minutes": str(remaining),
+            "already_visited": ",".join(visited),
+            "current_places_json": json.dumps(_json_safe(slim_current)),
+            "next_order_in_day": str(len(existing) + 1),
+        }
+        raw = self.runner.suggest_place(inputs)
+        if (
+            isinstance(raw, dict)
+            and "error" in raw
+            and "code" in raw
+            and "place_key" not in raw
+        ):
+            raise ApiError(
+                502,
+                str(raw.get("error") or "suggest_place failed"),
+                code=str(raw.get("code") or "crew_failed"),
+            )
+        candidate = raw.get("place") if isinstance(raw.get("place"), dict) else raw
+        if not isinstance(candidate, dict):
+            raise ApiError(422, "crew did not return a place", code="invalid_place")
+
+        validated = validate_suggested_place(
+            candidate,
+            existing_places=existing,
+            plan_date=day_date,
+            max_comfortable_minutes=max_minutes,
+            already_visited_keys=set(visited),
+            profile_visited_names=profile_visited_name_keys(
+                list(profile.get("visited_places") or [])
+            ),
+        )
+        updated_places = [*existing, validated]
+        place_key = str(validated.get("place_key") or "")
+        trip_visited = list(trip.get("visited_place_keys") or [])
+        try:
+            day_item, trip = repo.persist_suggested_place(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                day_index=day_index,
+                places=updated_places,
+                expected_place_count=len(existing),
+                place_key=place_key,
+                previous_visited_keys=trip_visited,
+                table=self._table,
+            )
+        except repo.ConcurrentModificationError as exc:
+            raise ApiError(409, str(exc), code="conflict") from exc
+        except repo.PersistenceError as exc:
+            raise ApiError(502, str(exc), code="persistence_error") from exc
+
+        return {
+            "place": validated,
             "day": public_item(day_item),
             "trip": public_item(trip),
         }

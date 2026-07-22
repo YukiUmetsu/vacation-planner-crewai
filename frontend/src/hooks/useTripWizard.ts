@@ -1,7 +1,8 @@
-import { useMemo, useState, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { placeFromDraft, type PlaceDraft } from "../components/days/AddPlaceForm";
 import type { UserProfile } from "../components/profile/ProfilePage";
 import type { WizardStep } from "../components/WizardLayout";
+import { getProfile, putProfile, profileFromApi } from "../api/profile";
 import {
   DEMO_CITIES,
   DEMO_DAYS,
@@ -62,6 +63,40 @@ export function useTripWizard(demoMode: boolean) {
     null,
   );
   const [profile, setProfile] = useState<UserProfile>(() => loadProfile());
+  const profileSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingProfileRef = useRef<UserProfile | null>(null);
+
+  useEffect(() => {
+    if (demoMode) return;
+    let cancelled = false;
+    void getProfile()
+      .then(({ profile: apiProfile }) => {
+        if (cancelled) return;
+        const next = profileFromApi(apiProfile);
+        setProfile(next);
+        saveProfile(next);
+      })
+      .catch(() => {
+        // 404 = no saved backend profile yet — keep richer localStorage data.
+        // Offline / AUTH_MODE failures also keep local.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [demoMode]);
+
+  useEffect(() => {
+    return () => {
+      if (profileSaveTimer.current) clearTimeout(profileSaveTimer.current);
+      const pending = pendingProfileRef.current;
+      pendingProfileRef.current = null;
+      if (!demoMode && pending) {
+        void putProfile(pending).catch(() => {
+          // Best-effort flush on unmount; localStorage already has the latest.
+        });
+      }
+    };
+  }, [demoMode]);
 
   const cities = demoMode ? demoCities : live.cities;
   const days = demoMode ? demoDays : live.days;
@@ -109,6 +144,17 @@ export function useTripWizard(demoMode: boolean) {
   function updateProfile(next: UserProfile) {
     setProfile(next);
     saveProfile(next);
+    if (demoMode) return;
+    pendingProfileRef.current = next;
+    if (profileSaveTimer.current) clearTimeout(profileSaveTimer.current);
+    profileSaveTimer.current = setTimeout(() => {
+      const toSave = pendingProfileRef.current;
+      pendingProfileRef.current = null;
+      if (!toSave) return;
+      void putProfile(toSave).catch(() => {
+        // Local cache already updated; retry on next edit / reload.
+      });
+    }, 600);
   }
 
   function handleAddCity(city: string, reason: string) {
@@ -229,7 +275,10 @@ export function useTripWizard(demoMode: boolean) {
   }
 
   function handleSuggestPlace(dayIndex: number) {
-    if (!demoMode) return;
+    if (!demoMode) {
+      liveActions.runSuggestPlace(dayIndex);
+      return;
+    }
     const day = days.find((d) => d.day_index === dayIndex);
     if (!day) return;
     setSuggestPendingDay(dayIndex);
@@ -308,6 +357,11 @@ export function useTripWizard(demoMode: boolean) {
     setDays((prev) => removePlaceFromDays(prev, dayIndex, placeIndex));
   }
 
+  const liveSuggestPending =
+    !demoMode && liveActions.suggestPlaceMutation.isPending
+      ? (liveActions.suggestPlaceMutation.variables?.dayIndex ?? null)
+      : null;
+
   return {
     demoMode,
     screen,
@@ -327,7 +381,7 @@ export function useTripWizard(demoMode: boolean) {
     actionError,
     feasibilityMessage,
     checkingCity,
-    suggestPendingDay,
+    suggestPendingDay: liveSuggestPending ?? suggestPendingDay,
     proposePending: liveActions.proposeMutation.isPending,
     confirmPending: liveActions.confirmMutation.isPending || hydrating,
     planPending: liveActions.planDayMutation.isPending,
