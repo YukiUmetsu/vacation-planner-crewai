@@ -68,13 +68,16 @@ export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output te
 export TF_VAR_agent_runtime_container_uri="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/vacation-planner-agent:latest"
 export TF_VAR_agent_allowed_bedrock_model_arns='["REPLACE_WITH_EXACT_BEDROCK_MODEL_OR_INFERENCE_PROFILE_ARN"]'
 export TF_VAR_serper_api_key="REPLACE_WITH_SERPER_API_KEY"
+export TF_VAR_google_places_api_key="REPLACE_WITH_GOOGLE_PLACES_API_KEY"  # optional; BFF open-status enrich
 ```
 
 3. `terraform apply`
 
 Lambda always uses `CREW_MODE=agentcore`. Apply fails if the AgentCore runtime ARN is empty.
 
-`AWS_ACCOUNT_ID` is not sensitive; using it from the shell just avoids committing account-specific values. `TF_VAR_serper_api_key` is sensitive and should stay out of `terraform.tfvars`.
+`AWS_ACCOUNT_ID` is not sensitive; using it from the shell just avoids committing account-specific values. `TF_VAR_serper_api_key` and `TF_VAR_google_places_api_key` are sensitive and should stay out of `terraform.tfvars`. When `GOOGLE_PLACES_API_KEY` is set on the API Lambda, plan-next-day / suggest-place enrich venues via Google Places API (New) before quality gates; omit the key to keep crew/Serper status only.
+
+**Google Places key restrictions:** restrict the key to Places API (New) only, and prefer IP restriction to Lambda egress. `sensitive = true` redacts CLI output only — the value still sits in Terraform state and Lambda env (same as Serper). Move both to Secrets Manager/SSM when hardening beyond this MVP.
 
 ## Least privilege model
 

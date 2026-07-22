@@ -13,6 +13,7 @@ from db import repository as repo
 from db.protocols import DynamoDBTable
 from http_utils import ApiError, public_item
 from models.api import ConfirmCitiesRequest, CreateTripRequest
+from services.crew_context_budget import slim_crew_inputs
 from services.dates import date_for_day_index, parse_iso_date, validate_trip_dates
 from services.dedupe import dedupe_places
 from services.energy import clamp_energy_level, max_minutes_for_energy
@@ -22,6 +23,7 @@ from services.place_quality import (
     profile_visited_name_keys,
     validate_suggested_place,
 )
+from services.places_enrich import enrich_place, enrich_places
 from services.profile_service import ProfileService
 from services.safety import SafetyGate, get_safety_gate
 from db.place_keys import make_place_key
@@ -367,21 +369,27 @@ class TripService:
                 visited.append(key)
 
         route_for_crew = _route_payload(route) if route else {}
-        inputs = {
-            "origin": trip["origin"],
-            "destination": trip["destination"],
-            "destination_type": trip["destination_type"],
-            "day_index": str(next_index),
-            "date": day_date.isoformat(),
-            "overnight_city": overnight,
-            "preferences": merged_prefs,
-            "energy_level": str(energy_level),
-            "max_comfortable_minutes": str(max_minutes),
-            "interests": ", ".join(interests),
-            "already_visited": ",".join(visited),
-            "prior_days_summary": trip.get("prior_days_summary") or "",
-            "city_route_json": json.dumps(_json_safe(route_for_crew)) if route_for_crew else "",
-        }
+        inputs = slim_crew_inputs(
+            {
+                "origin": trip["origin"],
+                "destination": trip["destination"],
+                "destination_type": trip["destination_type"],
+                "day_index": str(next_index),
+                "date": day_date.isoformat(),
+                "overnight_city": overnight,
+                "preferences": merged_prefs,
+                "energy_level": str(energy_level),
+                "max_comfortable_minutes": str(max_minutes),
+                "interests": ", ".join(interests),
+                "already_visited": ",".join(visited),
+                "prior_days_summary": trip.get("prior_days_summary") or "",
+                "city_route_json": (
+                    json.dumps(_json_safe(route_for_crew)) if route_for_crew else ""
+                ),
+            },
+            overnight_city=overnight,
+            day_index=next_index,
+        )
         day_data = self.runner.plan_day(inputs)
         places = list(day_data.get("places") or [])
         filtered = dedupe_places(places, visited)
@@ -391,6 +399,10 @@ class TripService:
                 "all suggested places were already visited; retry plan-next-day",
                 code="dedupe_empty",
             )
+        filtered = enrich_places(
+            filtered,
+            overnight_city=overnight,
+        )
         filtered = filter_quality_places(
             filtered,
             plan_date=day_date,
@@ -515,18 +527,22 @@ class TripService:
             }
             for p in existing
         ]
-        inputs = {
-            "overnight_city": overnight,
-            "day_index": str(day_index),
-            "date": day_date.isoformat(),
-            "preferences": merged_prefs,
-            "interests": ", ".join(interests),
-            "energy_level": str(energy_level),
-            "remaining_minutes": str(remaining),
-            "already_visited": ",".join(visited),
-            "current_places_json": json.dumps(_json_safe(slim_current)),
-            "next_order_in_day": str(len(existing) + 1),
-        }
+        inputs = slim_crew_inputs(
+            {
+                "overnight_city": overnight,
+                "day_index": str(day_index),
+                "date": day_date.isoformat(),
+                "preferences": merged_prefs,
+                "interests": ", ".join(interests),
+                "energy_level": str(energy_level),
+                "remaining_minutes": str(remaining),
+                "already_visited": ",".join(visited),
+                "current_places_json": json.dumps(_json_safe(slim_current)),
+                "next_order_in_day": str(len(existing) + 1),
+            },
+            overnight_city=overnight,
+            day_index=day_index,
+        )
         raw = self.runner.suggest_place(inputs)
         if (
             isinstance(raw, dict)
@@ -543,6 +559,10 @@ class TripService:
         if not isinstance(candidate, dict):
             raise ApiError(422, "crew did not return a place", code="invalid_place")
 
+        candidate = enrich_place(
+            candidate,
+            overnight_city=overnight,
+        )
         validated = validate_suggested_place(
             candidate,
             existing_places=existing,

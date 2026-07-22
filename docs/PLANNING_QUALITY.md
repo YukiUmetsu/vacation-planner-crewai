@@ -67,8 +67,9 @@ Example: energy **3** → warn after **510** min. Day with **540** min → cauti
 | Check | Layer |
 | --- | --- |
 | Dedupe places across days (`place_key`) | Backend `dedupe_places` + crew `already_visited` prompt |
+| Crew input size (token proxy) | BFF `crew_context_budget.slim_crew_inputs` — only when over `CREW_INPUT_MAX_CHARS`; cut order: `already_visited` → `prior_days_summary` → `city_route_json` → `preferences`. Full visited list still used for dedupe / quality. Large context fields (`already_visited`, `preferences`, `interests`) are interpolated once in the research task; later tasks remind without re-listing. |
 | Place count 3–6 / schema | Agent `DayPlan` Pydantic + eval scorers |
-| Permanently closed / weekday-closed | Crew reviewer + `place_quality` + scorers |
+| Permanently closed / weekday-closed | Crew reviewer + **Google Places BFF enrich** + `place_quality` + scorers |
 | Energy budget | Crew prompts + `place_quality` / `validate_suggested_place` + scorers |
 | Suggest one more place | `suggest_place` crew + `validate_suggested_place` + `score_suggest_place` |
 | Profile prefs / energy / interests | DynamoDB `PROFILE` injected into plan-next-day + suggest-place |
@@ -81,4 +82,4 @@ Example: energy **3** → warn after **510** min. Day with **540** min → cauti
 1. [x] Persist profile (prefs, energy, interests) in DynamoDB; inject into `plan-next-day`.
 2. [x] Enforce energy caps + closed / weekday-closed checks in offline scorers **and** API post-crew `place_quality` filter; reviewer crew task (brief-only swaps, no new research tools).
 3. [x] Suggest one more place: `suggest_place` crew + `POST /trips/{id}/days/{n}/suggest-place` with `validate_suggested_place` + offline scorer.
-4. Venue open status via Places API when Serper is not enough (tool-assisted discovery remains soft).
+4. [x] Venue open status via Places API when Serper is not enough (BFF enrich with Google Places API New before `place_quality`; tool-assisted discovery remains soft).
