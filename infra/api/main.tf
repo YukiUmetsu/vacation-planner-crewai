@@ -101,10 +101,12 @@ resource "aws_lambda_function" "api" {
       condition     = var.agent_runtime_arn != ""
       error_message = "API Lambda requires an AgentCore runtime ARN. Set enable_agentcore=true with a container URI and Bedrock model ARNs before apply."
     }
-    # Remove once BedrockGuardrailsSafetyGate.check_text calls ApplyGuardrail; then require ID+ARN instead.
     precondition {
-      condition     = !contains(["bedrock", "guardrails"], var.safety_mode)
-      error_message = "SAFETY_MODE=bedrock is blocked until ApplyGuardrail is implemented (BedrockGuardrailsSafetyGate.check_text still raises safety_not_implemented). Keep safety_mode=keyword (or off)."
+      condition = (
+        !contains(["bedrock", "guardrails"], var.safety_mode)
+        || (var.bedrock_guardrail_id != "" && var.bedrock_guardrail_arn != "")
+      )
+      error_message = "SAFETY_MODE=bedrock requires bedrock_guardrail_id and bedrock_guardrail_arn."
     }
   }
 

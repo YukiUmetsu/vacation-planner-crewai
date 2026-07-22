@@ -28,13 +28,13 @@ variable "agent_runtime_arn" {
 }
 
 variable "safety_mode" {
-  description = "Lambda SAFETY_MODE: keyword (default) or off until ApplyGuardrail is implemented"
+  description = "Lambda SAFETY_MODE: keyword (default), bedrock/guardrails (ApplyGuardrail), or off"
   type        = string
   default     = "keyword"
 }
 
 variable "bedrock_guardrail_id" {
-  description = "Bedrock Guardrail ID when SAFETY_MODE=bedrock (empty until Guardrails are implemented)"
+  description = "Bedrock Guardrail ID when SAFETY_MODE=bedrock"
   type        = string
   default     = ""
 }

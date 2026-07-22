@@ -96,7 +96,7 @@ IAM policies are intentionally scoped to the resources created or configured by 
 - PII: block on input, anonymize on output for contact/financial types (email, phone, SSN, cards, bank, password — not NAME/ADDRESS, which false-positive on travel text)
 - Publishes an immutable version (`skip_destroy = true`)
 
-Lambda env gets `BEDROCK_GUARDRAIL_ID` / `BEDROCK_GUARDRAIL_VERSION` from the module. `safety_mode` is limited to **`keyword` / `off`** until `BedrockGuardrailsSafetyGate.check_text` implements ApplyGuardrail (Terraform validation + Lambda precondition reject `bedrock`). After that, re-allow `bedrock` in `variables.tf` and swap the API precondition to require ID+ARN.
+Lambda env gets `BEDROCK_GUARDRAIL_ID` / `BEDROCK_GUARDRAIL_VERSION` from the module. Set `safety_mode = "bedrock"` (or `"guardrails"`) to call ApplyGuardrail from the API Lambda; Terraform requires a non-empty Guardrail ID + ARN in that case (provided automatically when `enable_bedrock_guardrails = true`). Default remains `keyword` for cheaper local-style denylist behavior in AWS until you opt in.
 
 When using an external Guardrail (`enable_bedrock_guardrails = false`), set `bedrock_guardrail_id`, `bedrock_guardrail_version`, and `bedrock_guardrail_arn` so Lambda env and ApplyGuardrail IAM both match.
 

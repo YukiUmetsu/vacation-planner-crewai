@@ -1,5 +1,5 @@
 # Bedrock Guardrail for vacation-planner BFF input/output checks.
-# The Lambda still must call ApplyGuardrail (SAFETY_MODE=bedrock) — this module only provisions the policy.
+# Used when SAFETY_MODE=bedrock; this module only provisions the policy (ApplyGuardrail is in the Lambda).
 
 variable "project_name" {
   type = string

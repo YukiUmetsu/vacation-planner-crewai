@@ -68,14 +68,13 @@ variable "serper_api_key" {
 }
 
 variable "safety_mode" {
-  description = "API Lambda SAFETY_MODE. Only keyword|off until ApplyGuardrail is implemented; then re-allow bedrock."
+  description = "API Lambda SAFETY_MODE: keyword (default), bedrock/guardrails (ApplyGuardrail), or off."
   type        = string
   default     = "keyword"
 
   validation {
-    # LEARNING: add "bedrock" / "guardrails" back after BedrockGuardrailsSafetyGate.check_text is real.
-    condition     = contains(["keyword", "off", "noop", "none"], var.safety_mode)
-    error_message = "safety_mode must be keyword or off until ApplyGuardrail is implemented (bedrock would 500 every safety-checked route)."
+    condition     = contains(["keyword", "bedrock", "guardrails", "off", "noop", "none"], var.safety_mode)
+    error_message = "safety_mode must be keyword, bedrock, guardrails, or off."
   }
 }
 
