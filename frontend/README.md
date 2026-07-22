@@ -52,7 +52,7 @@ Theme: ocean teal + sand, Newsreader + DM Sans (`src/index.css`).
 
 **Done:** Tailwind theme, wizard shell, demo App (cities/days/profile), create + propose/confirm/plan-next-day live mutations (`VITE_USE_DEMO_DATA=false`), profile `localStorage`, city day-range helpers, place remove-by-index, Vitest coverage for API/create/remove/a11y.
 
-**Still to wire:** Cognito Hosted UI sign-in (live API still uses `AUTH_MODE=dev` locally).
+**Still to wire:** Cognito Hosted UI sign-in (live API still uses `AUTH_MODE=dev` locally). Trip list UI can call `listTrips()` when you add a picker.
 
 ## Layout
 

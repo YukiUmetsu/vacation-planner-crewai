@@ -8,6 +8,10 @@ export async function createTrip(input: CreateTripInput) {
   });
 }
 
+export async function listTrips(): Promise<{ trips: Trip[] }> {
+  return apiFetch<{ trips: Trip[] }>("/trips", { method: "GET" });
+}
+
 export async function getTrip(tripId: string): Promise<TripBundle> {
   return apiFetch<TripBundle>(`/trips/${tripId}`);
 }

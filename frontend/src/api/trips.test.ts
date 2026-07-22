@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { confirmCities, routeForConfirmRequest } from "./trips";
+import { confirmCities, listTrips, routeForConfirmRequest } from "./trips";
 import type { Route } from "../types/trip";
 
 const sampleRoute: Route = {
@@ -46,6 +46,46 @@ describe("routeForConfirmRequest", () => {
     for (const city of body.cities as Record<string, unknown>[]) {
       expect(city).not.toHaveProperty("client_id");
     }
+  });
+});
+
+describe("listTrips", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    vi.stubEnv("DEV", true);
+    vi.stubEnv("VITE_API_URL", "");
+  });
+
+  it("GETs /trips and returns the trips array payload", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          trips: [
+            {
+              trip_id: "t1",
+              origin: "NYC",
+              destination: "Japan",
+              destination_type: "country",
+              start_date: "2026-08-01",
+              end_date: "2026-08-07",
+              day_count: 7,
+              status: "drafting",
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await listTrips();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/trips",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(result.trips).toHaveLength(1);
+    expect(result.trips[0]?.trip_id).toBe("t1");
   });
 });
 
