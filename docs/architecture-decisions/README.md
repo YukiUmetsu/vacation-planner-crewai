@@ -13,7 +13,7 @@ Short, dated decisions about how this system is shaped — especially cost, AWS 
 
 | # | Title | Status |
 | --- | --- | --- |
-| [001](./001-async-plan-next-day-polling.md) | Async plan-next-day + client polling | Accepted |
+| [001](./001-async-plan-next-day-polling.md) | Async plan-next-day + client polling | Accepted (target; MVP still sync 200) |
 | [002](./002-single-api-lambda.md) | Single API Lambda behind HTTP API | Accepted |
 | [003](./003-bff-agentcore-runtime-only.md) | BFF-only AgentCore + Runtime-only MVP | Accepted |
 
@@ -60,6 +60,10 @@ flowchart TB
 ```
 
 ## Sync vs async (why polling)
+
+**MVP:** `plan-next-day` is still **synchronous** (200 after the crew finishes). That works for fake/local crews and short runs; AgentCore can exceed API Gateway’s ~30s sync limit.
+
+**Target ([001](./001-async-plan-next-day-polling.md)):** claim + 202 + client poll — diagram below.
 
 ```mermaid
 flowchart LR

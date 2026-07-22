@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 type Props = {
-  /** LEARNING: append city to draft route, then run feasibility check */
+  /** Append city to the draft route (parent may run a feasibility check afterward). */
   onAdd?: (city: string, reason: string) => void;
 };
 
@@ -76,8 +76,8 @@ export function AddCityForm({ onAdd }: Props) {
         </div>
         {!onAdd && (
           <p className="text-xs text-ink-muted">
-            {/* LEARNING */}
-            Wire <code className="text-teal">onAdd</code> from your Cities step.
+            Pass <code className="text-teal">onAdd</code> from the Cities step to enable
+            saving.
           </p>
         )}
       </div>

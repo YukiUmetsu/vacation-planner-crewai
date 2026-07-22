@@ -9,9 +9,9 @@ export type PlaceDraft = {
 };
 
 type Props = {
-  /** LEARNING / demo: append a place the user typed */
+  /** Append a place the user typed */
   onAdd?: (place: PlaceDraft) => void;
-  /** LEARNING / demo: ask crew/API for a suggestion */
+  /** Request a place suggestion (demo or API) */
   onSuggest?: () => void;
   suggestPending?: boolean;
 };

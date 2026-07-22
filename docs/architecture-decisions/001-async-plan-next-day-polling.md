@@ -1,6 +1,6 @@
 # ADR 001: Async plan-next-day with client polling
 
-- **Status:** Accepted
+- **Status:** Accepted (target architecture). **MVP today:** sync `POST …/plan-next-day` waits for the crew and returns **200** with the day.
 - **Date:** 2026-07-21
 - **Deciders:** Project maintainers
 
@@ -46,7 +46,17 @@ Use an **async job + polling** pattern for long LLM work (especially `POST /trip
 
 Shorter routes (`create trip`, `GET`, confirm cities) stay **synchronous**.
 
-Local `CREW_MODE=fake` may remain sync for speed while learning; production AgentCore path follows this ADR.
+Local `CREW_MODE=fake` may remain sync for speed while learning; production AgentCore path should follow this ADR once implemented.
+
+### MVP vs target
+
+| Layer | MVP (current code) | Target (this ADR) |
+| --- | --- | --- |
+| `POST /trips/{id}/plan-next-day` | Sync wait → **200** `{ day, trip }` | Claim + start work → **202** planning |
+| Frontend | Single mutation; render day from response | Poll `GET /trips/{id}` until day appears |
+| AgentCore | Invoked on the request path (risk of API GW ~30s 504) | Started off the request path; worker writes DAY |
+
+Claim-before-write (`next_day_index` conditional update) already exists on the sync path and should carry into the async design.
 
 ### Target sequence
 
@@ -174,6 +184,7 @@ flowchart LR
 
 ## Follow-ups
 
-- [ ] Define trip/day status fields in [DATA_MODEL.md](../DATA_MODEL.md) if missing
-- [ ] Implement claim → async invoke → worker write → poll in backend + frontend
+- [x] Define trip/day status fields in [DATA_MODEL.md](../DATA_MODEL.md) (`drafting` → `planning` / `complete` / `failed`, plus `next_day_index`)
+- [x] Claim-before-write for `next_day_index` on the sync MVP path
+- [ ] Implement claim → async invoke → worker write → poll in backend + frontend (replace sync 200)
 - [ ] Keep AgentCore invoke out of the sync request path in production

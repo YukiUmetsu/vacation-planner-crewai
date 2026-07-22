@@ -4,7 +4,6 @@ type Props = {
   trip: Trip;
   route: Route | null;
   days: DayPlan[];
-  /** LEARNING: wire to set step to "cities" or "days" */
   onContinueToCities?: () => void;
   onContinueToDays?: () => void;
 };

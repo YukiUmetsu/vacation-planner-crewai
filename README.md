@@ -41,7 +41,7 @@ Three deployable codebases at the top level — no shared `apps/` umbrella:
 | [`infra`](./infra) | Terraform modules for AWS |
 | [`docs/architecture-decisions`](./docs/architecture-decisions) | Architecture decision records |
 
-## Architecture (target)
+## Architecture
 
 ```mermaid
 flowchart TB
@@ -50,19 +50,19 @@ flowchart TB
   spa -->|"JWT"| apigw[API Gateway HTTP API]
   apigw --> api[API Lambda]
   api --> ddb[(DynamoDB)]
-  api -.->|"async start"| runtime[AgentCore Runtime]
+  api -->|"invoke"| runtime[AgentCore Runtime]
   runtime --> crew[CrewAI day crew]
-  runtime --> ddb
   crew --> bedrock[Bedrock Nova]
   crew --> serper[Serper]
-  spa -.->|"poll trip"| apigw
 ```
 
-**Backend:** verifies Cognito JWT (via API Gateway authorizer), reads/writes DynamoDB, starts AgentCore with server-side IAM. The browser never holds AWS credentials or talks to AgentCore directly.
+**Backend:** verifies Cognito JWT (via API Gateway authorizer), reads/writes DynamoDB, invokes AgentCore with server-side IAM. The browser never holds AWS credentials or talks to AgentCore directly.
 
-Long LLM work uses **async claim + client polling** (API Gateway HTTP API ~30s sync limit). The browser never calls AgentCore; MVP uses **Runtime only** (no Memory/Gateway/Browser). See [docs/architecture-decisions](./docs/architecture-decisions/).
+**MVP planning:** `POST /trips/{id}/plan-next-day` is **synchronous** (claim day → wait for crew → **200** with the day). Fine for `CREW_MODE=fake` and short runs.
 
-### Planning sequence (city route, then days)
+**Target:** async claim + **202** + client polling when AgentCore exceeds API Gateway’s ~30s sync limit ([ADR 001](./docs/architecture-decisions/001-async-plan-next-day-polling.md)). MVP uses **Runtime only** (no Memory/Gateway/Browser). See [docs/architecture-decisions](./docs/architecture-decisions/).
+
+### Planning sequence (city route, then days) — MVP
 
 ```mermaid
 sequenceDiagram
@@ -75,8 +75,7 @@ sequenceDiagram
   API->>DDB: Put TRIP meta
   alt destination is country or multi-city region
     UI->>API: POST /trips/id/propose-cities
-    Note over API,AC: May also go async if crew is slow; MVP may sync while under ~25s
-    API->>AC: city_route_crew
+    API->>AC: city_route_crew (sync wait)
     AC-->>API: CityRouteProposal
     API->>DDB: Put ROUTE item
     API-->>UI: Proposed cities and nights
@@ -85,15 +84,11 @@ sequenceDiagram
   end
   loop Each day until complete
     UI->>API: POST /trips/id/plan-next-day
-    API->>DDB: Claim next day / status=planning
-    API->>AC: Start plan_day (async)
-    API-->>UI: 202 planning
-    loop Poll with backoff
-      UI->>API: GET /trips/id
-      API->>DDB: Read trip + days
-      API-->>UI: bundle
-    end
-    Note over AC,DDB: Crew finishes → Put DAY
+    API->>DDB: Claim next day
+    API->>AC: plan_day (sync wait)
+    AC-->>API: DayPlan
+    API->>DDB: Put DAY
+    API-->>UI: 200 day plus trip
   end
 ```
 
@@ -209,6 +204,14 @@ A `pre-push` hook runs `backend` pytest (moto only — no Bedrock, no DynamoDB L
 ```bash
 ./scripts/install-git-hooks.sh
 ```
+
+### CI
+
+GitHub Actions (`.github/workflows/ci.yml`) on push/PR to `main`:
+
+- Backend: `uv sync` + pytest
+- Frontend: `npm ci` + vitest + production build
+- Agent: lightweight eval harness smoke (`evals/test_harness.py`, no CrewAI install)
 
 ## Infrastructure (Terraform)
 

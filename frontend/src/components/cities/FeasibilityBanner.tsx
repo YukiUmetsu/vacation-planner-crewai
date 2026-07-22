@@ -1,9 +1,9 @@
 type Props = {
   title?: string;
   message: string;
-  /** LEARNING: dismiss warning / keep city in draft */
+  /** Dismiss warning / keep city in draft */
   onKeep?: () => void;
-  /** LEARNING: remove the city that triggered the warning */
+  /** Remove the city that triggered the warning */
   onUndo?: () => void;
 };
 

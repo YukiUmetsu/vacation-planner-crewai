@@ -11,7 +11,7 @@ type Props = {
   imageUrl?: string | null;
   highlights?: CityHighlightCategory[];
   checking?: boolean;
-  /** LEARNING: wire nights mutations / local draft state */
+  /** Update nights for this stop (parent recomputes day ranges). */
   onNightsChange?: (nights: number) => void;
 };
 
