@@ -59,7 +59,7 @@ Then add the CloudFront URL to `callback_urls` / `logout_urls` and `terraform ap
 
 ### Configure AgentCore
 
-1. Build and push an agent container to ECR (and implement `agent/main.py` + backend `CREW_MODE=agentcore` — Day 2).
+1. Build and push an agent container to ECR (see [`agent/Dockerfile`](../agent/Dockerfile) and packaging notes in [`agent/README.md`](../agent/README.md)).
 2. Set `enable_agentcore = true` in `terraform.tfvars`, plus the runtime image and exact Bedrock model ARNs. Prefer env vars for account-specific / secret values:
 
 ```bash

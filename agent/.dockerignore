@@ -1,0 +1,27 @@
+# Local / build junk
+.venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/logs/
+dist/
+*.egg-info/
+
+# Per-crew local envs and locks (runtime uses top-level agent lock)
+crews/*/.venv/
+crews/*/uv.lock
+crews/*/logs/
+crews/*/run_with_phoenix.py
+crews/*/smoke_test.py
+crews/*/README.md
+crews/*/pyproject.toml
+
+# Learning / non-runtime
+evals/
+tests/
+.env
+.env.*
+!.env.example
+README.md
+.dockerignore
+Dockerfile

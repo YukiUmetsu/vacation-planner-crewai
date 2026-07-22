@@ -79,11 +79,17 @@ Shared Pydantic models install via the **`vacation-planner-models`** dependency 
 
 Container / AgentCore image options that both work:
 
-1. **Install the wheel** from this `pyproject.toml` (preferred) so crews land next to `crew_kickoff.py`.
-2. **Copy the `agent/` tree** into the image and `uv sync`, keeping the same layout.
+1. **Install the wheel** from this `pyproject.toml` so crews land next to `crew_kickoff.py`.
+2. **Docker image** from [`Dockerfile`](./Dockerfile) (copies the same runtime assets; see [`.dockerignore`](./.dockerignore)).
+
+```bash
+cd agent
+uv build && unzip -l dist/*.whl | grep crew.jsonc
+docker build -t vacation-planner-agent:latest .
+```
 
 Do **not** install only the three Python modules without `crews/` — `run_crew` will raise `crew_not_found`.
 
-```bash
-cd agent && uv build && unzip -l dist/*.whl | grep crew.jsonc
-```
+## Offline evals
+
+Harness scaffolding lives in [`evals/`](./evals/). Implement scorers + goldens yourself (see `evals/README.md`).
