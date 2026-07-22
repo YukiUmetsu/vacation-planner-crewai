@@ -5,12 +5,19 @@ import {
   formatDuration,
   summarizeDayTimes,
 } from "../../demo/dayTimes";
+import {
+  assessDayEnergyLoad,
+  type EnergyLevel,
+} from "../../lib/energyLevel";
 import { AddPlaceForm, type PlaceDraft } from "./AddPlaceForm";
+import { DayEnergyWarning } from "./DayEnergyWarning";
 import { PlaceDetailPanel } from "./PlaceDetailPanel";
 
 type Props = {
   days: DayPlan[];
   dayCount: number;
+  /** Traveler energy from profile (1–5). */
+  energyLevel?: EnergyLevel;
   onPlanNextDay?: () => void;
   pending?: boolean;
   complete?: boolean;
@@ -25,6 +32,7 @@ type Props = {
 export function DaysPanel({
   days,
   dayCount,
+  energyLevel = 3,
   onPlanNextDay,
   pending,
   complete,
@@ -67,6 +75,7 @@ export function DaysPanel({
           <DayBlock
             key={day.day_index}
             day={day}
+            energyLevel={energyLevel}
             suggestPending={suggestPendingDay === day.day_index}
             onSelectPlace={(placeIndex, place, previousName) =>
               setSelected({
@@ -123,6 +132,7 @@ export function DaysPanel({
 
 function DayBlock({
   day,
+  energyLevel,
   suggestPending,
   onSelectPlace,
   onAddPlace,
@@ -130,6 +140,7 @@ function DayBlock({
   onRemovePlace,
 }: {
   day: DayPlan;
+  energyLevel: EnergyLevel;
   suggestPending?: boolean;
   onSelectPlace: (
     placeIndex: number,
@@ -141,6 +152,7 @@ function DayBlock({
   onRemovePlace?: (placeIndex: number) => void;
 }) {
   const times = summarizeDayTimes(day);
+  const energyLoad = assessDayEnergyLoad(energyLevel, times.totalMinutes);
 
   return (
     <li className="relative">
@@ -171,6 +183,8 @@ function DayBlock({
           </p>
         )}
       </div>
+
+      {day.places.length > 0 && <DayEnergyWarning load={energyLoad} />}
 
       <ul className="mt-3 space-y-2">
         {day.places.map((p: Place, index) => {

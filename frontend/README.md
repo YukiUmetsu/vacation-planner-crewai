@@ -17,7 +17,7 @@ Open http://localhost:5173
 **Demo mode is on by default** (`VITE_USE_DEMO_DATA` unset / not `false`): click Details / Cities / Days with sample Japan data — no API needed.
 
 - **Days:** click a place for detail sheet (cost, hours, map, why suggested, watch-outs); min total time (incl. travel); **Add place** / **Suggest a place** / **Remove**
-- **Profile** (header): preferences, interests, places you’ve been
+- **Profile** (header): preferences, energy level (1–5 signal bars), interests, places you’ve been
 - **Cities:** adjust nights (day ranges recompute); **Add city → Hiroshima** for the feasibility warning
 
 ### Live create flow
@@ -26,7 +26,15 @@ Open http://localhost:5173
 VITE_USE_DEMO_DATA=false npm run dev
 ```
 
-Requires a local API on `http://127.0.0.1:8787` (Vite proxies `/api`). For deployed backends set `VITE_API_URL` (e.g. `https://api.example.com`) and skip the Vite proxy.
+Requires a local API on `http://127.0.0.1:8787` (Vite proxies `/api`). Start it with:
+
+```bash
+cd backend
+export AUTH_MODE=dev CREW_MODE=fake SAFETY_MODE=off
+uv run python scripts/local_api.py
+```
+
+For deployed backends set `VITE_API_URL` (e.g. `https://api.example.com`) and skip the Vite proxy.
 
 ### Tests
 

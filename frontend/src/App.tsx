@@ -194,7 +194,7 @@ export function App({ demoMode = DEFAULT_DEMO_MODE }: AppProps) {
                 </h2>
                 <p className="text-sm text-ink-muted">
                   Use the step rail, or open <strong>Profile</strong> for
-                  preferences and places you’ve been. On Days:{" "}
+                  preferences, energy level, and places you’ve been. On Days:{" "}
                   <strong>Add place</strong> / <strong>Suggest a place</strong>.
                   Create-trip API is available when demo mode is off (
                   <code className="text-xs">VITE_USE_DEMO_DATA=false</code>).
@@ -283,6 +283,7 @@ export function App({ demoMode = DEFAULT_DEMO_MODE }: AppProps) {
         <DaysPanel
           days={days}
           dayCount={demoTrip.day_count}
+          energyLevel={profile.energyLevel}
           complete={days.length >= demoTrip.day_count}
           onPlanNextDay={handlePlanNextDay}
           suggestPendingDay={suggestPendingDay}

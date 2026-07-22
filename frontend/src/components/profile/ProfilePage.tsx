@@ -1,8 +1,12 @@
 import { useState } from "react";
+import type { EnergyLevel } from "../../lib/energyLevel";
+import { EnergyLevelBars } from "./EnergyLevelBars";
 
 export type UserProfile = {
   displayName: string;
   preferences: string;
+  /** 1 = low energy / limited mobility, 5 = high capacity. */
+  energyLevel: EnergyLevel;
   interests: string[];
   visitedPlaces: { name: string; city?: string; note?: string }[];
 };
@@ -155,6 +159,39 @@ export function ProfilePage({ profile, onChange, onBack }: Props) {
             placeholder="Pace, food style, must-avoids…"
           />
         </label>
+
+        <fieldset>
+          <legend className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            <span className="inline-flex items-center gap-1.5">
+              Energy level
+              <span className="group relative inline-flex normal-case">
+                <button
+                  type="button"
+                  className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-line text-[10px] font-bold text-ink-muted hover:border-teal hover:text-teal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal"
+                  aria-describedby="energy-level-help"
+                  aria-label="About energy level"
+                >
+                  ?
+                </button>
+                <span
+                  id="energy-level-help"
+                  role="tooltip"
+                  className="pointer-events-none absolute left-0 top-full z-20 mt-2 w-64 rounded-lg border border-line bg-surface px-3 py-2 text-left text-xs font-normal leading-snug text-ink opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                >
+                  Like signal bars: 5 is high capacity, 1 is very low energy or
+                  limited mobility. Day plans warn when total activity time looks
+                  too heavy.
+                </span>
+              </span>
+            </span>
+          </legend>
+          <div className="mt-3">
+            <EnergyLevelBars
+              value={profile.energyLevel}
+              onChange={(energyLevel) => onChange({ ...profile, energyLevel })}
+            />
+          </div>
+        </fieldset>
 
         <fieldset>
           <legend className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
