@@ -83,7 +83,7 @@ IAM policies are intentionally scoped to the resources created or configured by 
 | Principal | Allowed access |
 | --- | --- |
 | Backend Lambda role | `GetItem`, `PutItem`, `UpdateItem`, and `Query` on this stack's DynamoDB table and its indexes; log-stream writes only to its own `/aws/lambda/${project}-${env}-api` log group; invoke on the configured AgentCore runtime ARN; `bedrock:ApplyGuardrail` only when `safety_mode` is `bedrock`/`guardrails` and a Guardrail ARN is set. |
-| AgentCore runtime role | Pulls only the configured ECR repository image; gets an ECR auth token (AWS requires `Resource = "*"`); writes only to AgentCore runtime log groups under `/aws/bedrock-agentcore/runtimes/*`; invokes only ARNs listed in `agent_allowed_bedrock_model_arns`. |
+| AgentCore runtime role | Pulls only the configured ECR repository image; gets an ECR auth token (AWS requires `Resource = "*"`); writes only to AgentCore runtime log groups under `/aws/bedrock-agentcore/runtimes/*`; when GenAI observability is enabled: X-Ray put/sampling + `cloudwatch:PutMetricData` in namespace `bedrock-agentcore`; invokes only ARNs listed in `agent_allowed_bedrock_model_arns`. |
 | CloudFront service principal | Reads objects from only the generated frontend bucket, constrained by the distribution `AWS:SourceArn`. |
 
 ### Bedrock Guardrails
@@ -104,6 +104,27 @@ AgentCore is **required for AWS deploy** (`enable_agentcore` defaults to `true`)
 
 The AgentCore log permissions use the AWS-documented runtime log group prefix `/aws/bedrock-agentcore/runtimes/*` because the concrete runtime/endpoint log group name is assigned by AgentCore after creation.
 
+### GenAI Observability (OpenTelemetry)
+
+Everything required for **CloudWatch → GenAI Observability → Bedrock AgentCore** is Terraform-managed when `enable_genai_observability = true` (default). That flag also gates AgentCore ADOT env + X-Ray IAM.
+
+| Layer | What Terraform configures |
+| --- | --- |
+| Account/region (`observability/`) | CloudWatch Logs resource policy (`VacationPlannerTransactionSearchXRay`) for X-Ray → `aws/spans`, `/aws/application-signals/data`, `/aws/bedrock-agentcore/runtimes/*`; `awscc_xray_transaction_search_config` (indexing %, default **1** = free tier). The Logs resource policy is the one-time X-Ray write grant — the runtime role does **not** get `logs:PutResourcePolicy`. |
+| AgentCore runtime | Only when observability is enabled: ADOT env (`AGENT_OBSERVABILITY_ENABLED=true`, distro/configurator, `UNIFIED_TRACES_DESTINATION_ENABLED`, `service.name`, `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT`); IAM: X-Ray put/sampling, `cloudwatch:PutMetricData` (`bedrock-agentcore`) |
+| Agent image | Neutral by default (`entrypoint.sh`). ADOT (`opentelemetry-instrument`) runs only when AgentCore sets `AGENT_OBSERVABILITY_ENABLED=true`. |
+
+**Account singleton:** Transaction Search is one config per account+region. Keep `enable_genai_observability = true` in **only one** stack (e.g. `dev`). Other envs should set it `false` (or share this stack’s state).
+
+**Already enabled?** Import before apply:
+
+```bash
+terraform import 'module.observability.awscc_xray_transaction_search_config.this[0]' "$(aws sts get-caller-identity --query Account --output text)"
+terraform import 'module.observability.aws_cloudwatch_log_resource_policy.transaction_search[0]' VacationPlannerTransactionSearchXRay
+```
+
+After apply, wait ~10 minutes, invoke a crew, then open GenAI Observability. Spans from invocations **before** enable are not indexed.
+
 ## Layout
 
 ```text
@@ -115,6 +136,7 @@ infra/
   api/           # zips backend/.build/lambda → Lambda (run build_lambda.sh first)
   frontend/
   agentcore/
+  observability/ # Transaction Search + X-Ray → CloudWatch Logs (GenAI Observability)
   guardrails/    # Bedrock Guardrail + version
 ```
 

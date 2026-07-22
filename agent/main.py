@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
+
+# Prefer ADOT / OpenTelemetry GenAI spans over CrewAI's built-in telemetry.
+os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
 
 from bedrock_agentcore import BedrockAgentCoreApp
 

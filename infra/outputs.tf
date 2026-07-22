@@ -39,6 +39,16 @@ output "agent_runtime_arn" {
   value = module.agentcore.agent_runtime_arn
 }
 
+output "genai_observability_enabled" {
+  description = "Whether Terraform configured CloudWatch Transaction Search for GenAI Observability"
+  value       = module.observability.enabled
+}
+
+output "genai_observability_trace_destination" {
+  description = "X-Ray trace segment destination when GenAI observability is enabled"
+  value       = module.observability.trace_segment_destination
+}
+
 output "bedrock_guardrail_id" {
   value = local.bedrock_guardrail_id
 }

@@ -244,3 +244,4 @@ See [`infra/README.md`](./infra/README.md) for Google IdP vars, frontend sync, a
 - Day-by-day planning caps token use vs one giant 14-day prompt.
 - DynamoDB on-demand + AgentCore active-consumption: ~$0 idle.
 - Phoenix is local-only; do not ship it into AgentCore.
+- Deployed AgentCore uses ADOT only when `enable_genai_observability=true` (image entrypoint + runtime env); Terraform also enables Transaction Search (`infra/observability/`) — see [`agent/README.md`](./agent/README.md) and [`infra/README.md`](./infra/README.md).

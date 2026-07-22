@@ -9,3 +9,7 @@ provider "aws" {
     }
   }
 }
+
+provider "awscc" {
+  region = var.aws_region
+}

@@ -33,3 +33,9 @@ variable "serper_api_key" {
   default   = ""
   sensitive = true
 }
+
+variable "observability_enabled" {
+  description = "Wire ADOT/GenAI Observability env + IAM on the AgentCore runtime (pair with account Transaction Search)"
+  type        = bool
+  default     = true
+}

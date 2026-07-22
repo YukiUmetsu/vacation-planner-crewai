@@ -18,13 +18,23 @@ module "cognito" {
 }
 
 module "agentcore" {
-  source             = "./agentcore"
-  project_name       = var.project_name
-  environment        = var.environment
-  enabled            = var.enable_agentcore
-  container_uri      = var.agent_runtime_container_uri
-  bedrock_model_arns = var.agent_allowed_bedrock_model_arns
-  serper_api_key     = var.serper_api_key
+  source                = "./agentcore"
+  project_name          = var.project_name
+  environment           = var.environment
+  enabled               = var.enable_agentcore
+  container_uri         = var.agent_runtime_container_uri
+  bedrock_model_arns    = var.agent_allowed_bedrock_model_arns
+  serper_api_key        = var.serper_api_key
+  observability_enabled = var.enable_genai_observability
+}
+
+# Account/region Transaction Search — required for CloudWatch GenAI Observability.
+module "observability" {
+  source              = "./observability"
+  project_name        = var.project_name
+  environment         = var.environment
+  enabled             = var.enable_genai_observability
+  indexing_percentage = var.genai_observability_indexing_percentage
 }
 
 module "guardrails" {

@@ -48,6 +48,23 @@ variable "enable_agentcore" {
   default     = true
 }
 
+variable "enable_genai_observability" {
+  description = "Enable CloudWatch Transaction Search + AgentCore ADOT wiring. Account/region singleton — enable in only one stack per region."
+  type        = bool
+  default     = true
+}
+
+variable "genai_observability_indexing_percentage" {
+  description = "Percent of spans indexed for Transaction Search (1 is free; raise for denser GenAI dashboards)"
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.genai_observability_indexing_percentage >= 0 && var.genai_observability_indexing_percentage <= 100
+    error_message = "genai_observability_indexing_percentage must be between 0 and 100."
+  }
+}
+
 variable "agent_runtime_container_uri" {
   description = "ECR image URI for AgentCore runtime (e.g. 123.dkr.ecr.us-east-1.amazonaws.com/vacation-agent:latest)"
   type        = string

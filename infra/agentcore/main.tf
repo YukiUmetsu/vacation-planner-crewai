@@ -14,6 +14,8 @@ locals {
 
   agentcore_log_group_arn  = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/bedrock-agentcore/runtimes/*"
   agentcore_log_stream_arn = "${local.agentcore_log_group_arn}:log-stream:*"
+
+  wire_observability = local.create_runtime && var.observability_enabled
 }
 
 resource "aws_iam_role" "runtime" {
@@ -32,69 +34,99 @@ resource "aws_iam_role" "runtime" {
   })
 }
 
+data "aws_iam_policy_document" "runtime" {
+  count = local.create_runtime ? 1 : 0
+
+  dynamic "statement" {
+    for_each = length(var.bedrock_model_arns) > 0 ? [1] : []
+    content {
+      sid    = "InvokeAllowedBedrockModels"
+      effect = "Allow"
+      actions = [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream",
+        "bedrock:Converse",
+        "bedrock:ConverseStream",
+      ]
+      resources = var.bedrock_model_arns
+    }
+  }
+
+  statement {
+    sid       = "DescribeAgentCoreLogGroups"
+    effect    = "Allow"
+    actions   = ["logs:DescribeLogGroups"]
+    resources = ["arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:*"]
+  }
+
+  statement {
+    sid       = "ManageAgentCoreRuntimeLogGroups"
+    effect    = "Allow"
+    actions   = ["logs:CreateLogGroup", "logs:DescribeLogStreams"]
+    resources = [local.agentcore_log_group_arn]
+  }
+
+  statement {
+    sid       = "WriteAgentCoreRuntimeLogs"
+    effect    = "Allow"
+    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = [local.agentcore_log_stream_arn]
+  }
+
+  statement {
+    sid       = "ECRTokenAccess"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  dynamic "statement" {
+    for_each = local.wire_observability ? [1] : []
+    content {
+      sid    = "AgentCoreXRay"
+      effect = "Allow"
+      actions = [
+        "xray:PutTraceSegments",
+        "xray:PutTelemetryRecords",
+        "xray:GetSamplingRules",
+        "xray:GetSamplingTargets",
+      ]
+      resources = ["*"]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = local.wire_observability ? [1] : []
+    content {
+      sid       = "AgentCoreCloudWatchMetrics"
+      effect    = "Allow"
+      actions   = ["cloudwatch:PutMetricData"]
+      resources = ["*"]
+      condition {
+        test     = "StringEquals"
+        variable = "cloudwatch:namespace"
+        values   = ["bedrock-agentcore"]
+      }
+    }
+  }
+
+  dynamic "statement" {
+    for_each = local.ecr_repository_arn != "" ? [1] : []
+    content {
+      sid       = "PullConfiguredECRImage"
+      effect    = "Allow"
+      actions   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
+      resources = [local.ecr_repository_arn]
+    }
+  }
+}
+
 resource "aws_iam_role_policy" "runtime" {
   count = local.create_runtime ? 1 : 0
   name  = "${local.name_prefix}-agentcore"
   role  = aws_iam_role.runtime[0].id
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = concat(
-      length(var.bedrock_model_arns) > 0 ? [
-        {
-          Sid    = "InvokeAllowedBedrockModels"
-          Effect = "Allow"
-          Action = [
-            "bedrock:InvokeModel",
-            "bedrock:InvokeModelWithResponseStream",
-            "bedrock:Converse",
-            "bedrock:ConverseStream",
-          ]
-          Resource = var.bedrock_model_arns
-        }
-      ] : [],
-      [
-        {
-          Sid      = "DescribeAgentCoreLogGroups"
-          Effect   = "Allow"
-          Action   = ["logs:DescribeLogGroups"]
-          Resource = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:*"
-        },
-        {
-          Sid    = "ManageAgentCoreRuntimeLogGroups"
-          Effect = "Allow"
-          Action = [
-            "logs:CreateLogGroup",
-            "logs:DescribeLogStreams",
-          ]
-          Resource = local.agentcore_log_group_arn
-        },
-        {
-          Sid    = "WriteAgentCoreRuntimeLogs"
-          Effect = "Allow"
-          Action = [
-            "logs:CreateLogStream",
-            "logs:PutLogEvents",
-          ]
-          Resource = local.agentcore_log_stream_arn
-        },
-        {
-          Sid      = "ECRTokenAccess"
-          Effect   = "Allow"
-          Action   = ["ecr:GetAuthorizationToken"]
-          Resource = "*"
-        },
-      ],
-      local.ecr_repository_arn != "" ? [
-        {
-          Sid      = "PullConfiguredECRImage"
-          Effect   = "Allow"
-          Action   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
-          Resource = local.ecr_repository_arn
-        }
-      ] : []
-    )
-  })
+  policy = data.aws_iam_policy_document.runtime[0].json
 }
 
 resource "aws_bedrockagentcore_agent_runtime" "this" {
@@ -117,6 +149,16 @@ resource "aws_bedrockagentcore_agent_runtime" "this" {
     {
       AWS_REGION = data.aws_region.current.region
     },
+    local.wire_observability ? {
+      AGENT_OBSERVABILITY_ENABLED                        = "true"
+      OTEL_PYTHON_DISTRO                                 = "aws_distro"
+      OTEL_PYTHON_CONFIGURATOR                           = "aws_configurator"
+      OTEL_EXPORTER_OTLP_PROTOCOL                        = "http/protobuf"
+      OTEL_RESOURCE_ATTRIBUTES                           = "service.name=${local.runtime_name}"
+      OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT = "NO_CONTENT"
+      UNIFIED_TRACES_DESTINATION_ENABLED                 = "true"
+      CREWAI_DISABLE_TELEMETRY                           = "true"
+    } : {},
     var.serper_api_key != "" ? {
       SERPER_API_KEY = var.serper_api_key
     } : {}

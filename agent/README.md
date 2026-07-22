@@ -65,7 +65,18 @@ uv sync
 uv run python -c "from bedrock_agentcore import BedrockAgentCoreApp; print('ok')"
 # Local smoke of the entrypoint (needs AWS/model creds for a real kickoff):
 # uv run python main.py
+# With ADOT GenAI spans (same as the container when AGENT_OBSERVABILITY_ENABLED=true):
+# AGENT_OBSERVABILITY_ENABLED=true OTEL_PYTHON_DISTRO=aws_distro \
+#   OTEL_PYTHON_CONFIGURATOR=aws_configurator \
+#   uv run opentelemetry-instrument python main.py
 ```
+
+The Docker image is **observability-neutral**: `entrypoint.sh` runs plain `python main.py` unless AgentCore sets `AGENT_OBSERVABILITY_ENABLED=true` (Terraform when `enable_genai_observability=true`). Then it wraps with ADOT (`opentelemetry-instrument`). Prompt/response bodies default to **not** captured (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT` from Terraform).
+
+1. Rebuild/push the agent image and `terraform apply` (`enable_genai_observability = true` in **one** stack per region).
+2. Wait ~10 minutes after first enable, invoke a crew, then open CloudWatch → GenAI Observability → Bedrock AgentCore (filter by `service.name` = runtime name).
+
+Local Phoenix tracing (`run_with_phoenix.py`) is unchanged for crew development; ADOT is for the deployed runtime.
 
 `CREW_MODE=agentcore` on the BFF expects Lambda env **`AGENT_RUNTIME_ARN`** (set by Terraform when AgentCore is enabled), matching `backend/src/agentcore/client.py`.
 
