@@ -38,7 +38,7 @@ module "api" {
   cognito_issuer              = module.cognito.issuer
   agent_runtime_arn           = module.agentcore.agent_runtime_arn
   # Built package (src + pip deps). Run: ../backend/scripts/build_lambda.sh
-  backend_source_dir          = "${path.root}/../backend/.build/lambda"
+  backend_source_dir = "${path.root}/../backend/.build/lambda"
 }
 
 module "frontend" {

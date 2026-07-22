@@ -23,9 +23,8 @@ variable "cognito_issuer" {
 }
 
 variable "agent_runtime_arn" {
-  description = "Optional AgentCore runtime ARN for invoke permission"
+  description = "AgentCore runtime ARN (required for API Lambda CREW_MODE=agentcore)"
   type        = string
-  default     = ""
 }
 
 variable "backend_source_dir" {

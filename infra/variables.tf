@@ -43,9 +43,9 @@ variable "logout_urls" {
 }
 
 variable "enable_agentcore" {
-  description = "Create Bedrock AgentCore runtime (requires ECR image URI + Bedrock model ARNs)"
+  description = "Create Bedrock AgentCore runtime (required for API deploy; needs ECR image URI + Bedrock model ARNs)"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "agent_runtime_container_uri" {

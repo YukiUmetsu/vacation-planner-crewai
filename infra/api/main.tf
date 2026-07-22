@@ -80,9 +80,15 @@ resource "aws_lambda_function" "api" {
       COGNITO_AUDIENCE    = var.cognito_user_pool_client_id
       AGENT_RUNTIME_ARN   = var.agent_runtime_arn
       AUTH_MODE           = "cognito"
-      # Production planning path (InvokeAgentRuntime). Local/dev uses CREW_MODE=fake.
       CREW_MODE           = "agentcore"
       SAFETY_MODE         = "keyword"
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.agent_runtime_arn != ""
+      error_message = "API Lambda requires an AgentCore runtime ARN. Set enable_agentcore=true with a container URI and Bedrock model ARNs before apply."
     }
   }
 
