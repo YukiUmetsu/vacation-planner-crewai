@@ -8,17 +8,26 @@ Terraform maps many values into Lambda / AgentCore env at apply time — you usu
 
 ## Quick start: local API + UI (fake crew)
 
+**One command** (DynamoDB Local + API `:8787` + Vite `:5173`):
+
 ```bash
-# Terminal A — DynamoDB Local (optional but typical)
+./scripts/dev.sh
+```
+
+Manual (three terminals) if you prefer:
+
+```bash
+# Terminal A — DynamoDB Local
 cd backend && docker compose up -d
 uv run python scripts/create_local_table.py
+# Optional GUI: http://localhost:8001
 
 # Terminal B — API
 cd backend
 export AUTH_MODE=dev
 export CREW_MODE=fake
 export SAFETY_MODE=off
-export DYNAMODB_ENDPOINT=http://localhost:8000
+export DYNAMODB_ENDPOINT=http://127.0.0.1:8000
 export DYNAMODB_TABLE_NAME=vacation-planner-local-table
 export AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local AWS_REGION=us-east-1
 uv run python scripts/local_api.py

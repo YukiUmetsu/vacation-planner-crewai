@@ -148,6 +148,18 @@ In Phoenix, select project **`vacation_planner`** → **Traces**.
 
 > **Note:** `custom:<name>` tool refs execute `tools/<name>.py` when the crew loads. Only run projects you trust.
 
+## Local development (one command)
+
+Live UI + API + DynamoDB Local (Docker Desktop must be running):
+
+```bash
+/Users/yukiumetsu/Documents/projects/udemy/travel-plan/vacation_planner/scripts/dev.sh
+```
+
+Or from the repo root: `./scripts/dev.sh`
+
+Opens **http://127.0.0.1:5173** (`VITE_USE_DEMO_DATA=false`, `AUTH_MODE=dev`, `CREW_MODE=fake`). Ctrl+C stops the API and Vite; DynamoDB stays up until you `docker compose -f backend/docker-compose.yml down`.
+
 ## Local development (backend / DynamoDB)
 
 Two layers for the single-table store:
@@ -169,7 +181,7 @@ docker compose up -d
 uv run python scripts/create_local_table.py
 ```
 
-Defaults: `http://localhost:8000`, table `vacation-planner-local-table`. Data persists in the Docker named volume `dynamodb_data` (not under this repo); `docker compose down -v` deletes it.
+Defaults: `http://localhost:8000`, table `vacation-planner-local-table`. Open the local DynamoDB GUI at **http://localhost:8001**. The compose stack runs DynamoDB Local in memory, so data resets when the container stops.
 
 See [`backend/README.md`](./backend/README.md) for env vars, trip API routes, Lambda packaging, and `smoke_trip_flow.py`.
 

@@ -20,21 +20,39 @@ Open http://localhost:5173
 
 - **Days:** click a place for detail sheet (cost, hours, map, why suggested, watch-outs); min total time (incl. travel); **Suggest a place** (live API); **Add/Remove** in demo only
 - **Profile** (header): preferences, energy level (1–5 signal bars), interests, places you’ve been
-- **Cities:** adjust nights (day ranges recompute); **Add city → Hiroshima** for the feasibility warning
+- **Cities:** adjust nights (day ranges recompute); **Remove** a stop; city photos; **Add city → Hiroshima** for the feasibility warning; **Propose** shows a destination loading canvas (demo ~11s)
 
-### Live create flow
+### Live create flow (end-to-end local)
+
+**Easiest:** from the repo root, one command starts DynamoDB + API + this SPA:
 
 ```bash
-VITE_USE_DEMO_DATA=false npm run dev
+/Users/yukiumetsu/Documents/projects/udemy/travel-plan/vacation_planner/scripts/dev.sh
 ```
 
-Requires a local API on `http://127.0.0.1:8787` (Vite proxies `/api`). Start it with:
+Or manually — Terminal 1 (API + DynamoDB):
 
 ```bash
-cd backend
+cd /Users/yukiumetsu/Documents/projects/udemy/travel-plan/vacation_planner/backend
+docker compose up -d
 export AUTH_MODE=dev CREW_MODE=fake SAFETY_MODE=off
 uv run python scripts/local_api.py
 ```
+
+Terminal 2 — SPA (live mode, no Cognito env vars):
+
+```bash
+cd /Users/yukiumetsu/Documents/projects/udemy/travel-plan/vacation_planner/frontend
+VITE_USE_DEMO_DATA=false npm run dev
+```
+
+Open http://localhost:5173 and walk through:
+
+1. Fill **Create trip** → submit. The app jumps to Cities and starts proposing immediately (loading canvas with photos / quotes / questions).
+2. With `CREW_MODE=fake`, propose finishes quickly and shows cities with photos — **Remove** any stop, tweak nights, then **Confirm route**.
+3. Days opens and **Plan next day** starts automatically for day 1.
+
+Optional: set `CREW_MODE=agentcore` against a deployed runtime (needs `AGENT_RUNTIME_ARN` + AWS creds) to exercise the real city-route crew locally.
 
 For deployed backends set `VITE_API_URL` (e.g. `https://api.example.com`) and skip the Vite proxy.
 

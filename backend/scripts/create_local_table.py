@@ -6,7 +6,7 @@ Usage:
   uv run python scripts/create_local_table.py
 
 Env:
-  DYNAMODB_ENDPOINT   default http://localhost:8000
+  DYNAMODB_ENDPOINT   default http://127.0.0.1:8000
   DYNAMODB_TABLE_NAME default vacation-planner-local-table
   AWS_REGION          default us-east-1
 """
@@ -26,7 +26,7 @@ from db.schema import ensure_table  # noqa: E402
 def main() -> None:
     import os
 
-    os.environ.setdefault("DYNAMODB_ENDPOINT", "http://localhost:8000")
+    os.environ.setdefault("DYNAMODB_ENDPOINT", "http://127.0.0.1:8000")
     os.environ.setdefault("AWS_ACCESS_KEY_ID", "local")
     os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "local")
     reset_clients()
