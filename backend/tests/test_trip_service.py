@@ -136,6 +136,11 @@ def test_suggest_place_appends_to_day(service: TripService) -> None:
     assert service.runner.last_suggest_place_inputs is not None
     assert "remaining_minutes" in service.runner.last_suggest_place_inputs
 
+    # Second suggest must not collide on the fake runner's place_key.
+    suggested2 = service.suggest_place(USER, trip_id, 1)
+    assert suggested2["place"]["place_key"] != suggested["place"]["place_key"]
+    assert len(suggested2["day"]["places"]) == before + 2
+
 
 def test_suggest_place_atomic_when_transact_fails(
     dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
@@ -367,6 +372,58 @@ def test_propose_cities_not_for_city(service: TripService) -> None:
     assert exc.value.status_code == 409
 
 
+def test_update_trip_dates_clears_route(service: TripService) -> None:
+    trip_id = _create_country(service)
+    proposed = service.propose_cities(USER, trip_id)
+    assert proposed["route"] is not None
+    assert proposed["trip"]["day_count"] == 7
+
+    updated = service.update_trip(
+        USER,
+        trip_id,
+        {
+            "start_date": "2026-09-01",
+            "end_date": "2026-09-10",
+        },
+    )
+    assert updated["trip"]["day_count"] == 10
+    assert updated["trip"]["status"] == "drafting"
+    assert updated["route"] is None
+
+    bundle = service.get_trip(USER, trip_id)
+    assert bundle["route"] is None
+
+
+def test_update_trip_prefs_after_confirm_allows_repropose(service: TripService) -> None:
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+    updated = service.update_trip(
+        USER,
+        trip_id,
+        {"preferences": "more temples"},
+    )
+    assert updated["trip"]["status"] == "drafting"
+    assert updated["route"] is None
+    # Must be proposeable again after confirm → edit.
+    again = service.propose_cities(USER, trip_id)
+    assert again["route"] is not None
+
+
+def test_update_trip_blocked_after_days_planned(service: TripService) -> None:
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+    service.plan_next_day(USER, trip_id)
+
+    with pytest.raises(ApiError) as exc:
+        service.update_trip(
+            USER,
+            trip_id,
+            {"end_date": "2026-09-10"},
+        )
+    assert exc.value.status_code == 409
+    assert exc.value.code == "bad_status"
+
+
 def test_dedupe_empty_does_not_persist_duplicates(service: TripService) -> None:
     trip_id = _create_country(service)
     _confirm_country(service, trip_id)
@@ -403,9 +460,10 @@ def test_dedupe_empty_does_not_persist_duplicates(service: TripService) -> None:
     assert int(bundle["trip"]["next_day_index"]) == 1
 
 
-def test_plan_next_day_conflict_when_day_already_written(
+def test_plan_next_day_heals_cursor_when_day_already_written(
     service: TripService, dynamodb_table: Any
 ) -> None:
+    """If DAY#1 exists but next_day_index was rolled back, plan the gap (day 2)."""
     trip_id = _create_country(service)
     _confirm_country(service, trip_id)
     first = service.plan_next_day(USER, trip_id)
@@ -425,14 +483,12 @@ def test_plan_next_day_conflict_when_day_already_written(
         table=dynamodb_table,
     )
 
-    with pytest.raises(ApiError) as exc:
-        service.plan_next_day(USER, trip_id)
-    assert exc.value.status_code == 409
-    assert exc.value.code == "conflict"
+    second = service.plan_next_day(USER, trip_id)
+    assert second["day"]["day_index"] == 2
+    assert int(second["trip"]["next_day_index"]) == 3
 
     bundle = service.get_trip(USER, trip_id)
-    assert len(bundle["days"]) == 1
-    assert int(bundle["trip"]["next_day_index"]) == 1
+    assert {int(d["day_index"]) for d in bundle["days"]} == {1, 2}
 
 
 def test_claim_next_day_rejects_stale_cursor(
@@ -549,3 +605,42 @@ def test_confirm_rejects_overlapping_city_day_windows(service: TripService) -> N
         )
     assert exc.value.status_code == 400
     assert exc.value.code == "route_overlap"
+
+
+def test_delete_trip_removes_route_and_days(service: TripService, dynamodb_table: Any) -> None:
+    """Delete must wipe TRIP meta, ROUTE, and every DAY row (no leftovers)."""
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+    day1 = service.plan_next_day(USER, trip_id)
+    assert day1["day"]["day_index"] == 1
+    day2 = service.plan_next_day(USER, trip_id)
+    assert day2["day"]["day_index"] == 2
+
+    before = repo.get_trip_bundle(user_sub=USER, trip_id=trip_id, table=dynamodb_table)
+    entity_types = {str(i.get("entity_type")) for i in before}
+    assert "TRIP" in entity_types
+    assert "ROUTE" in entity_types
+    assert "DAY" in entity_types
+    day_rows = [i for i in before if i.get("entity_type") == "DAY"]
+    assert len(day_rows) >= 2
+
+    result = service.delete_trip(USER, trip_id)
+    assert result["ok"] is True
+    deleted = result["deleted"]
+    assert deleted["TRIP"] == 1
+    assert deleted["ROUTE"] == 1
+    assert deleted["DAY"] >= 2
+    assert deleted["total"] == deleted["TRIP"] + deleted["ROUTE"] + deleted["DAY"]
+
+    leftover = repo.get_trip_bundle(user_sub=USER, trip_id=trip_id, table=dynamodb_table)
+    assert leftover == []
+
+    gsi_leftover = repo.get_trip_by_id_via_gsi(trip_id=trip_id, table=dynamodb_table)
+    assert gsi_leftover == []
+
+    listed_after = service.list_trips(USER)
+    assert all(t["trip_id"] != trip_id for t in listed_after["trips"])
+
+    with pytest.raises(ApiError) as exc:
+        service.get_trip(USER, trip_id)
+    assert exc.value.status_code == 404

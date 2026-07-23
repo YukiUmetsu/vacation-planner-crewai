@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 from decimal import Decimal
 from typing import Any
@@ -14,6 +15,12 @@ _TRIP_ID_RE = re.compile(
 )
 _DAY_ACTION_RE = re.compile(
     r"^/trips/(?P<trip_id>[^/]+)/days/(?P<day_index>\d+)/(?P<action>suggest-place)/?$"
+)
+_DAY_RESOURCE_RE = re.compile(
+    r"^/trips/(?P<trip_id>[^/]+)/days/(?P<day_index>\d+)/?$"
+)
+_DAY_PLACE_RE = re.compile(
+    r"^/trips/(?P<trip_id>[^/]+)/days/(?P<day_index>\d+)/places/(?P<place_index>\d+)/?$"
 )
 
 
@@ -39,6 +46,11 @@ _PUBLIC_BY_CODE: dict[str, str] = {
     "crew_failed": "Trip planning failed. Please try again.",
     "crew_not_found": "Trip planning failed. Please try again.",
     "agent_invoke_failed": "Trip planning is temporarily unavailable. Please try again.",
+    "agent_auth_failed": (
+        "AgentCore rejected local AWS credentials. "
+        "Restart ./scripts/dev.sh with a valid AWS profile "
+        "(unset AWS_ACCESS_KEY_ID=local if set)."
+    ),
     "agent_bad_response": "Trip planning failed. Please try again.",
     "agent_misconfigured": "Trip planning is temporarily unavailable. Please try again.",
     "agent_error": "Trip planning failed. Please try again.",
@@ -99,6 +111,26 @@ def parse_day_action(path: str) -> tuple[str, int, str] | None:
     return match.group("trip_id"), int(match.group("day_index")), match.group("action")
 
 
+def parse_day_resource(path: str) -> tuple[str, int] | None:
+    """Return (trip_id, day_index) for /trips/{id}/days/{n}."""
+    match = _DAY_RESOURCE_RE.match(path)
+    if not match:
+        return None
+    return match.group("trip_id"), int(match.group("day_index"))
+
+
+def parse_day_place(path: str) -> tuple[str, int, int] | None:
+    """Return (trip_id, day_index, place_index) for /trips/{id}/days/{n}/places/{i}."""
+    match = _DAY_PLACE_RE.match(path)
+    if not match:
+        return None
+    return (
+        match.group("trip_id"),
+        int(match.group("day_index")),
+        int(match.group("place_index")),
+    )
+
+
 def parse_body(event: dict[str, Any]) -> dict[str, Any]:
     body = event.get("body")
     if body is None or body == "":
@@ -128,14 +160,24 @@ def _json_default(value: Any) -> Any:
 
 
 def json_response(status_code: int, payload: Any) -> dict[str, Any]:
+    headers: dict[str, str] = {
+        "content-type": "application/json",
+        "access-control-allow-origin": "*",
+        "access-control-allow-headers": (
+            "authorization,content-type,x-requested-with,"
+            "x-dev-user-sub,x-crew-mode"
+        ),
+        "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
+    }
+    # Local DEV only: let the browser Network tab prove which runner handled the request.
+    if os.getenv("AUTH_MODE", "").strip().lower() == "dev":
+        from crews.runner import crew_mode
+
+        headers["x-crew-mode-effective"] = crew_mode()
+        headers["access-control-expose-headers"] = "x-crew-mode-effective"
     return {
         "statusCode": status_code,
-        "headers": {
-            "content-type": "application/json",
-            "access-control-allow-origin": "*",
-            "access-control-allow-headers": "authorization,content-type,x-requested-with",
-            "access-control-allow-methods": "GET,POST,PUT,OPTIONS",
-        },
+        "headers": headers,
         "body": json.dumps(payload, default=_json_default),
     }
 

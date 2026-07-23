@@ -2,15 +2,44 @@
 
 from __future__ import annotations
 
+import logging
 import os
+from contextvars import Token
 from typing import Any
 
+from crews.runner import (
+    DEV_CREW_MODE_OVERRIDE_VALUES,
+    reset_crew_mode_override,
+    set_crew_mode_override,
+)
 from http_utils import ApiError, normalize_headers
+
+logger = logging.getLogger(__name__)
 
 
 def auth_mode() -> str:
     # Fail closed: production must not accidentally run with forgeable identity.
     return os.getenv("AUTH_MODE", "cognito").strip().lower() or "cognito"
+
+
+def apply_dev_crew_mode_override(event: dict[str, Any]) -> Token[str | None]:
+    """
+    Honor ``X-Crew-Mode`` only when ``AUTH_MODE=dev``.
+
+    Cognito / deployed Lambda ignore the header so clients cannot force AgentCore
+    off (or onto a different runner) in production.
+    """
+    if auth_mode() != "dev":
+        return set_crew_mode_override(None)
+    raw = (normalize_headers(event).get("x-crew-mode") or "").strip().lower()
+    if raw in DEV_CREW_MODE_OVERRIDE_VALUES:
+        logger.info("dev crew_mode override=%s", raw)
+        return set_crew_mode_override(raw)
+    return set_crew_mode_override(None)
+
+
+def clear_dev_crew_mode_override(token: Token[str | None]) -> None:
+    reset_crew_mode_override(token)
 
 
 def _claims_from_event(event: dict[str, Any]) -> dict[str, Any]:

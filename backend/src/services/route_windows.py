@@ -11,12 +11,12 @@ def max_cities_for_trip(*, day_count: int) -> int:
     """
     Cap overnight cities so short trips stay sane.
 
-    total_nights = day_count - 1. Examples:
+    total_nights = day_count - 1. Examples (max trip is 14 days → 13 nights):
     - 1–3 nights → 1 city
     - 4 nights → 2 cities
     - 5–8 nights → 3 cities  (6 nights Japan ≠ 5 cities)
     - 9–13 nights → 4 cities
-    - 14+ nights → 5 cities
+    - 14+ nights → 5 cities (unreachable at current max trip length)
     """
     nights = max(0, int(day_count) - 1)
     if nights <= 3:

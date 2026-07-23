@@ -112,10 +112,23 @@ def invoke_agent(payload: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 — map AWS SDK errors at the BFF boundary
         # Includes UnknownServiceError when Lambda's boto3/botocore is too old
         # for bedrock-agentcore, plus IAM / transport failures.
+        detail = f"AgentCore invoke failed: {type(exc).__name__}: {exc}"
+        code = "agent_invoke_failed"
+        # Local AUTH_MODE=dev: surface auth misconfig instead of a vague 502.
+        if (
+            os.getenv("AUTH_MODE", "").strip().lower() == "dev"
+            and type(exc).__name__ == "AccessDeniedException"
+        ):
+            code = "agent_auth_failed"
+            detail = (
+                "AgentCore AccessDenied — local API is not using valid AWS credentials. "
+                "Restart ./scripts/dev.sh with a working AWS profile "
+                "(do not export AWS_ACCESS_KEY_ID=local)."
+            )
         _raise_public(
             502,
-            code="agent_invoke_failed",
-            detail=f"AgentCore invoke failed: {type(exc).__name__}: {exc}",
+            code=code,
+            detail=detail,
             retryable=_is_retryable_invoke_error(exc),
         )
 

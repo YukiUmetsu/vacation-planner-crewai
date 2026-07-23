@@ -23,6 +23,24 @@ class CreateTripRequest(BaseModel):
         return value
 
 
+class UpdateTripRequest(BaseModel):
+    """Partial trip meta update (dates / prefs). Changing dates clears the route."""
+
+    origin: str | None = Field(default=None, min_length=1, max_length=200)
+    destination: str | None = Field(default=None, min_length=1, max_length=200)
+    destination_type: Literal["city", "country", "region"] | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    preferences: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("origin", "destination", "preferences", mode="before")
+    @classmethod
+    def strip_update_strings(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
 class ConfirmCitiesRequest(BaseModel):
     destination_type: Literal["city", "country", "region"]
     cities: list[dict[str, Any]] = Field(min_length=1)
@@ -50,6 +68,8 @@ class UpdateProfileRequest(BaseModel):
     energy_level: int = Field(default=3, ge=1, le=5)
     interests: list[str] = Field(default_factory=list, max_length=40)
     visited_places: list[VisitedPlaceIn] = Field(default_factory=list, max_length=100)
+    # When true, day plans also suggest breakfast (lunch + dinner always).
+    suggest_include_breakfast: bool = False
 
     @field_validator("display_name", "preferences", mode="before")
     @classmethod

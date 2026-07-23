@@ -78,6 +78,15 @@ def test_make_request_handler_invokes_lambda() -> None:
         assert body["path"] == "/trips"
         assert calls[0]["rawPath"] == "/trips"
         conn.close()
+
+        conn = HTTPConnection(host, port, timeout=2)
+        conn.request("DELETE", "/api/trips/trip-1", headers={"x-dev-user-sub": "u"})
+        resp = conn.getresponse()
+        body = json.loads(resp.read().decode("utf-8"))
+        assert resp.status == 200
+        assert body["path"] == "/trips/trip-1"
+        assert calls[1]["requestContext"]["http"]["method"] == "DELETE"
+        conn.close()
     finally:
         server.shutdown()
         server.server_close()

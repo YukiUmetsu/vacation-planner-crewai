@@ -20,6 +20,7 @@ def _default_profile(user_sub: str) -> dict[str, Any]:
         "energy_level": 3,
         "interests": [],
         "visited_places": [],
+        "suggest_include_breakfast": False,
         "max_comfortable_minutes": max_minutes_for_energy(3),
     }
 
@@ -32,6 +33,7 @@ def _enrich(public: dict[str, Any]) -> dict[str, Any]:
         "max_comfortable_minutes": max_minutes_for_energy(level),
         "interests": list(public.get("interests") or []),
         "visited_places": list(public.get("visited_places") or []),
+        "suggest_include_breakfast": bool(public.get("suggest_include_breakfast")),
     }
 
 
@@ -52,18 +54,11 @@ class ProfileService:
         return self._safety
 
     def get_profile(self, user_sub: str) -> dict[str, Any]:
-        """Return the stored profile, or blank defaults for planning context."""
+        """Return the stored profile, or blank defaults when none has been saved."""
         item = repo.get_profile(user_sub=user_sub, table=self._table)
         if not item:
-            return _default_profile(user_sub)
-        return _enrich(public_item(item))
-
-    def get_persisted_profile(self, user_sub: str) -> dict[str, Any]:
-        """Return a saved profile only; 404 when nothing has been PUT yet."""
-        item = repo.get_profile(user_sub=user_sub, table=self._table)
-        if not item:
-            raise ApiError(404, "profile not found", code="not_found")
-        return _enrich(public_item(item))
+            return {**_default_profile(user_sub), "persisted": False}
+        return {**_enrich(public_item(item)), "persisted": True}
 
     def put_profile(self, user_sub: str, body: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -84,6 +79,7 @@ class ProfileService:
             energy_level=clamp_energy_level(req.energy_level),
             interests=req.interests,
             visited_places=visited,
+            suggest_include_breakfast=bool(req.suggest_include_breakfast),
             table=self._table,
         )
-        return _enrich(public_item(item))
+        return {**_enrich(public_item(item)), "persisted": True}

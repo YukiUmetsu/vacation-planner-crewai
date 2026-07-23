@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from decimal import Decimal
 from typing import Any, Callable
 
 from pydantic import ValidationError
 
-from crews.runner import CrewRunner, get_crew_runner
+from crews.runner import CrewRunner, crew_mode, get_crew_runner
 from db import repository as repo
 from db.place_keys import make_place_key
 from db.protocols import DynamoDBTable
 from http_utils import ApiError, client_facing_message, public_item
-from models.api import ConfirmCitiesRequest, CreateTripRequest
+from models.api import ConfirmCitiesRequest, CreateTripRequest, UpdateTripRequest
 from services.crew_context_budget import slim_crew_inputs
 from services.dates import date_for_day_index, parse_iso_date, validate_trip_dates
 from services.dedupe import dedupe_places
@@ -96,39 +95,60 @@ def _sync_total_nights(route: dict[str, Any]) -> dict[str, Any]:
 def _assert_route_fits_window(route: dict[str, Any], day_count: int) -> None:
     cities = route.get("cities") or []
     if not cities:
-        raise ApiError(400, "route.cities must be non-empty")
+        raise ApiError(
+            400,
+            "Add or propose at least one city before confirming.",
+            code="route_empty",
+        )
     covered: set[int] = set()
     for stop in cities:
         arrival = int(stop.get("arrival_day_index") or 0)
         departure = int(stop.get("departure_day_index") or 0)
         if not (1 <= arrival <= day_count and 1 <= departure <= day_count):
-            raise ApiError(400, "city day indices must fall within the trip window")
+            raise ApiError(
+                400,
+                f"City days must stay within day 1–{day_count}. "
+                "Reduce nights or remove a city.",
+                code="route_out_of_window",
+            )
         if departure < arrival:
-            raise ApiError(400, "departure_day_index must be >= arrival_day_index")
+            raise ApiError(
+                400,
+                "Each city must leave on or after the day it arrives.",
+                code="route_inverted_stop",
+            )
         for day in range(arrival, departure + 1):
             if day in covered:
                 raise ApiError(
                     400,
-                    f"route has overlapping city coverage on day {day}",
+                    f"Cities overlap on day {day}. "
+                    "Adjust nights so each day has one overnight city.",
                     code="route_overlap",
                 )
             covered.add(day)
     nights_sum = sum(int(c.get("nights") or 0) for c in cities)
     total = int(route.get("total_nights") or nights_sum)
     if total != nights_sum:
-        raise ApiError(400, f"total_nights ({total}) must equal sum of city nights ({nights_sum})")
+        raise ApiError(
+            400,
+            f"total_nights ({total}) must equal the sum of city nights ({nights_sum}).",
+            code="route_total_nights",
+        )
     expected_nights = max(0, day_count - 1)
     if nights_sum != expected_nights:
         raise ApiError(
             400,
-            f"sum of city nights ({nights_sum}) must equal day_count - 1 ({expected_nights})",
+            f"This route has {nights_sum} overnight night"
+            f"{'' if nights_sum == 1 else 's'} but your trip needs "
+            f"{expected_nights} (days − 1). Adjust nights or remove a city.",
             code="route_nights_mismatch",
         )
     missing = [day for day in range(1, day_count + 1) if day not in covered]
     if missing:
         raise ApiError(
             400,
-            f"route does not cover all trip days (missing {missing})",
+            f"Day {missing[0]} is not covered. Add nights or another city "
+            "so every trip day is included.",
             code="route_gap",
         )
 
@@ -154,6 +174,97 @@ def _merge_preferences(trip_prefs: str, profile_prefs: str, interests: list[str]
         if interest_line not in parts:
             parts.append(interest_line)
     return " | ".join(parts)
+
+
+def _meal_guidance(*, include_breakfast: bool) -> str:
+    """Hard meal requirements appended into crew preferences."""
+    base = (
+        "Meals: include lunch and dinner as food stops (category=food) "
+        "with realistic meal timing in the day's order."
+    )
+    if include_breakfast:
+        return (
+            f"{base} Also include breakfast as a food stop "
+            "(suggest_include_breakfast=true)."
+        )
+    return f"{base} Skip breakfast unless the traveler preferences ask for it."
+
+
+def first_missing_day_index(
+    days: list[dict[str, Any]], day_count: int
+) -> int | None:
+    """Lowest 1-based day_index with no DAY row, or None when the trip is full."""
+    planned = {
+        int(d.get("day_index") or 0)
+        for d in days
+        if int(d.get("day_index") or 0) >= 1
+    }
+    for index in range(1, day_count + 1):
+        if index not in planned:
+            return index
+    return None
+
+
+def resolve_plan_day_index(
+    *,
+    trip: dict[str, Any],
+    days: list[dict[str, Any]],
+) -> int:
+    """Day to plan next — fill gaps before trusting a jumped ``next_day_index``."""
+    day_count = int(trip["day_count"])
+    gap = first_missing_day_index(days, day_count)
+    if gap is None:
+        raise ApiError(409, "all days already planned", code="complete")
+    return gap
+
+
+def rebuild_prior_days_summary(days: list[dict[str, Any]]) -> str:
+    """One-line-per-day summary matching plan-next-day cursor updates."""
+    lines: list[str] = []
+    for day in sorted(days, key=lambda d: int(d.get("day_index") or 0)):
+        index = int(day.get("day_index") or 0)
+        if index < 1:
+            continue
+        theme = str(day.get("theme") or f"Day {index}")
+        overnight = str(day.get("overnight_city") or "")
+        line = f"Day {index}: {theme} @ {overnight}".strip()
+        if line.endswith("@"):
+            line = line[:-1].strip()
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def visited_keys_from_days(days: list[dict[str, Any]]) -> list[str]:
+    """Stable order of unique place_keys across remaining day plans."""
+    keys: list[str] = []
+    seen: set[str] = set()
+    for day in sorted(days, key=lambda d: int(d.get("day_index") or 0)):
+        for place in day.get("places") or []:
+            if not isinstance(place, dict):
+                continue
+            key = str(place.get("place_key") or "").strip()
+            if key and key not in seen:
+                seen.add(key)
+                keys.append(key)
+    return keys
+
+
+def status_after_day_edit(
+    *,
+    remaining_days: list[dict[str, Any]],
+    day_count: int,
+    previous_status: str,
+) -> tuple[int, str]:
+    """Return (next_day_index, status) after a day was removed or emptied."""
+    gap = first_missing_day_index(remaining_days, day_count)
+    if gap is None:
+        return day_count + 1, "complete"
+    if not remaining_days:
+        # Route is still confirmed; traveler can plan again from day 1.
+        if previous_status in {"planning", "complete", "failed"}:
+            return 1, "routing_confirmed"
+        return 1, previous_status or "routing_confirmed"
+    return gap, "planning"
 
 
 def _profile_visited_keys(visited_places: list[Any]) -> list[str]:
@@ -255,10 +366,103 @@ class TripService:
             "route": public_item(route) if route else None,
         }
 
+    def update_trip(self, user_sub: str, trip_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Update trip details; clears the route so cities can be re-proposed."""
+        trip, route, days = self._load_owned_bundle(user_sub, trip_id)
+        if days:
+            raise ApiError(
+                409,
+                "Trip days are already planned — start a new trip to change dates.",
+                code="bad_status",
+            )
+        status = str(trip.get("status") or "")
+        if status in {"complete", "planning"}:
+            raise ApiError(
+                409,
+                f"cannot edit trip details from status={status!r}",
+                code="bad_status",
+            )
+
+        req = _validate(UpdateTripRequest, body)
+        origin = req.origin if req.origin is not None else str(trip["origin"])
+        destination = (
+            req.destination if req.destination is not None else str(trip["destination"])
+        )
+        destination_type = (
+            req.destination_type
+            if req.destination_type is not None
+            else str(trip["destination_type"])
+        )
+        start_raw = req.start_date if req.start_date is not None else str(trip["start_date"])
+        end_raw = req.end_date if req.end_date is not None else str(trip["end_date"])
+        preferences = (
+            req.preferences if req.preferences is not None else str(trip.get("preferences") or "")
+        )
+
+        self.safety.check_text(preferences, source="preferences")
+        self.safety.check_text(destination, source="destination")
+        start, end, day_count = validate_trip_dates(start_raw, end_raw)
+
+        updates: dict[str, Any] = {
+            "origin": origin,
+            "destination": destination,
+            "destination_type": destination_type,
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+            "day_count": day_count,
+            "preferences": preferences,
+        }
+        # Always invalidate the route: the UI re-proposes after every save, and
+        # confirmed/awaiting trips must return to drafting (or a fresh city route).
+        repo.delete_route(user_sub=user_sub, trip_id=trip_id, table=self._table)
+        if destination_type == "city":
+            updates["status"] = "routing_confirmed"
+            route = repo.put_route(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                route=synthetic_city_route(
+                    destination=destination, day_count=day_count
+                ),
+                table=self._table,
+            )
+        else:
+            updates["status"] = "drafting"
+            route = None
+
+        trip = repo.update_trip(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            updates=updates,
+            table=self._table,
+        )
+        return {
+            "trip": public_item(trip),
+            "route": public_item(route) if route else None,
+        }
+
     def list_trips(self, user_sub: str) -> dict[str, Any]:
         items = repo.list_trip_meta_for_user(user_sub=user_sub, table=self._table)
         items_sorted = sorted(items, key=lambda t: t.get("created_at") or "", reverse=True)
         return {"trips": [public_item(t) for t in items_sorted]}
+
+    def delete_trip(self, user_sub: str, trip_id: str) -> dict[str, Any]:
+        """Remove trip meta, route, and all day-plan rows for an owned trip."""
+        self._require_trip(user_sub, trip_id)
+        try:
+            # Atomic delete lock: fails if a planning claim is held.
+            repo.begin_trip_delete(
+                user_sub=user_sub, trip_id=trip_id, table=self._table
+            )
+        except repo.ConcurrentModificationError as exc:
+            raise ApiError(
+                409,
+                "cannot delete trip while planning is in progress",
+                code="planning_in_progress",
+            ) from exc
+        counts = repo.delete_trip_bundle(
+            user_sub=user_sub, trip_id=trip_id, table=self._table
+        )
+        return {"ok": True, "trip_id": trip_id, "deleted": counts}
 
     def get_trip(self, user_sub: str, trip_id: str) -> dict[str, Any]:
         trip, route, days = self._load_owned_bundle(user_sub, trip_id)
@@ -299,7 +503,7 @@ class TripService:
             operation="propose_cities",
             trip_id=trip_id,
             duration_ms=timer.duration_ms(),
-            extra={"crew_mode": os.environ.get("CREW_MODE", "fake")},
+            extra={"crew_mode": crew_mode()},
         )
         route_data["status"] = "proposed"
         _assert_route_fits_window(route_data, int(trip["day_count"]))
@@ -360,21 +564,56 @@ class TripService:
 
     def start_plan_next_day(self, user_sub: str, trip_id: str) -> dict[str, Any]:
         """Claim planning slot and enqueue worker; returns async response shape."""
-        trip, route, _days = self._load_owned_bundle(user_sub, trip_id)
+        trip, route, days = self._load_owned_bundle(user_sub, trip_id)
         status = trip.get("status")
         if status not in {"routing_confirmed", "planning", "failed"}:
             raise ApiError(
                 409, f"cannot plan day from status={status!r}", code="bad_status"
             )
 
-        day_count = int(trip["day_count"])
-        next_index = int(trip.get("next_day_index") or 1)
-        if next_index > day_count:
-            raise ApiError(409, "all days already planned", code="complete")
-
         if trip["destination_type"] != "city":
             if not route or route.get("status") != "confirmed":
                 raise ApiError(409, "confirmed city route required", code="route_required")
+
+        # Finish an in-flight claim before filling gaps (orphan DAY after worker Put).
+        claimed_raw = trip.get("planning_day_index")
+        if claimed_raw is not None:
+            try:
+                claimed_i = int(claimed_raw)
+            except (TypeError, ValueError):
+                claimed_i = None
+            if claimed_i is not None and claimed_i >= 1:
+                recovered = self._finalize_existing_planned_day(
+                    user_sub=user_sub,
+                    trip_id=trip_id,
+                    trip=trip,
+                    day_index=claimed_i,
+                    ensure_claim=False,
+                )
+                if recovered is not None:
+                    return recovered
+                # No DAY yet for the claim — drop only if stuck long enough.
+                if repo.clear_stale_planning_claim(
+                    user_sub=user_sub, trip_id=trip_id, table=self._table
+                ):
+                    trip = self._require_trip(user_sub, trip_id)
+                else:
+                    raise ApiError(
+                        409,
+                        "a day is already being planned for this trip",
+                        code="conflict",
+                    )
+
+        next_index = resolve_plan_day_index(trip=trip, days=days)
+        stored_next = int(trip.get("next_day_index") or 1)
+        if stored_next != next_index:
+            # Heal skipped cursor (e.g. claim advanced but DAY put failed).
+            trip = repo.update_trip(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                updates={"next_day_index": next_index},
+                table=self._table,
+            )
 
         # DAY already present (worker died after Put) — finish cursor without re-crew.
         recovered = self._finalize_existing_planned_day(
@@ -443,6 +682,12 @@ class TripService:
     ) -> dict[str, Any]:
         """Worker path: run crew + enrich + persist for an already-claimed day."""
         trip, route, _days = self._load_owned_bundle(user_sub, trip_id)
+        if str(trip.get("status") or "") == "deleting":
+            raise ApiError(
+                409,
+                "trip is being deleted",
+                code="trip_deleting",
+            )
         claimed = trip.get("planning_day_index")
         try:
             claimed_i = int(claimed) if claimed is not None else None
@@ -610,21 +855,26 @@ class TripService:
         }
 
     def _plan_next_day_sync(self, user_sub: str, trip_id: str) -> dict[str, Any]:
-        trip, route, _days = self._load_owned_bundle(user_sub, trip_id)
+        trip, route, days = self._load_owned_bundle(user_sub, trip_id)
         status = trip.get("status")
         if status not in {"routing_confirmed", "planning", "failed"}:
             raise ApiError(
                 409, f"cannot plan day from status={status!r}", code="bad_status"
             )
 
-        day_count = int(trip["day_count"])
-        next_index = int(trip.get("next_day_index") or 1)
-        if next_index > day_count:
-            raise ApiError(409, "all days already planned", code="complete")
-
         if trip["destination_type"] != "city":
             if not route or route.get("status") != "confirmed":
                 raise ApiError(409, "confirmed city route required", code="route_required")
+
+        next_index = resolve_plan_day_index(trip=trip, days=days)
+        stored_next = int(trip.get("next_day_index") or 1)
+        if stored_next != next_index:
+            trip = repo.update_trip(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                updates={"next_day_index": next_index},
+                table=self._table,
+            )
 
         return self._run_plan_day_and_persist(
             user_sub=user_sub,
@@ -660,11 +910,19 @@ class TripService:
         energy_level = clamp_energy_level(profile.get("energy_level"))
         max_minutes = max_minutes_for_energy(energy_level)
         interests = [str(i) for i in (profile.get("interests") or []) if str(i).strip()]
+        include_breakfast = bool(profile.get("suggest_include_breakfast"))
         merged_prefs = _merge_preferences(
             str(trip.get("preferences") or ""),
             str(profile.get("preferences") or ""),
             interests,
         )
+        meal_line = _meal_guidance(include_breakfast=include_breakfast)
+        if meal_line not in merged_prefs:
+            merged_prefs = (
+                f"{merged_prefs} | {meal_line}".strip(" |")
+                if merged_prefs
+                else meal_line
+            )
         self.safety.check_text(merged_prefs, source="preferences")
 
         visited = list(trip.get("visited_place_keys") or [])
@@ -682,6 +940,7 @@ class TripService:
                 "date": day_date.isoformat(),
                 "overnight_city": overnight,
                 "preferences": merged_prefs,
+                "include_breakfast": "true" if include_breakfast else "false",
                 "energy_level": str(energy_level),
                 "max_comfortable_minutes": str(max_minutes),
                 "interests": ", ".join(interests),
@@ -783,6 +1042,24 @@ class TripService:
         new_status: str,
     ) -> dict[str, Any]:
         """Put DAY then clear claim; idempotent if DAY already exists."""
+        live = repo.get_trip_meta(
+            user_sub=user_sub, trip_id=trip_id, table=self._table
+        )
+        if not live:
+            raise ApiError(404, "trip not found", code="not_found")
+        if str(live.get("status") or "") == "deleting":
+            raise ApiError(409, "trip is being deleted", code="trip_deleting")
+        try:
+            claimed_i = int(live.get("planning_day_index"))
+        except (TypeError, ValueError):
+            claimed_i = None
+        if claimed_i != next_index:
+            raise ApiError(
+                409,
+                "planning claim lost before day write",
+                code="claim_mismatch",
+            )
+
         existing = repo.get_day(
             user_sub=user_sub,
             trip_id=trip_id,
@@ -792,7 +1069,7 @@ class TripService:
         if existing is not None:
             day_item = existing
             visited, summary = self._cursors_from_existing_day(
-                trip=trip,
+                trip=live,
                 day_item=existing,
                 next_index=next_index,
                 fallback_visited=updated_visited,
@@ -818,7 +1095,7 @@ class TripService:
                 if day_item is None:
                     raise
                 visited, summary = self._cursors_from_existing_day(
-                    trip=trip,
+                    trip=live,
                     day_item=day_item,
                     next_index=next_index,
                     fallback_visited=updated_visited,
@@ -1011,6 +1288,199 @@ class TripService:
             "place": validated,
             "day": public_item(day_item),
             "trip": public_item(trip),
+        }
+
+    def remove_place(
+        self, user_sub: str, trip_id: str, day_index: int, place_index: int
+    ) -> dict[str, Any]:
+        """Remove one place from a day by list index and reindex order_in_day."""
+        if day_index < 1:
+            raise ApiError(400, "day_index must be >= 1", code="invalid_day_index")
+        if place_index < 0:
+            raise ApiError(400, "place_index must be >= 0", code="invalid_place_index")
+
+        trip, _route, days = self._load_owned_bundle(user_sub, trip_id)
+        if trip.get("planning_day_index") is not None:
+            raise ApiError(
+                409,
+                "cannot edit places while planning is in progress",
+                code="planning_in_progress",
+            )
+        if str(trip.get("status") or "") == "deleting":
+            raise ApiError(409, "trip is being deleted", code="trip_deleting")
+
+        day = next(
+            (d for d in days if int(d.get("day_index") or 0) == day_index),
+            None,
+        )
+        if not day:
+            raise ApiError(404, "day not found", code="not_found")
+
+        existing = list(day.get("places") or [])
+        if place_index >= len(existing):
+            raise ApiError(404, "place not found", code="not_found")
+
+        removed = existing[place_index]
+        removed_key = (
+            str(removed.get("place_key") or "").strip()
+            if isinstance(removed, dict)
+            else ""
+        )
+
+        updated_places: list[dict[str, Any]] = []
+        for index, place in enumerate(existing):
+            if index == place_index:
+                continue
+            item = dict(place) if isinstance(place, dict) else {}
+            item["order_in_day"] = len(updated_places) + 1
+            updated_places.append(item)
+
+        try:
+            day_item = repo.replace_day_places(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                day_index=day_index,
+                places=updated_places,
+                expected_place_count=len(existing),
+                table=self._table,
+            )
+        except repo.ConcurrentModificationError as exc:
+            raise ApiError(409, str(exc), code="conflict") from exc
+
+        remaining = [
+            day_item if int(d.get("day_index") or 0) == day_index else d for d in days
+        ]
+        still_used = False
+        if removed_key:
+            for other in remaining:
+                for place in other.get("places") or []:
+                    if not isinstance(place, dict):
+                        continue
+                    if str(place.get("place_key") or "").strip() == removed_key:
+                        still_used = True
+                        break
+                if still_used:
+                    break
+
+        trip_out = trip
+        if removed_key and not still_used:
+            try:
+                trip_out = repo.prune_visited_place_keys(
+                    user_sub=user_sub,
+                    trip_id=trip_id,
+                    keys_to_remove={removed_key},
+                    table=self._table,
+                )
+            except repo.ConcurrentModificationError:
+                # Place already removed; visited may be slightly stale — do not 409.
+                trip_out = (
+                    repo.get_trip_meta(
+                        user_sub=user_sub, trip_id=trip_id, table=self._table
+                    )
+                    or trip
+                )
+        else:
+            trip_out = (
+                repo.get_trip_meta(
+                    user_sub=user_sub, trip_id=trip_id, table=self._table
+                )
+                or trip
+            )
+
+        return {
+            "day": public_item(day_item),
+            "trip": public_item(trip_out),
+        }
+
+    def delete_day(
+        self, user_sub: str, trip_id: str, day_index: int
+    ) -> dict[str, Any]:
+        """Delete an entire day plan and rewind planning cursors for gaps."""
+        if day_index < 1:
+            raise ApiError(400, "day_index must be >= 1", code="invalid_day_index")
+
+        trip, _route, days = self._load_owned_bundle(user_sub, trip_id)
+        if not any(int(d.get("day_index") or 0) == day_index for d in days):
+            raise ApiError(404, "day not found", code="not_found")
+
+        if trip.get("planning_day_index") is not None:
+            raise ApiError(
+                409,
+                "cannot delete a day while planning is in progress",
+                code="planning_in_progress",
+            )
+        if str(trip.get("status") or "") == "deleting":
+            raise ApiError(409, "trip is being deleted", code="trip_deleting")
+
+        deleted = next(
+            (d for d in days if int(d.get("day_index") or 0) == day_index),
+            None,
+        )
+        deleted_keys = {
+            str(p.get("place_key") or "").strip()
+            for p in (deleted.get("places") or [] if deleted else [])
+            if isinstance(p, dict) and str(p.get("place_key") or "").strip()
+        }
+
+        remaining = [d for d in days if int(d.get("day_index") or 0) != day_index]
+        still_used = {
+            str(p.get("place_key") or "").strip()
+            for d in remaining
+            for p in (d.get("places") or [])
+            if isinstance(p, dict) and str(p.get("place_key") or "").strip()
+        }
+        keys_to_prune = deleted_keys - still_used
+
+        day_count = int(trip.get("day_count") or 0)
+        next_day_index, new_status = status_after_day_edit(
+            remaining_days=remaining,
+            day_count=day_count,
+            previous_status=str(trip.get("status") or ""),
+        )
+        prior_summary = rebuild_prior_days_summary(remaining)
+
+        # Cursor update first (fails if a claim appears) — then delete the DAY row.
+        try:
+            trip = repo.apply_itinerary_edit(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                next_day_index=next_day_index,
+                status=new_status,
+                prior_days_summary=prior_summary,
+                table=self._table,
+            )
+        except repo.ConcurrentModificationError as exc:
+            raise ApiError(409, str(exc), code="conflict") from exc
+
+        if not repo.delete_day(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            day_index=day_index,
+            table=self._table,
+        ):
+            # Cursors already reflect the gap; treat as idempotent success.
+            pass
+
+        if keys_to_prune:
+            try:
+                trip = repo.prune_visited_place_keys(
+                    user_sub=user_sub,
+                    trip_id=trip_id,
+                    keys_to_remove=keys_to_prune,
+                    table=self._table,
+                )
+            except repo.ConcurrentModificationError:
+                trip = (
+                    repo.get_trip_meta(
+                        user_sub=user_sub, trip_id=trip_id, table=self._table
+                    )
+                    or trip
+                )
+
+        return {
+            "deleted_day_index": day_index,
+            "trip": public_item(trip),
+            "days": [public_item(d) for d in remaining],
         }
 
     def _require_trip(self, user_sub: str, trip_id: str) -> dict[str, Any]:

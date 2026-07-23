@@ -44,13 +44,18 @@ def wired_profile(dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch):
 
 def test_get_profile_defaults(wired_profile: ProfileService) -> None:
     resp = handler(_event("GET", "/profile"))
-    assert resp["statusCode"] == 404
-    body = json.loads(resp["body"])
-    assert body["code"] == "not_found"
+    assert resp["statusCode"] == 200
+    profile = json.loads(resp["body"])["profile"]
+    assert profile["persisted"] is False
+    assert profile["energy_level"] == 3
+    assert profile["max_comfortable_minutes"] == 510
+    assert profile["interests"] == []
+    assert profile["visited_places"] == []
 
 
 def test_get_profile_defaults_for_planning(wired_profile: ProfileService) -> None:
     profile = wired_profile.get_profile("profile-user")
+    assert profile["persisted"] is False
     assert profile["energy_level"] == 3
     assert profile["max_comfortable_minutes"] == 510
     assert profile["interests"] == []
@@ -75,9 +80,11 @@ def test_put_and_get_profile(wired_profile: ProfileService) -> None:
     assert saved["display_name"] == "Yuki"
     assert saved["energy_level"] == 2
     assert saved["max_comfortable_minutes"] == 390
+    assert saved["persisted"] is True
 
     got = handler(_event("GET", "/profile"))
     profile = json.loads(got["body"])["profile"]
+    assert profile["persisted"] is True
     assert profile["preferences"] == "slow travel"
     assert profile["interests"] == ["temples", "food"]
     assert profile["visited_places"][0]["name"] == "Senso-ji"

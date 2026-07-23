@@ -5,7 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from auth import get_user_sub
+from auth import (
+    apply_dev_crew_mode_override,
+    clear_dev_crew_mode_override,
+    get_user_sub,
+)
 from db import repository as repo
 from http_utils import (
     ApiError,
@@ -13,6 +17,8 @@ from http_utils import (
     error_response,
     json_response,
     parse_day_action,
+    parse_day_place,
+    parse_day_resource,
     parse_route,
     request_method,
     request_path,
@@ -134,6 +140,7 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
 
     method = "-"
     path = "-"
+    crew_override_token = apply_dev_crew_mode_override(event)
     try:
         method = request_method(event)
         path = request_path(event)
@@ -161,6 +168,14 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         if trip_id and action is None and path.startswith("/trips/"):
             if method == "GET":
                 return json_response(200, trip_routes.get_trip(event, user_sub, trip_id))
+            if method == "PUT":
+                return json_response(
+                    200, trip_routes.update_trip(event, user_sub, trip_id)
+                )
+            if method == "DELETE":
+                return json_response(
+                    200, trip_routes.delete_trip(event, user_sub, trip_id)
+                )
             raise ApiError(405, f"method {method} not allowed")
 
         if trip_id and action == "propose-cities":
@@ -203,6 +218,28 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
                     )
                 raise ApiError(405, f"method {method} not allowed")
 
+        day_place = parse_day_place(path)
+        if day_place:
+            day_trip_id, day_index, place_index = day_place
+            if method == "DELETE":
+                return json_response(
+                    200,
+                    trip_routes.remove_place(
+                        event, user_sub, day_trip_id, day_index, place_index
+                    ),
+                )
+            raise ApiError(405, f"method {method} not allowed")
+
+        day_resource = parse_day_resource(path)
+        if day_resource:
+            day_trip_id, day_index = day_resource
+            if method == "DELETE":
+                return json_response(
+                    200,
+                    trip_routes.delete_day(event, user_sub, day_trip_id, day_index),
+                )
+            raise ApiError(405, f"method {method} not allowed")
+
         raise ApiError(404, f"route not found: {method} {path}", code="not_found")
     except ApiError as exc:
         _log_api_error(
@@ -230,3 +267,5 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
                 "code": "internal_error",
             },
         )
+    finally:
+        clear_dev_crew_mode_override(crew_override_token)

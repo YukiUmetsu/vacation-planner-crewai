@@ -173,6 +173,9 @@ def make_request_handler(invoke: HandlerFn) -> type[BaseHTTPRequestHandler]:
         def do_PUT(self) -> None:  # noqa: N802
             self._handle()
 
+        def do_DELETE(self) -> None:  # noqa: N802
+            self._handle()
+
         def do_OPTIONS(self) -> None:  # noqa: N802
             self._handle()
 

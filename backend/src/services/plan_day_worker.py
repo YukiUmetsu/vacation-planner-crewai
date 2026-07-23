@@ -21,15 +21,25 @@ class PlanDayEnqueuer(Protocol):
 
 
 def plan_next_day_async_enabled() -> bool:
-    """Async when CREW_MODE=agentcore unless PLAN_NEXT_DAY_ASYNC overrides."""
+    """Async when CREW_MODE=agentcore unless PLAN_NEXT_DAY_ASYNC overrides.
+
+    Request-scoped ``X-Crew-Mode`` overrides (AUTH_MODE=dev) force **sync** so the
+    worker never runs under a different mode than the HTTP request that claimed it.
+    """
+    from crews.runner import has_crew_mode_override
+
+    if has_crew_mode_override():
+        return False
+
     flag = os.getenv("PLAN_NEXT_DAY_ASYNC", "auto").strip().lower()
     if flag in {"off", "0", "false", "no", "sync"}:
         return False
     if flag in {"on", "1", "true", "yes", "async"}:
         return True
-    # auto
-    mode = os.getenv("CREW_MODE", "fake").strip().lower()
-    return mode == "agentcore"
+    # auto — use effective crew_mode (env) since override already returned above
+    from crews.runner import crew_mode
+
+    return crew_mode() == "agentcore"
 
 
 def enqueue_plan_next_day_worker(user_sub: str, trip_id: str, day_index: int) -> None:

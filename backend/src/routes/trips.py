@@ -32,6 +32,18 @@ def get_trip(event: dict[str, Any], user_sub: str, trip_id: str, **kwargs: Any) 
     return _service(**kwargs).get_trip(user_sub, trip_id)
 
 
+def update_trip(
+    event: dict[str, Any], user_sub: str, trip_id: str, **kwargs: Any
+) -> dict[str, Any]:
+    return _service(**kwargs).update_trip(user_sub, trip_id, parse_body(event))
+
+
+def delete_trip(
+    event: dict[str, Any], user_sub: str, trip_id: str, **kwargs: Any
+) -> dict[str, Any]:
+    return _service(**kwargs).delete_trip(user_sub, trip_id)
+
+
 def propose_cities(
     event: dict[str, Any], user_sub: str, trip_id: str, **kwargs: Any
 ) -> dict[str, Any]:
@@ -58,3 +70,26 @@ def suggest_place(
     **kwargs: Any,
 ) -> dict[str, Any]:
     return _service(**kwargs).suggest_place(user_sub, trip_id, day_index)
+
+
+def remove_place(
+    event: dict[str, Any],
+    user_sub: str,
+    trip_id: str,
+    day_index: int,
+    place_index: int,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    return _service(**kwargs).remove_place(
+        user_sub, trip_id, day_index, place_index
+    )
+
+
+def delete_day(
+    event: dict[str, Any],
+    user_sub: str,
+    trip_id: str,
+    day_index: int,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    return _service(**kwargs).delete_day(user_sub, trip_id, day_index)

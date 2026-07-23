@@ -122,3 +122,41 @@ def test_suggest_place_route(wired: TripService) -> None:
     body = json.loads(suggested["body"])
     assert body["place"]["place_key"]
     assert len(body["day"]["places"]) == before + 1
+
+
+def test_update_trip_route(wired: TripService) -> None:
+    create = handler(
+        _event(
+            "POST",
+            "/trips",
+            body={
+                "origin": "Chicago",
+                "destination": "Japan",
+                "destination_type": "country",
+                "start_date": "2026-09-01",
+                "end_date": "2026-09-07",
+            },
+        )
+    )
+    trip_id = json.loads(create["body"])["trip"]["trip_id"]
+    handler(_event("POST", f"/trips/{trip_id}/propose-cities"))
+
+    updated = handler(
+        _event(
+            "PUT",
+            f"/trips/{trip_id}",
+            body={
+                "origin": "Chicago",
+                "destination": "Japan",
+                "destination_type": "country",
+                "start_date": "2026-09-01",
+                "end_date": "2026-09-12",
+                "preferences": "temples",
+            },
+        )
+    )
+    assert updated["statusCode"] == 200
+    body = json.loads(updated["body"])
+    assert body["trip"]["day_count"] == 12
+    assert body["route"] is None
+    assert body["trip"]["status"] == "drafting"

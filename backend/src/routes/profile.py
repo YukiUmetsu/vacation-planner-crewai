@@ -19,7 +19,8 @@ def _service(
 
 
 def get_profile(event: dict[str, Any], user_sub: str, **kwargs: Any) -> dict[str, Any]:
-    return {"profile": _service(**kwargs).get_persisted_profile(user_sub)}
+    # Missing profiles return defaults with persisted=false (no 404 noise).
+    return {"profile": _service(**kwargs).get_profile(user_sub)}
 
 
 def put_profile(event: dict[str, Any], user_sub: str, **kwargs: Any) -> dict[str, Any]:

@@ -27,7 +27,14 @@ def validate_trip_dates(start_date: str, end_date: str) -> tuple[date, date, int
         raise ApiError(400, "end_date must be on or after start_date")
     day_count = inclusive_day_count(start, end)
     if day_count < 1 or day_count > MAX_DAY_COUNT:
-        raise ApiError(400, f"trip length must be 1..{MAX_DAY_COUNT} days (got {day_count})")
+        raise ApiError(
+            400,
+            f"trip length must be 1..{MAX_DAY_COUNT} inclusive calendar days "
+            f"(end − start + 1); got {day_count}. "
+            f"Example: 2026-08-01 to 2026-08-14 is {MAX_DAY_COUNT} days, "
+            f"2026-08-01 to 2026-08-15 is {MAX_DAY_COUNT + 1}.",
+            code="trip_too_long" if day_count > MAX_DAY_COUNT else "trip_too_short",
+        )
     return start, end, day_count
 
 

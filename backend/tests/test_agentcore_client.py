@@ -153,6 +153,7 @@ def test_invoke_agent_marks_access_denied_terminal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123:runtime/demo")
+    monkeypatch.delenv("AUTH_MODE", raising=False)
 
     class AccessDeniedException(Exception):
         pass
@@ -170,6 +171,31 @@ def test_invoke_agent_marks_access_denied_terminal(
     with pytest.raises(ApiError) as exc:
         agentcore_client.invoke_agent({"crew": "day_plan", "inputs": {}})
     assert exc.value.code == "agent_invoke_failed"
+    assert exc.value.retryable is False
+
+
+def test_invoke_agent_access_denied_is_auth_failed_in_dev(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123:runtime/demo")
+    monkeypatch.setenv("AUTH_MODE", "dev")
+
+    class AccessDeniedException(Exception):
+        pass
+
+    class FakeBotoClient:
+        def invoke_agent_runtime(self, **kwargs: Any) -> dict[str, Any]:
+            raise AccessDeniedException("nope")
+
+    monkeypatch.setattr(
+        agentcore_client.boto3,
+        "client",
+        lambda *args, **kwargs: FakeBotoClient(),
+    )
+
+    with pytest.raises(ApiError) as exc:
+        agentcore_client.invoke_agent({"crew": "day_plan", "inputs": {}})
+    assert exc.value.code == "agent_auth_failed"
     assert exc.value.retryable is False
 
 
