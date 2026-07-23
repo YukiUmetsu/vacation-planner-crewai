@@ -53,6 +53,8 @@ class DynamoDBTable(Protocol):
         **kwargs: Any,
     ) -> dict[str, Any]: ...
 
+    def delete_item(self, *, Key: dict[str, Any], **kwargs: Any) -> dict[str, Any]: ...
+
 
 class DynamoDBResource(Protocol):
     """Minimal boto3 DynamoDB resource (``boto3.resource('dynamodb')``)."""

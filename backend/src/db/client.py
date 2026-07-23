@@ -9,6 +9,7 @@ from typing import Any
 import boto3
 
 from db.protocols import DynamoDBClient, DynamoDBResource, DynamoDBTable
+from db.safe_table import ensure_safe_table
 
 
 DEFAULT_TABLE_NAME = "vacation-planner-local-table"
@@ -49,8 +50,18 @@ def get_dynamodb_client() -> DynamoDBClient:
 
 
 def get_table(name: str | None = None) -> DynamoDBTable:
-    """Return a boto3 Table resource for the vacation planner single-table."""
-    return get_dynamodb_resource().Table(name or table_name())
+    """Return a sanitizing Table resource for the vacation planner single-table.
+
+    Every ``put_item`` / ``update_item`` goes through float→Decimal coercion so
+    new endpoints cannot regress the DynamoDB float TypeError.
+    """
+    raw = get_dynamodb_resource().Table(name or table_name())
+    return ensure_safe_table(raw)
+
+
+def wrap_table(table: DynamoDBTable) -> DynamoDBTable:
+    """Wrap an injected/test Table the same way as ``get_table()``."""
+    return ensure_safe_table(table)
 
 
 def reset_clients() -> None:
