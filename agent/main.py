@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -14,6 +15,11 @@ from crew_kickoff import run_crew
 from invoke_payload import PayloadError, parse_invoke_payload
 
 app = BedrockAgentCoreApp()
+logger = logging.getLogger(__name__)
+
+# Safe for BFF → browser; never put paths / stack / SDK detail here.
+_PUBLIC_CREW_FAILED = "Trip planning failed. Please try again."
+_PUBLIC_CREW_NOT_FOUND = "Trip planning failed. Please try again."
 
 
 def _error(message: str, code: str) -> dict[str, str]:
@@ -31,11 +37,13 @@ def invoke(request: dict[str, Any]) -> dict[str, Any]:
     try:
         return run_crew(crew_name, inputs)
     except FileNotFoundError as exc:
-        return _error(str(exc), "crew_not_found")
+        logger.exception("crew_not_found: %s", exc)
+        return _error(_PUBLIC_CREW_NOT_FOUND, "crew_not_found")
     except ValueError as exc:
         return _error(str(exc), "invalid_crew")
     except Exception as exc:  # noqa: BLE001 — Runtime boundary; BFF maps envelope
-        return _error(f"{type(exc).__name__}: {exc}", "crew_failed")
+        logger.exception("crew_failed: %s: %s", type(exc).__name__, exc)
+        return _error(_PUBLIC_CREW_FAILED, "crew_failed")
 
 
 if __name__ == "__main__":

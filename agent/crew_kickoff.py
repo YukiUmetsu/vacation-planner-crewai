@@ -123,7 +123,10 @@ def run_crew(crew_name: CrewName, inputs: dict[str, Any]) -> dict[str, Any]:
 
     _load_dotenv_once()
     os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
-    (crew_dir / "logs").mkdir(exist_ok=True)
+    # crew.jsonc output_log_file is relative to process CWD (Docker WORKDIR=/app),
+    # not the crew project dir — create both so local + AgentCore are covered.
+    (Path.cwd() / "logs").mkdir(parents=True, exist_ok=True)
+    (crew_dir / "logs").mkdir(parents=True, exist_ok=True)
 
     _ensure_import_paths(crew_dir)
     model_cls = _model_class(crew_name)

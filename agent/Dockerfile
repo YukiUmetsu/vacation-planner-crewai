@@ -8,11 +8,20 @@
 
 FROM python:3.12-slim-bookworm
 
+# Set by scripts/build_push_image.sh — tag is <version>-<gitsha>, not :latest.
+ARG AGENT_VERSION=0.0.0
+ARG GIT_SHA=unknown
+LABEL org.opencontainers.image.title="vacation-planner-agent" \
+      org.opencontainers.image.version="${AGENT_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     UV_LINK_MODE=copy \
-    CREWAI_DISABLE_TELEMETRY=true
+    CREWAI_DISABLE_TELEMETRY=true \
+    AGENT_VERSION="${AGENT_VERSION}" \
+    GIT_SHA="${GIT_SHA}"
 
 WORKDIR /app
 
@@ -34,6 +43,10 @@ COPY crews/suggest_place ./crews/suggest_place
 
 RUN chmod +x /app/entrypoint.sh \
     && uv sync --frozen --no-dev \
+    && mkdir -p /app/logs \
+      /app/crews/day_plan/logs \
+      /app/crews/city_route/logs \
+      /app/crews/suggest_place/logs \
     && test -f /app/crews/day_plan/crew.jsonc \
     && test -f /app/crews/city_route/crew.jsonc \
     && test -f /app/crews/suggest_place/crew.jsonc \

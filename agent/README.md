@@ -99,10 +99,25 @@ Container / AgentCore image options that both work:
 ```bash
 cd agent
 uv build && unzip -l dist/*.whl | grep crew.jsonc
-docker build -t vacation-planner-agent:latest .
-# Or build + push to ECR:
-# ./scripts/build_push_image.sh
+./scripts/build_push_image.sh
+# Then: export TF_VAR_agent_runtime_container_uri=<printed URI> && terraform apply
 ```
+
+### Image versioning
+
+| Source | Role |
+|--------|------|
+| `agent/pyproject.toml` `version` | Canonical agent release; **auto-bumped** (patch) by `build_push_image.sh` |
+| ECR / Terraform tag | Same as that version (e.g. `0.1.2`) — immutable, no `:latest`, no `-dirty` |
+| Git SHA | OCI label / container env only (`GIT_SHA`), not in the tag |
+
+```bash
+./scripts/build_push_image.sh          # bump patch → tag 0.1.2, push, print TF_VAR_…
+BUMP=minor ./scripts/build_push_image.sh
+IMAGE_TAG=1.0.0 ./scripts/build_push_image.sh   # no bump; use explicit tag
+```
+
+Commit the `pyproject.toml` bump with the agent change. Avoid `:latest` so AgentCore/Terraform always see a new `container_uri`.
 
 Do **not** install only the three Python modules without `crews/` — `run_crew` will raise `crew_not_found`.
 
