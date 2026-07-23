@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy — Vacation Planner</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Newsreader:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink: #0f3d3e;
+        --muted: #4a6b6c;
+        --teal: #0d5c5f;
+        --sand: #f3ebe0;
+        --surface: #fffcf8;
+        --line: #d4ddd9;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        font-family: "DM Sans", system-ui, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(ellipse 120% 80% at 10% -10%, #c5e4e4 0%, transparent 55%),
+          radial-gradient(ellipse 90% 70% at 100% 0%, #f0e4d4 0%, transparent 50%),
+          linear-gradient(180deg, #e8f4f3 0%, #f3ebe0 45%, #efe4d6 100%);
+        line-height: 1.6;
+      }
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+        padding: 3rem 1.25rem 4rem;
+      }
+      h1 {
+        font-family: Newsreader, Georgia, serif;
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0 0 0.35rem;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin-bottom: 2rem;
+      }
+      h2 {
+        font-size: 1.1rem;
+        margin: 1.75rem 0 0.5rem;
+        color: var(--teal);
+      }
+      p,
+      li {
+        color: var(--ink);
+      }
+      ul {
+        padding-left: 1.2rem;
+      }
+      a {
+        color: var(--teal);
+      }
+      .card {
+        background: color-mix(in srgb, var(--surface) 92%, transparent);
+        border: 1px solid var(--line);
+        border-radius: 0.75rem;
+        padding: 1.25rem 1.35rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Privacy Policy</h1>
+      <p class="meta">Vacation Planner · Last updated: July 22, 2026</p>
+      <div class="card">
+        <p>
+          Vacation Planner helps you plan trips. This policy describes what we collect, why we
+          collect it, and how you can control it. This is a development / demo product.
+        </p>
+
+        <h2>Information we collect</h2>
+        <ul>
+          <li>
+            <strong>Account data</strong> — If you sign in (email/password or a social provider such
+            as Facebook or Google via Amazon Cognito), we receive identifiers and profile fields the
+            identity provider shares (for example name, email, and a stable user id).
+          </li>
+          <li>
+            <strong>Trip data you create</strong> — Trip details, cities, day plans, preferences, and
+            related content you enter in the app, stored in our backend (Amazon DynamoDB).
+          </li>
+          <li>
+            <strong>Technical logs</strong> — Limited operational logs from hosting and AI planning
+            services (for example request metadata and error diagnostics). We do not sell this data.
+          </li>
+        </ul>
+
+        <h2>How we use information</h2>
+        <ul>
+          <li>Authenticate you and keep your trips associated with your account.</li>
+          <li>Generate and improve itinerary suggestions using AI services you invoke in the app.</li>
+          <li>Operate, secure, and debug the service.</li>
+        </ul>
+
+        <h2>Sharing</h2>
+        <p>
+          We use cloud processors (notably Amazon Web Services: Cognito, API, DynamoDB, and Bedrock /
+          AgentCore) to run the product. Social login providers (for example Meta / Facebook) receive
+          only what is needed for sign-in when you choose that option. We do not sell personal
+          information.
+        </p>
+
+        <h2>Retention</h2>
+        <p>
+          Account and trip data are kept while your account exists or until you request deletion. Logs
+          may be retained for a limited operational period.
+        </p>
+
+        <h2>Your choices</h2>
+        <p>
+          You can request deletion of your account and trip data by following the instructions on our
+          <a href="/data-deletion.html">Data deletion</a> page.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+          For privacy questions, contact the project maintainer using the contact method listed in the
+          public GitHub repository for this Vacation Planner project.
+        </p>
+      </div>
+    </main>
+  </body>
+</html>

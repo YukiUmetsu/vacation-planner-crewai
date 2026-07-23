@@ -80,6 +80,30 @@ describe("apiFetch", () => {
     expect(headers["x-dev-user-sub"]).toBeUndefined();
   });
 
+  it("attaches Bearer id token when signed in", async () => {
+    vi.stubEnv("DEV", true);
+    vi.stubEnv("VITE_API_URL", "");
+    const { setTokens, clearTokens } = await import("../auth/session");
+    clearTokens();
+    setTokens({
+      idToken: "id.jwt.here",
+      accessToken: "access",
+      expiresAt: Date.now() + 60_000,
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+
+    await apiFetch("/trips");
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const headers = init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer id.jwt.here");
+    expect(headers["x-dev-user-sub"]).toBeUndefined();
+    clearTokens();
+  });
+
   it("throws ApiError with JSON error body", async () => {
     vi.stubEnv("DEV", true);
     const fetchMock = vi.mocked(fetch);
@@ -92,8 +116,46 @@ describe("apiFetch", () => {
     await expect(apiFetch("/trips")).rejects.toMatchObject({
       name: "ApiError",
       status: 403,
-      message: "Nope",
+      message: "Nope (FORBIDDEN)",
       code: "FORBIDDEN",
+    } satisfies Partial<ApiError>);
+  });
+
+  it("hides 5xx body detail from ApiError message", async () => {
+    vi.stubEnv("DEV", true);
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: "Failed to log message: [Errno 2] No such file",
+          code: "crew_failed",
+        }),
+        { status: 502 },
+      ),
+    );
+
+    await expect(apiFetch("/trips/x/propose-cities")).rejects.toMatchObject({
+      name: "ApiError",
+      status: 502,
+      message: "Something went wrong. Please try again.",
+      code: "crew_failed",
+    } satisfies Partial<ApiError>);
+  });
+
+  it("maps API Gateway 401 to a sign-in message", async () => {
+    vi.stubEnv("DEV", true);
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ message: "Unauthorized" }), {
+        status: 401,
+      }),
+    );
+
+    await expect(apiFetch("/trips/x/propose-cities")).rejects.toMatchObject({
+      name: "ApiError",
+      status: 401,
+      message: "Session expired or missing — sign in again.",
+      code: "unauthorized",
     } satisfies Partial<ApiError>);
   });
 });

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Data Deletion — Vacation Planner</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Newsreader:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink: #0f3d3e;
+        --muted: #4a6b6c;
+        --teal: #0d5c5f;
+        --sand: #f3ebe0;
+        --surface: #fffcf8;
+        --line: #d4ddd9;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        font-family: "DM Sans", system-ui, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(ellipse 120% 80% at 10% -10%, #c5e4e4 0%, transparent 55%),
+          radial-gradient(ellipse 90% 70% at 100% 0%, #f0e4d4 0%, transparent 50%),
+          linear-gradient(180deg, #e8f4f3 0%, #f3ebe0 45%, #efe4d6 100%);
+        line-height: 1.6;
+      }
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+        padding: 3rem 1.25rem 4rem;
+      }
+      h1 {
+        font-family: Newsreader, Georgia, serif;
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0 0 0.35rem;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin-bottom: 2rem;
+      }
+      h2 {
+        font-size: 1.1rem;
+        margin: 1.75rem 0 0.5rem;
+        color: var(--teal);
+      }
+      ol,
+      ul {
+        padding-left: 1.2rem;
+      }
+      a {
+        color: var(--teal);
+      }
+      .card {
+        background: color-mix(in srgb, var(--surface) 92%, transparent);
+        border: 1px solid var(--line);
+        border-radius: 0.75rem;
+        padding: 1.25rem 1.35rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Data deletion</h1>
+      <p class="meta">Vacation Planner · How to delete your data</p>
+      <div class="card">
+        <p>
+          This page explains how to delete personal data associated with Vacation Planner, including
+          data created after signing in with Facebook or another identity provider.
+        </p>
+
+        <h2>What we delete</h2>
+        <ul>
+          <li>Your Cognito user account (email and social-linked identity records for this app).</li>
+          <li>Trip and itinerary records stored for your user id in our DynamoDB table.</li>
+        </ul>
+
+        <h2>How to request deletion</h2>
+        <ol>
+          <li>
+            Email the project maintainer from the address you used with Vacation Planner (or the email
+            on your Facebook account if that is how you signed in). Use the contact method listed in
+            the public GitHub repository for this project.
+          </li>
+          <li>
+            Use the subject line <strong>Vacation Planner data deletion request</strong> and include:
+            <ul>
+              <li>The email address on your Vacation Planner / Cognito account</li>
+              <li>Approximate dates you used the app (if known)</li>
+              <li>Confirmation that you want account and trip data permanently deleted</li>
+            </ul>
+          </li>
+          <li>
+            We will delete your Cognito user and associated trip records, then reply when deletion is
+            complete. Typical turnaround is within 7 days.
+          </li>
+        </ol>
+
+        <h2>Facebook Login</h2>
+        <p>
+          Removing Vacation Planner from your Facebook Apps and Websites settings stops future
+          Facebook login to this app. It does not by itself delete trip data already stored in our
+          systems — follow the request steps above for that.
+        </p>
+
+        <h2>Privacy policy</h2>
+        <p>See our <a href="/privacy.html">Privacy Policy</a> for what we collect and why.</p>
+      </div>
+    </main>
+  </body>
+</html>

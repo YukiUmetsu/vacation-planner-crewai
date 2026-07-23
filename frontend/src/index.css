@@ -35,3 +35,40 @@
     @apply min-h-dvh;
   }
 }
+
+/* Landing hero atmosphere + entrance motion */
+@layer utilities {
+  .landing-hero-bg {
+    background-image:
+      radial-gradient(ellipse 100% 70% at 20% 10%, #9fd4d4 0%, transparent 55%),
+      radial-gradient(ellipse 80% 60% at 90% 20%, #e8d4bc 0%, transparent 50%),
+      linear-gradient(165deg, #cfe8e6 0%, #f3ebe0 48%, #e6d5c0 100%);
+  }
+
+  .landing-fade-up {
+    animation: landing-fade-up 0.7s ease-out both;
+  }
+
+  .landing-delay-1 {
+    animation-delay: 0.12s;
+  }
+
+  .landing-delay-2 {
+    animation-delay: 0.24s;
+  }
+
+  .landing-delay-3 {
+    animation-delay: 0.36s;
+  }
+}
+
+@keyframes landing-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

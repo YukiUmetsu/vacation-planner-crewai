@@ -1,4 +1,6 @@
-import { apiFetch, ApiError, getApiBaseUrl, shouldSendDevIdentity } from "./http";
+import { isCognitoConfigured } from "../auth/config";
+import { logout } from "../auth/oauth";
+import { apiFetch, ApiError, getApiBaseUrl, buildAuthHeaders } from "./http";
 import type { CreateTripInput, DayPlan, Place, Route, Trip, TripBundle } from "../types/trip";
 
 export async function createTrip(input: CreateTripInput) {
@@ -57,12 +59,7 @@ export type PlanNextDayAsyncResult = {
 export type PlanNextDayResult = PlanNextDaySyncResult | PlanNextDayAsyncResult;
 
 export async function planNextDay(tripId: string): Promise<PlanNextDayResult> {
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  };
-  if (shouldSendDevIdentity()) {
-    headers["x-dev-user-sub"] = "local-dev-user";
-  }
+  const headers = await buildAuthHeaders();
   const res = await fetch(`${getApiBaseUrl()}/trips/${tripId}/plan-next-day`, {
     method: "POST",
     headers,
@@ -70,13 +67,28 @@ export async function planNextDay(tripId: string): Promise<PlanNextDayResult> {
   });
   const data = (await res.json().catch(() => ({}))) as {
     error?: string;
+    message?: string;
     code?: string;
     day?: DayPlan;
     trip?: Trip;
     planning_day_index?: number;
   };
   if (!res.ok) {
-    throw new ApiError(res.status, data.error ?? res.statusText, data.code);
+    if (res.status === 401) {
+      if (isCognitoConfigured()) {
+        logout();
+      }
+      throw new ApiError(
+        401,
+        "Session expired or missing — sign in again.",
+        "unauthorized",
+      );
+    }
+    const detail =
+      res.status >= 500
+        ? "Something went wrong. Please try again."
+        : (data.error ?? data.message ?? res.statusText);
+    throw new ApiError(res.status, detail, data.code);
   }
   if (res.status === 202) {
     if (!data.trip || data.planning_day_index == null) {

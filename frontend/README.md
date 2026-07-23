@@ -38,6 +38,10 @@ uv run python scripts/local_api.py
 
 For deployed backends set `VITE_API_URL` (e.g. `https://api.example.com`) and skip the Vite proxy.
 
+**Auth gate (live + Cognito):** when `VITE_COGNITO_*` is set and demo is off, the app shows a landing page with Sign in / Sign up and any enabled social providers (`VITE_COGNITO_IDENTITY_PROVIDERS`). You cannot open the trip wizard until Hosted UI login completes. Deploy with `./scripts/deploy.sh` (bakes Cognito + provider list from Terraform).
+
+Without Cognito env, live mode still uses the Vite DEV `X-Dev-User-Sub` header against a local `AUTH_MODE=dev` API.
+
 ### Tests
 
 ```bash
@@ -52,14 +56,15 @@ Theme: ocean teal + sand, Newsreader + DM Sans (`src/index.css`). Energy load ca
 
 ## Status vs still to wire
 
-**Done:** Tailwind theme, wizard shell, demo App (cities/days/profile), create + propose/confirm/plan-next-day live mutations (`VITE_USE_DEMO_DATA=false`), profile `localStorage`, city day-range helpers, place remove-by-index, Vitest coverage for API/create/remove/a11y.
+**Done:** Tailwind theme, wizard shell, demo App (cities/days/profile), create + propose/confirm/plan-next-day live mutations (`VITE_USE_DEMO_DATA=false`), profile `localStorage`, city day-range helpers, place remove-by-index, Vitest coverage for API/create/remove/a11y, Cognito PKCE Hosted UI (landing + provider pick + live auth gate).
 
-**Still to wire:** Cognito Hosted UI sign-in (live API still uses `AUTH_MODE=dev` locally). Trip list UI can call `listTrips()` when you add a picker. Profile GET/PUT `/profile` is wired from the wizard (falls back to localStorage if the API is down).
+**Still to wire (you):** Trip list UI can call `listTrips()` when you add a picker. Enable Facebook/Google via Terraform secrets so landing social buttons appear after redeploy.
 
 ## Layout
 
 ```text
 src/
+  auth/          # Cognito Hosted UI: landing, PKCE, oauth, session, AuthBar, /callback
   api/           # http.ts, trips.ts (+ tests)
   types/trip.ts
   hooks/         # useTripWizard (demo + live wizard state)
@@ -77,4 +82,5 @@ src/
   App.tsx
   index.css
 docs/mockups/
+scripts/deploy.sh
 ```
