@@ -16,6 +16,20 @@ variable "google_client_secret" {
   sensitive = true
 }
 
+variable "facebook_app_id" {
+  type        = string
+  sensitive   = true
+  description = "Facebook Login App ID (empty skips Facebook IdP)"
+  default     = ""
+}
+
+variable "facebook_app_secret" {
+  type        = string
+  sensitive   = true
+  description = "Facebook Login App Secret (empty skips Facebook IdP)"
+  default     = ""
+}
+
 variable "callback_urls" {
   type = list(string)
 }

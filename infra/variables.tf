@@ -30,6 +30,20 @@ variable "google_client_secret" {
   sensitive   = true
 }
 
+variable "facebook_app_id" {
+  description = "Facebook Login App ID for Cognito Hosted UI (leave empty to skip Facebook IdP)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "facebook_app_secret" {
+  description = "Facebook Login App Secret for Cognito Hosted UI"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "callback_urls" {
   description = "Allowed Cognito Hosted UI callback URLs (frontend)"
   type        = list(string)
@@ -71,8 +85,17 @@ variable "agent_runtime_container_uri" {
   default     = ""
 }
 
+variable "agent_bedrock_models" {
+  description = <<-EOT
+    Bedrock model IDs AgentCore may invoke (same as crew llm after "bedrock/").
+    Example: ["us.amazon.nova-pro-v1:0"]. Terraform expands these to IAM ARNs.
+  EOT
+  type        = list(string)
+  default     = ["us.amazon.nova-pro-v1:0"]
+}
+
 variable "agent_allowed_bedrock_model_arns" {
-  description = "Exact Bedrock model or inference profile ARNs the AgentCore runtime may invoke"
+  description = "Optional full Bedrock ARNs; when set, overrides agent_bedrock_models expansion"
   type        = list(string)
   default     = []
 }

@@ -18,6 +18,11 @@ output "cognito_issuer" {
   value = module.cognito.issuer
 }
 
+output "cognito_identity_providers" {
+  description = "Enabled Cognito identity providers for the SPA (comma-join into VITE_COGNITO_IDENTITY_PROVIDERS)"
+  value       = module.cognito.identity_providers
+}
+
 output "api_endpoint" {
   description = "HTTP API base URL for the frontend"
   value       = module.api.api_endpoint

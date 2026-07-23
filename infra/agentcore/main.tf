@@ -8,14 +8,32 @@ locals {
   # Agent runtime names: letters, numbers, underscore
   runtime_name = replace("${local.name_prefix}_agent", "-", "_")
 
-  ecr_image_parts     = local.create_runtime && can(regex("^([0-9]{12})\\.dkr\\.ecr\\.([a-z0-9-]+)\\.[^/]+/(.+)$", var.container_uri)) ? regex("^([0-9]{12})\\.dkr\\.ecr\\.([a-z0-9-]+)\\.[^/]+/(.+)$", var.container_uri) : []
-  ecr_repository_name = length(local.ecr_image_parts) == 3 ? regexreplace(local.ecr_image_parts[2], "([@:]).*$", "") : ""
+  ecr_image_parts = local.create_runtime && can(regex("^([0-9]{12})\\.dkr\\.ecr\\.([a-z0-9-]+)\\.[^/]+/(.+)$", var.container_uri)) ? regex("^([0-9]{12})\\.dkr\\.ecr\\.([a-z0-9-]+)\\.[^/]+/(.+)$", var.container_uri) : []
+  # Strip :tag or @digest without regexreplace (broader Terraform compatibility).
+  ecr_image_ref       = length(local.ecr_image_parts) == 3 ? local.ecr_image_parts[2] : ""
+  ecr_repository_name = local.ecr_image_ref != "" ? split(":", split("@", local.ecr_image_ref)[0])[0] : ""
   ecr_repository_arn  = local.ecr_repository_name != "" ? "arn:${data.aws_partition.current.partition}:ecr:${local.ecr_image_parts[1]}:${local.ecr_image_parts[0]}:repository/${local.ecr_repository_name}" : ""
 
   agentcore_log_group_arn  = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/bedrock-agentcore/runtimes/*"
   agentcore_log_stream_arn = "${local.agentcore_log_group_arn}:log-stream:*"
 
   wire_observability = local.create_runtime && var.observability_enabled
+
+  # Expand crew-style IDs (us.amazon.nova-pro-v1:0) into the ARNs IAM needs.
+  #
+  # Intentional least-privilege exception: the third ARN uses region=* on the
+  # foundation-model resource. Cross-region inference profiles (us.* / eu.* / etc.)
+  # invoke the underlying FM in a source region that may differ from this stack's
+  # region; AWS requires that wildcard (or an explicit multi-region FM list).
+  # Scope is still limited to the exact model id from var.bedrock_models — not bedrock:*.
+  bedrock_arns_from_ids = distinct(flatten([
+    for id in var.bedrock_models : [
+      "arn:${data.aws_partition.current.partition}:bedrock:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:inference-profile/${id}",
+      "arn:${data.aws_partition.current.partition}:bedrock:${data.aws_region.current.region}::foundation-model/${trimprefix(id, "us.")}",
+      "arn:${data.aws_partition.current.partition}:bedrock:*::foundation-model/${trimprefix(id, "us.")}",
+    ]
+  ]))
+  bedrock_model_arns = length(var.bedrock_model_arns) > 0 ? var.bedrock_model_arns : local.bedrock_arns_from_ids
 }
 
 resource "aws_iam_role" "runtime" {
@@ -38,7 +56,7 @@ data "aws_iam_policy_document" "runtime" {
   count = local.create_runtime ? 1 : 0
 
   dynamic "statement" {
-    for_each = length(var.bedrock_model_arns) > 0 ? [1] : []
+    for_each = length(local.bedrock_model_arns) > 0 ? [1] : []
     content {
       sid    = "InvokeAllowedBedrockModels"
       effect = "Allow"
@@ -48,7 +66,7 @@ data "aws_iam_policy_document" "runtime" {
         "bedrock:Converse",
         "bedrock:ConverseStream",
       ]
-      resources = var.bedrock_model_arns
+      resources = local.bedrock_model_arns
     }
   }
 
@@ -168,8 +186,8 @@ resource "aws_bedrockagentcore_agent_runtime" "this" {
 
   lifecycle {
     precondition {
-      condition     = length(var.bedrock_model_arns) > 0
-      error_message = "Set bedrock_model_arns to the exact Bedrock model or inference profile ARNs before enabling AgentCore."
+      condition     = length(local.bedrock_model_arns) > 0
+      error_message = "Set agent_bedrock_models (e.g. [\"us.amazon.nova-pro-v1:0\"]) or agent_allowed_bedrock_model_arns before enabling AgentCore."
     }
 
     precondition {

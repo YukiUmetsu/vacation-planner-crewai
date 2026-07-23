@@ -66,8 +66,15 @@ Demo-only UI (no API): leave `VITE_USE_DEMO_DATA` unset and `npm run dev`.
 | --- | --- | --- | --- |
 | `VITE_USE_DEMO_DATA` | unset (demo) or `false` (live) | demo on | `false` = call real API. |
 | `VITE_API_URL` | unset (use Vite `/api` proxy) | `/api` | Absolute API base in prod builds (Terraform `api_endpoint`). |
+| `VITE_COGNITO_DOMAIN` | unset locally | — | Hosted UI host from `terraform output -raw cognito_hosted_ui_domain` (no `https://`). |
+| `VITE_COGNITO_CLIENT_ID` | unset locally | — | `terraform output -raw cognito_user_pool_client_id`. |
+| `VITE_COGNITO_REDIRECT_URI` | unset / `http://localhost:5173/callback` | — | Must match Cognito `callback_urls`. |
+| `VITE_COGNITO_LOGOUT_URI` | unset / `http://localhost:5173/` | — | Must match Cognito `logout_urls`. |
+| `VITE_COGNITO_IDENTITY_PROVIDERS` | unset → `COGNITO` | — | Comma list from `terraform output cognito_identity_providers` (e.g. `COGNITO,Facebook`). |
 
-Vite `DEV` builds send `X-Dev-User-Sub: local-dev-user` automatically when talking to `AUTH_MODE=dev`.
+When Cognito env is set and `VITE_USE_DEMO_DATA=false`, the SPA shows a landing page (Sign in / Sign up / social) until the user completes Hosted UI login. Demo mode stays ungated.
+
+Vite `DEV` builds send `X-Dev-User-Sub: local-dev-user` when **no** Cognito id token is present (local `AUTH_MODE=dev`). When Cognito env is set and you complete Hosted UI login, API calls send `Authorization: Bearer <id_token>` instead.
 
 ### Agent / crews (`agent/` — smoke, Phoenix, `CREW_MODE=local`)
 
@@ -103,10 +110,13 @@ Terraform automatically reads `TF_VAR_<variable_name>` for each root module vari
 | `environment` | `TF_VAR_environment` | no | e.g. `dev`. |
 | `google_client_id` | `TF_VAR_google_client_id` | no | Cognito Google IdP (optional). |
 | `google_client_secret` | `TF_VAR_google_client_secret` | **yes** | Prefer env, not tfvars. |
+| `facebook_app_id` | `TF_VAR_facebook_app_id` | no | Cognito Facebook IdP (optional). |
+| `facebook_app_secret` | `TF_VAR_facebook_app_secret` | **yes** | Prefer env, not tfvars. |
 | `callback_urls` / `logout_urls` | `TF_VAR_callback_urls` (JSON) | no | Include localhost + CloudFront after first deploy. |
 | `enable_agentcore` | | no | Must be `true` for API deploy. |
-| `agent_runtime_container_uri` | `TF_VAR_agent_runtime_container_uri` | no | ECR image URI. |
-| `agent_allowed_bedrock_model_arns` | `TF_VAR_agent_allowed_bedrock_model_arns` | no | JSON list of model/inference-profile ARNs. |
+| `agent_runtime_container_uri` | `TF_VAR_agent_runtime_container_uri` | no | ECR image URI from `build_push_image.sh`. |
+| `agent_bedrock_models` | | no | Model IDs like `us.amazon.nova-pro-v1:0` (matches crew `llm`). Default in variables.tf. |
+| `agent_allowed_bedrock_model_arns` | `TF_VAR_agent_allowed_bedrock_model_arns` | no | Optional full-ARN override; usually leave empty. |
 | `serper_api_key` | `TF_VAR_serper_api_key` | **yes** | → AgentCore `SERPER_API_KEY`. |
 | `google_places_api_key` | `TF_VAR_google_places_api_key` | **yes** | Optional → API Lambda `GOOGLE_PLACES_API_KEY`. |
 | `enable_genai_observability` | | no | Account/region Transaction Search singleton. |
@@ -119,13 +129,19 @@ Terraform automatically reads `TF_VAR_<variable_name>` for each root module vari
 
 ```bash
 export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-export TF_VAR_agent_runtime_container_uri="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/vacation-planner-agent:latest"
-export TF_VAR_agent_allowed_bedrock_model_arns='["arn:aws:bedrock:us-east-1:ACCOUNT:inference-profile/..."]'
+export AWS_REGION="${AWS_REGION:-us-east-1}"
+# Prefer the URI printed by agent/scripts/build_push_image.sh
+# (tag = auto-bumped pyproject version, e.g. .../vacation-planner-agent:0.1.2).
+# Avoid :latest — Terraform/AgentCore need a new tag string to roll forward.
+export TF_VAR_agent_runtime_container_uri="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/vacation-planner-agent:0.1.2"
 export TF_VAR_serper_api_key="..."
 export TF_VAR_google_places_api_key="..."   # optional
 # export TF_VAR_google_client_secret="..."  # if using Google Hosted UI
+# export TF_VAR_facebook_app_id="..."       # if using Facebook Hosted UI
+# export TF_VAR_facebook_app_secret="..."
 ```
 
+Bedrock IAM uses `agent_bedrock_models` in `terraform.tfvars` (default `us.amazon.nova-pro-v1:0`, matching crew `llm` ids). No ARN list or Python export needed.
 Also run `backend/scripts/build_lambda.sh` before `terraform apply`.
 
 ### Runtime env Terraform injects (do not set these by hand in AWS console)
@@ -140,6 +156,7 @@ Also run `backend/scripts/build_lambda.sh` before `terraform apply`.
 | `AUTH_MODE` | fixed `cognito` |
 | `CREW_MODE` | fixed `agentcore` |
 | `SAFETY_MODE` | `var.safety_mode` |
+| `LOG_LEVEL` | fixed `INFO` (CloudWatch: filter `API_ERROR`) |
 | `BEDROCK_GUARDRAIL_ID` / `BEDROCK_GUARDRAIL_VERSION` | Guardrail outputs / vars |
 | `GOOGLE_PLACES_API_KEY` | optional `var.google_places_api_key` |
 | `AWS_LAMBDA_FUNCTION_NAME` | AWS runtime (async plan-next-day worker) |
@@ -157,11 +174,11 @@ Also run `backend/scripts/build_lambda.sh` before `terraform apply`.
 ## Frontend after deploy
 
 ```bash
-# From terraform outputs
-export VITE_API_URL="$(cd infra && terraform output -raw api_endpoint)"
-export VITE_USE_DEMO_DATA=false
-cd frontend && npm run build
-# sync dist/ to S3 + invalidate CloudFront (see infra/README.md)
+./frontend/scripts/deploy.sh
+# Builds with Cognito + API env from terraform outputs (including
+# VITE_COGNITO_IDENTITY_PROVIDERS), syncs S3, invalidates CloudFront.
+# Ensure CloudFront URLs are in cognito callback_urls / logout_urls before login testing on the CDN.
+# Social buttons appear only after TF_VAR_facebook_* / TF_VAR_google_* are applied (Cognito IdPs).
 ```
 
 ---

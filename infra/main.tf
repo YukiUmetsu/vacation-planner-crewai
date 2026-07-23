@@ -13,6 +13,8 @@ module "cognito" {
   environment          = var.environment
   google_client_id     = var.google_client_id
   google_client_secret = var.google_client_secret
+  facebook_app_id      = var.facebook_app_id
+  facebook_app_secret  = var.facebook_app_secret
   callback_urls        = var.callback_urls
   logout_urls          = var.logout_urls
 }
@@ -23,6 +25,7 @@ module "agentcore" {
   environment           = var.environment
   enabled               = var.enable_agentcore
   container_uri         = var.agent_runtime_container_uri
+  bedrock_models        = var.agent_bedrock_models
   bedrock_model_arns    = var.agent_allowed_bedrock_model_arns
   serper_api_key        = var.serper_api_key
   observability_enabled = var.enable_genai_observability

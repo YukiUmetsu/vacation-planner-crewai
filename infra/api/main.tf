@@ -42,7 +42,7 @@ resource "aws_iam_role_policy" "lambda_app" {
           Sid      = "SelfInvokePlanWorker"
           Effect   = "Allow"
           Action   = ["lambda:InvokeFunction"]
-          Resource = "arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:${local.name_prefix}-api"
+          Resource = "arn:aws:lambda:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:function:${local.name_prefix}-api"
         },
         {
           Sid      = "WriteOwnLogs"
@@ -98,6 +98,7 @@ resource "aws_lambda_function" "api" {
         AUTH_MODE                 = "cognito"
         CREW_MODE                 = "agentcore"
         SAFETY_MODE               = var.safety_mode
+        LOG_LEVEL                 = "INFO"
         BEDROCK_GUARDRAIL_ID      = var.bedrock_guardrail_id
         BEDROCK_GUARDRAIL_VERSION = var.bedrock_guardrail_version
       },
@@ -131,11 +132,19 @@ resource "aws_apigatewayv2_api" "http" {
   name          = "${local.name_prefix}-http"
   protocol_type = "HTTP"
 
+  # HTTP API CORS: API Gateway answers OPTIONS when no OPTIONS+JWT route steals the request.
   cors_configuration {
-    allow_headers = ["authorization", "content-type"]
-    allow_methods = ["GET", "POST", "PUT", "OPTIONS"]
-    allow_origins = ["*"]
-    max_age       = 300
+    allow_headers = [
+      "authorization",
+      "content-type",
+      "x-requested-with",
+      "x-amz-date",
+      "x-api-key",
+    ]
+    allow_methods  = ["GET", "POST", "PUT", "OPTIONS"]
+    allow_origins  = ["*"]
+    expose_headers = ["content-type"]
+    max_age        = 86400
   }
 }
 
@@ -158,20 +167,44 @@ resource "aws_apigatewayv2_integration" "lambda" {
   payload_format_version = "2.0"
 }
 
+# Method-specific routes (not ANY): JWT must not apply to OPTIONS preflight.
+locals {
+  api_http_methods = ["GET", "POST", "PUT"]
+}
+
 resource "aws_apigatewayv2_route" "proxy" {
+  for_each = toset(local.api_http_methods)
+
   api_id             = aws_apigatewayv2_api.http.id
-  route_key          = "ANY /{proxy+}"
+  route_key          = "${each.value} /{proxy+}"
   target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
   authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
   authorization_type = "JWT"
 }
 
 resource "aws_apigatewayv2_route" "root" {
+  for_each = toset(local.api_http_methods)
+
   api_id             = aws_apigatewayv2_api.http.id
-  route_key          = "ANY /"
+  route_key          = "${each.value} /"
   target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
   authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
   authorization_type = "JWT"
+}
+
+# Explicit unauthenticated OPTIONS so preflight never hits JWT (defense in depth).
+resource "aws_apigatewayv2_route" "options_proxy" {
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "OPTIONS /{proxy+}"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
+}
+
+resource "aws_apigatewayv2_route" "options_root" {
+  api_id             = aws_apigatewayv2_api.http.id
+  route_key          = "OPTIONS /"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  authorization_type = "NONE"
 }
 
 resource "aws_apigatewayv2_stage" "default" {

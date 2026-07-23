@@ -5,7 +5,7 @@ Provisions the AWS stack for Vacation Planner:
 | Module | Resources |
 | --- | --- |
 | `dynamodb/` | Single-table `${project}-${env}-table` (`pk`/`sk`, GSI1, TTL on `expires_at`) |
-| `cognito/` | User pool, app client, Hosted UI domain; optional Google IdP |
+| `cognito/` | User pool, app client, Hosted UI domain; optional Google / Facebook IdPs |
 | `api/` | Lambda (from `backend/.build/lambda` — run `backend/scripts/build_lambda.sh` first) + HTTP API + Cognito JWT authorizer |
 | `frontend/` | S3 + CloudFront (OAC) for the SPA |
 | `agentcore/` | Bedrock AgentCore runtime (required for API deploy; needs ECR image) |
@@ -20,7 +20,7 @@ Schema details: [`docs/DATA_MODEL.md`](../docs/DATA_MODEL.md).
 - Terraform `>= 1.5`
 - AWS credentials with permission to create the resources above
 - AWS provider `>= 6.17` (AgentCore resources)
-- Optional: Google OAuth client for Hosted UI social login
+- Optional: Google and/or Facebook OAuth apps for Hosted UI social login
 - ECR image of the agent for AgentCore
 
 ## Quick start
@@ -49,30 +49,37 @@ Useful outputs after apply:
 
 ### Deploy frontend assets
 
+Preferred (reads Terraform outputs, builds with Cognito/API env, syncs S3, invalidates CloudFront):
+
 ```bash
-cd ../frontend
-npm install && npm run build
-aws s3 sync dist/ "s3://$(cd ../infra && terraform output -raw frontend_bucket_name)/" --delete
-aws cloudfront create-invalidation \
-  --distribution-id "$(cd ../infra && terraform output -raw cloudfront_distribution_id)" \
-  --paths "/*"
+../frontend/scripts/deploy.sh
 ```
 
-Then add the CloudFront URL to `callback_urls` / `logout_urls` and `terraform apply` again.
+Then add the CloudFront URL to `callback_urls` / `logout_urls` and `terraform apply` again (the script warns if those URLs are missing).
 
 ### Configure AgentCore
 
 1. Build and push an agent container to ECR (see [`agent/Dockerfile`](../agent/Dockerfile) and packaging notes in [`agent/README.md`](../agent/README.md)).
-2. Set `enable_agentcore = true` in `terraform.tfvars`, plus the runtime image and exact Bedrock model ARNs. Prefer env vars for account-specific / secret values:
+2. Set `enable_agentcore = true` and `agent_bedrock_models` in `terraform.tfvars` (defaults to Nova Pro to match crew `llm` ids). Prefer env vars for account-specific / secret values:
 
 ```bash
 export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-export TF_VAR_agent_runtime_container_uri="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/vacation-planner-agent:latest"
-export TF_VAR_agent_allowed_bedrock_model_arns='["REPLACE_WITH_EXACT_BEDROCK_MODEL_OR_INFERENCE_PROFILE_ARN"]'
+# Use the tag printed by ../agent/scripts/build_push_image.sh
+# (auto-bumped version, e.g. .../vacation-planner-agent:0.1.2), not :latest.
+export TF_VAR_agent_runtime_container_uri="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/vacation-planner-agent:0.1.2"
 export TF_VAR_serper_api_key="REPLACE_WITH_SERPER_API_KEY"
 export TF_VAR_google_places_api_key="REPLACE_WITH_GOOGLE_PLACES_API_KEY"  # optional; BFF open-status enrich
 ```
 
+In `terraform.tfvars`:
+
+```hcl
+agent_bedrock_models = ["us.amazon.nova-pro-v1:0"]
+```
+
+Terraform expands those IDs to the inference-profile + foundation-model ARNs IAM needs. You do **not** need to export a JSON ARN list.
+
+Cross-region inference profiles (`us.*`, …) also get an intentional `bedrock:*::foundation-model/<id>` ARN (region wildcard, **model id still exact**). That is required because the profile may invoke the FM outside this stack’s region; it is not a blanket `bedrock:*` grant.
 3. `terraform apply`
 
 Lambda always uses `CREW_MODE=agentcore`. Apply fails if the AgentCore runtime ARN is empty.
@@ -88,7 +95,7 @@ IAM policies are intentionally scoped to the resources created or configured by 
 | Principal | Allowed access |
 | --- | --- |
 | Backend Lambda role | `GetItem`, `PutItem`, `UpdateItem`, and `Query` on this stack's DynamoDB table and its indexes; log-stream writes only to its own `/aws/lambda/${project}-${env}-api` log group; invoke on the configured AgentCore runtime ARN; `bedrock:ApplyGuardrail` only when `safety_mode` is `bedrock`/`guardrails` and a Guardrail ARN is set. |
-| AgentCore runtime role | Pulls only the configured ECR repository image; gets an ECR auth token (AWS requires `Resource = "*"`); writes only to AgentCore runtime log groups under `/aws/bedrock-agentcore/runtimes/*`; when GenAI observability is enabled: X-Ray put/sampling + `cloudwatch:PutMetricData` in namespace `bedrock-agentcore`; invokes only ARNs listed in `agent_allowed_bedrock_model_arns`. |
+| AgentCore runtime role | Pulls only the configured ECR repository image; gets an ECR auth token (AWS requires `Resource = "*"`); writes only to AgentCore runtime log groups under `/aws/bedrock-agentcore/runtimes/*`; when GenAI observability is enabled: X-Ray put/sampling + `cloudwatch:PutMetricData` in namespace `bedrock-agentcore`; invokes only models from `agent_bedrock_models` (or `agent_allowed_bedrock_model_arns` override). |
 | CloudFront service principal | Reads objects from only the generated frontend bucket, constrained by the distribution `AWS:SourceArn`. |
 
 ### Bedrock Guardrails
@@ -105,7 +112,7 @@ Lambda env gets `BEDROCK_GUARDRAIL_ID` / `BEDROCK_GUARDRAIL_VERSION` from the mo
 
 When using an external Guardrail (`enable_bedrock_guardrails = false`), set `bedrock_guardrail_id`, `bedrock_guardrail_version`, and `bedrock_guardrail_arn` so Lambda env and ApplyGuardrail IAM both match.
 
-AgentCore is **required for AWS deploy** (`enable_agentcore` defaults to `true`). The API Lambda precondition requires a non-empty runtime ARN; there is no deployed `CREW_MODE=fake` path. When AgentCore is enabled, `agent_runtime_container_uri` must be a standard ECR image URI and `agent_allowed_bedrock_model_arns` must be non-empty; this avoids granting `bedrock:*` or wildcard model invocation just to make a demo work. If the crew switches models, update that list deliberately. The Bedrock ARN format depends on whether you use a foundation model, inference profile, or provisioned model, so copy the exact ARN for the resource your crew calls.
+AgentCore is **required for AWS deploy** (`enable_agentcore` defaults to `true`). The API Lambda precondition requires a non-empty runtime ARN; there is no deployed `CREW_MODE=fake` path. When AgentCore is enabled, `agent_runtime_container_uri` must be set and `agent_bedrock_models` (or an ARN override) must expand to a non-empty allow-list so IAM never grants `bedrock:*`. If the crew switches models, update `agent_bedrock_models` to match.
 
 The AgentCore log permissions use the AWS-documented runtime log group prefix `/aws/bedrock-agentcore/runtimes/*` because the concrete runtime/endpoint log group name is assigned by AgentCore after creation.
 
@@ -150,4 +157,7 @@ infra/
 - Trip API routes are implemented in `backend/src`. Redeploy after `./scripts/build_lambda.sh` so the zip picks up code changes.
 - Lambda `CREW_MODE` is always **`agentcore`** in AWS. Apply fails without a runtime ARN (`enable_agentcore=true` + ECR image + model ARNs). Local work uses `CREW_MODE=fake` outside Terraform.
 - Google IdP is skipped when `google_client_id` / `google_client_secret` are empty.
+- Facebook IdP is skipped when `facebook_app_id` / `facebook_app_secret` are empty.
+- After apply, `terraform output cognito_identity_providers` lists enabled IdPs for `VITE_COGNITO_IDENTITY_PROVIDERS` (set automatically by `frontend/scripts/deploy.sh`).
+- **Facebook `attributes required: [email]`:** Cognito requires email. In Meta Developer Console → App → **App Review → Permissions and features**, grant **Advanced Access** for `email` (and `public_profile`). Use a Facebook account that has a primary email and accept the email permission on the consent screen. Then `terraform apply` so Cognito IdP scopes are `public_profile, email`.
 - Do not commit `terraform.tfvars`, `.terraform/`, or `*.tfstate*`.

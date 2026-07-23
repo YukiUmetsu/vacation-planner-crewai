@@ -1,6 +1,12 @@
 locals {
-  enable_google = var.google_client_id != "" && var.google_client_secret != ""
-  name_prefix   = "${var.project_name}-${var.environment}"
+  enable_google   = var.google_client_id != "" && var.google_client_secret != ""
+  enable_facebook = var.facebook_app_id != "" && var.facebook_app_secret != ""
+  name_prefix     = "${var.project_name}-${var.environment}"
+  identity_providers = concat(
+    ["COGNITO"],
+    local.enable_google ? ["Google"] : [],
+    local.enable_facebook ? ["Facebook"] : [],
+  )
 }
 
 resource "aws_cognito_user_pool" "this" {
@@ -55,6 +61,52 @@ resource "aws_cognito_identity_provider" "google" {
     email    = "email"
     username = "sub"
   }
+
+  # AWS injects authorize_url / token_url / oidc_issuer / etc. after create.
+  # Ignoring them avoids perpetual plan noise (-> null).
+  lifecycle {
+    ignore_changes = [
+      provider_details["attributes_url"],
+      provider_details["attributes_url_add_attributes"],
+      provider_details["authorize_url"],
+      provider_details["oidc_issuer"],
+      provider_details["token_request_method"],
+      provider_details["token_url"],
+    ]
+  }
+}
+
+resource "aws_cognito_identity_provider" "facebook" {
+  count = local.enable_facebook ? 1 : 0
+
+  user_pool_id  = aws_cognito_user_pool.this.id
+  provider_name = "Facebook"
+  provider_type = "Facebook"
+
+  # Scopes must match AWS Facebook format (comma+space). email is required by our user pool.
+  provider_details = {
+    api_version      = "v21.0"
+    authorize_scopes = "public_profile, email"
+    client_id        = var.facebook_app_id
+    client_secret    = var.facebook_app_secret
+  }
+
+  attribute_mapping = {
+    email              = "email"
+    name               = "name"
+    preferred_username = "id"
+    username           = "id"
+  }
+
+  lifecycle {
+    ignore_changes = [
+      provider_details["attributes_url"],
+      provider_details["attributes_url_add_attributes"],
+      provider_details["authorize_url"],
+      provider_details["token_request_method"],
+      provider_details["token_url"],
+    ]
+  }
 }
 
 resource "aws_cognito_user_pool_client" "web" {
@@ -63,7 +115,7 @@ resource "aws_cognito_user_pool_client" "web" {
 
   generate_secret                      = false
   prevent_user_existence_errors        = "ENABLED"
-  supported_identity_providers         = local.enable_google ? ["COGNITO", "Google"] : ["COGNITO"]
+  supported_identity_providers         = local.identity_providers
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_flows                  = ["code"]
   allowed_oauth_scopes                 = ["email", "openid", "profile"]
@@ -74,7 +126,10 @@ resource "aws_cognito_user_pool_client" "web" {
     "ALLOW_USER_SRP_AUTH",
   ]
 
-  depends_on = [aws_cognito_identity_provider.google]
+  depends_on = [
+    aws_cognito_identity_provider.google,
+    aws_cognito_identity_provider.facebook,
+  ]
 }
 
 resource "aws_cognito_user_pool_domain" "this" {

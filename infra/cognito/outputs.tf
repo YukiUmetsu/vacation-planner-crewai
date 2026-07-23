@@ -22,4 +22,10 @@ output "issuer" {
   value = "https://cognito-idp.${data.aws_region.current.region}.amazonaws.com/${aws_cognito_user_pool.this.id}"
 }
 
+output "identity_providers" {
+  description = "Cognito app-client supported IdPs (COGNITO plus optional Google/Facebook)"
+  # Provider names are not secrets; enable flags are derived from sensitive vars.
+  value = nonsensitive(local.identity_providers)
+}
+
 data "aws_region" "current" {}
