@@ -14,12 +14,13 @@ from crews.runner import CrewRunner, get_crew_runner
 from db import repository as repo
 from db.place_keys import make_place_key
 from db.protocols import DynamoDBTable
-from http_utils import ApiError, public_item
+from http_utils import ApiError, client_facing_message, public_item
 from models.api import ConfirmCitiesRequest, CreateTripRequest
 from services.crew_context_budget import slim_crew_inputs
 from services.dates import date_for_day_index, parse_iso_date, validate_trip_dates
 from services.dedupe import dedupe_places
 from services.energy import clamp_energy_level, max_minutes_for_energy
+from services.route_windows import normalize_route_windows
 from services.place_quality import (
     day_total_minutes,
     filter_quality_places,
@@ -290,7 +291,10 @@ class TripService:
             "preferences": trip.get("preferences") or "",
         }
         timer = WorkerTimer()
-        route_data = _sync_total_nights(self.runner.propose_cities(inputs))
+        route_data = normalize_route_windows(
+            _sync_total_nights(self.runner.propose_cities(inputs)),
+            int(trip["day_count"]),
+        )
         log_crew_duration(
             operation="propose_cities",
             trip_id=trip_id,
@@ -321,6 +325,8 @@ class TripService:
             raise ApiError(409, f"cannot confirm cities from status={status!r}", code="bad_status")
 
         req = _validate(ConfirmCitiesRequest, body)
+        # User-confirmed routes must pass validation as submitted — do not silently
+        # rewrite nights/windows (crew proposals are normalized in propose_cities).
         route_data = _sync_total_nights(
             {
                 "destination_type": req.destination_type,
@@ -409,12 +415,20 @@ class TripService:
                 user_sub=user_sub,
                 trip_id=trip_id,
                 planned_day_index=next_index,
-                error_message=f"failed to start planner: {type(exc).__name__}",
+                error_message=client_facing_message(
+                    status_code=502,
+                    code="enqueue_failed",
+                    detail=f"failed to start planner: {type(exc).__name__}",
+                ),
                 table=self._table,
             )
             raise ApiError(
                 502,
-                "failed to start async plan-next-day worker",
+                client_facing_message(
+                    status_code=502,
+                    code="enqueue_failed",
+                    detail="failed to start async plan-next-day worker",
+                ),
                 code="enqueue_failed",
             ) from exc
 
@@ -478,7 +492,11 @@ class TripService:
                     user_sub=user_sub,
                     trip_id=trip_id,
                     planned_day_index=day_index,
-                    error_message=str(exc),
+                    error_message=client_facing_message(
+                        status_code=exc.status_code,
+                        code=exc.code,
+                        detail=exc.message,
+                    ),
                     table=self._table,
                 )
             raise
@@ -488,7 +506,11 @@ class TripService:
                     user_sub=user_sub,
                     trip_id=trip_id,
                     planned_day_index=day_index,
-                    error_message=f"{type(exc).__name__}: {exc}",
+                    error_message=client_facing_message(
+                        status_code=500,
+                        code="internal_error",
+                        detail=f"{type(exc).__name__}: {exc}",
+                    ),
                     table=self._table,
                 )
             raise
@@ -940,10 +962,13 @@ class TripService:
             and "code" in raw
             and "place_key" not in raw
         ):
+            code = str(raw.get("code") or "crew_failed")
+            status = 400 if code in {"invalid_payload", "invalid_crew"} else 502
+            detail = str(raw.get("error") or "suggest_place failed")
             raise ApiError(
-                502,
-                str(raw.get("error") or "suggest_place failed"),
-                code=str(raw.get("code") or "crew_failed"),
+                status,
+                client_facing_message(status_code=status, code=code, detail=detail),
+                code=code,
             )
         candidate = raw.get("place") if isinstance(raw.get("place"), dict) else raw
         if not isinstance(candidate, dict):

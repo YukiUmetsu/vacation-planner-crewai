@@ -513,7 +513,7 @@ def test_confirm_rejects_nights_not_matching_day_count(service: TripService) -> 
 
 
 def test_confirm_rejects_overlapping_city_day_windows(service: TripService) -> None:
-    """Contiguous union + correct nights must not hide duplicate day coverage."""
+    """Shared transfer days on confirm stay invalid; only propose_cities rewrites."""
     trip_id = _create_country(service)
     service.propose_cities(USER, trip_id)
     with pytest.raises(ApiError) as exc:
