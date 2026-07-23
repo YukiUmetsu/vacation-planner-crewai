@@ -98,7 +98,12 @@ def test_invoke_agent_maps_error_envelope(
         agentcore_client.invoke_agent({"crew": "day_plan", "inputs": {}})
     assert exc.value.status_code == status
     assert exc.value.code == code
-    assert exc.value.message == "boom"
+    if status >= 500:
+        assert "boom" not in exc.value.message
+        assert "Failed" not in exc.value.message or "try again" in exc.value.message.lower()
+        assert "try again" in exc.value.message.lower()
+    else:
+        assert exc.value.message == "boom"
 
 
 def test_invoke_agent_raises_on_missing_response_body(

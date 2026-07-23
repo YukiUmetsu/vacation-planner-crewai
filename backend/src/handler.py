@@ -9,6 +9,7 @@ from auth import get_user_sub
 from db import repository as repo
 from http_utils import (
     ApiError,
+    client_facing_message,
     error_response,
     json_response,
     parse_day_action,
@@ -16,13 +17,40 @@ from http_utils import (
     request_method,
     request_path,
 )
+from log_config import configure_logging
 from routes import profile as profile_routes
 from routes import trips as trip_routes
 from services.plan_day_worker import is_plan_next_day_worker_event
 from services.trip_service import TripService
 from services.worker_observability import WorkerTimer, log_worker_outcome
 
+configure_logging()
 logger = logging.getLogger(__name__)
+
+
+def _request_id(context: Any) -> str:
+    rid = getattr(context, "aws_request_id", None) if context is not None else None
+    return str(rid) if rid else "-"
+
+
+def _log_api_error(
+    exc: ApiError,
+    *,
+    method: str,
+    path: str,
+    request_id: str,
+) -> None:
+    """Emit a single CloudWatch-searchable line for every ApiError response."""
+    # Keep operator detail in logs even when the HTTP body is sanitized.
+    msg = (
+        f"API_ERROR status={exc.status_code} code={exc.code or '-'} "
+        f"method={method} path={path} request_id={request_id} "
+        f"msg={exc.message!r}"
+    )
+    if exc.status_code >= 500:
+        logger.error(msg)
+    else:
+        logger.warning(msg)
 
 
 def _planning_claim_held(
@@ -100,9 +128,12 @@ def _handle_plan_next_day_worker(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
+    configure_logging()
     if is_plan_next_day_worker_event(event):
         return _handle_plan_next_day_worker(event)
 
+    method = "-"
+    path = "-"
     try:
         method = request_method(event)
         path = request_path(event)
@@ -174,9 +205,28 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
 
         raise ApiError(404, f"route not found: {method} {path}", code="not_found")
     except ApiError as exc:
+        _log_api_error(
+            exc,
+            method=method,
+            path=path,
+            request_id=_request_id(context),
+        )
         return error_response(exc)
     except Exception:  # noqa: BLE001 — Lambda boundary; do not leak internals
+        logger.exception(
+            "API_ERROR status=500 code=internal_error method=%s path=%s request_id=%s",
+            method if method != "-" else request_method(event),
+            path if path != "-" else request_path(event),
+            _request_id(context),
+        )
         return json_response(
             500,
-            {"error": "internal server error", "code": "internal_error"},
+            {
+                "error": client_facing_message(
+                    status_code=500,
+                    code="internal_error",
+                    detail="internal server error",
+                ),
+                "code": "internal_error",
+            },
         )

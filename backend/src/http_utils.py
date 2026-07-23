@@ -34,6 +34,36 @@ class ApiError(Exception):
         self.retryable = retryable
 
 
+# Codes whose ``message`` may contain SDK / filesystem / stack detail — never echo to clients.
+_PUBLIC_BY_CODE: dict[str, str] = {
+    "crew_failed": "Trip planning failed. Please try again.",
+    "crew_not_found": "Trip planning failed. Please try again.",
+    "agent_invoke_failed": "Trip planning is temporarily unavailable. Please try again.",
+    "agent_bad_response": "Trip planning failed. Please try again.",
+    "agent_misconfigured": "Trip planning is temporarily unavailable. Please try again.",
+    "agent_error": "Trip planning failed. Please try again.",
+    "internal_error": "Something went wrong. Please try again.",
+    "persistence_error": "Could not save your trip. Please try again.",
+    "enqueue_failed": "Trip planning is temporarily unavailable. Please try again.",
+}
+
+_DEFAULT_5XX = "Something went wrong. Please try again."
+
+
+def client_facing_message(
+    *,
+    status_code: int,
+    code: str | None,
+    detail: str,
+) -> str:
+    """Safe string for HTTP JSON / ``planning_error``; keep ``detail`` for logs only when replaced."""
+    if code and code in _PUBLIC_BY_CODE:
+        return _PUBLIC_BY_CODE[code]
+    if status_code >= 500:
+        return _DEFAULT_5XX
+    return detail
+
+
 def normalize_headers(event: dict[str, Any]) -> dict[str, str]:
     raw = event.get("headers") or {}
     return {str(k).lower(): str(v) for k, v in raw.items() if v is not None}
@@ -103,13 +133,21 @@ def json_response(status_code: int, payload: Any) -> dict[str, Any]:
         "headers": {
             "content-type": "application/json",
             "access-control-allow-origin": "*",
+            "access-control-allow-headers": "authorization,content-type,x-requested-with",
+            "access-control-allow-methods": "GET,POST,PUT,OPTIONS",
         },
         "body": json.dumps(payload, default=_json_default),
     }
 
 
 def error_response(exc: ApiError) -> dict[str, Any]:
-    body: dict[str, Any] = {"error": exc.message}
+    body: dict[str, Any] = {
+        "error": client_facing_message(
+            status_code=exc.status_code,
+            code=exc.code,
+            detail=exc.message,
+        )
+    }
     if exc.code:
         body["code"] = exc.code
     return json_response(exc.status_code, body)

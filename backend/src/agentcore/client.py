@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any
 
 import boto3
-from http_utils import ApiError
+from http_utils import ApiError, client_facing_message
+
+logger = logging.getLogger(__name__)
 
 # Must match Terraform: infra/api/main.tf → AGENT_RUNTIME_ARN
 _ARN_ENV = "AGENT_RUNTIME_ARN"
@@ -59,6 +62,27 @@ def _is_retryable_invoke_error(exc: BaseException) -> bool:
     return True
 
 
+def _raise_public(
+    status: int,
+    *,
+    code: str,
+    detail: str,
+    retryable: bool = False,
+) -> None:
+    logger.warning(
+        "API_ERROR status=%s code=%s msg=%r source=agentcore",
+        status,
+        code,
+        detail,
+    )
+    raise ApiError(
+        status,
+        client_facing_message(status_code=status, code=code, detail=detail),
+        code=code,
+        retryable=retryable,
+    )
+
+
 def invoke_agent(payload: dict[str, Any]) -> dict[str, Any]:
     """
     Call InvokeAgentRuntime with ``{crew, inputs}`` matching agent/invoke_payload.py.
@@ -68,37 +92,39 @@ def invoke_agent(payload: dict[str, Any]) -> dict[str, Any]:
     """
     arn = os.environ.get(_ARN_ENV, "").strip()
     if not arn:
-        raise ApiError(
+        _raise_public(
             500,
-            f"{_ARN_ENV} environment variable is not set",
             code="agent_misconfigured",
+            detail=f"{_ARN_ENV} environment variable is not set",
         )
 
-    client = boto3.client("bedrock-agentcore")
     body = json.dumps(payload).encode("utf-8")
     try:
+        client = boto3.client("bedrock-agentcore")
         response = client.invoke_agent_runtime(
             agentRuntimeArn=arn,
             payload=body,
             contentType="application/json",
             accept="application/json",
         )
+    except ApiError:
+        raise
     except Exception as exc:  # noqa: BLE001 — map AWS SDK errors at the BFF boundary
-        # Transport / throttle / 5xx-class SDK failures are retryable so the async
-        # plan-next-day worker can leave the claim held for Lambda Event retries.
-        raise ApiError(
+        # Includes UnknownServiceError when Lambda's boto3/botocore is too old
+        # for bedrock-agentcore, plus IAM / transport failures.
+        _raise_public(
             502,
-            f"AgentCore invoke failed: {type(exc).__name__}",
             code="agent_invoke_failed",
+            detail=f"AgentCore invoke failed: {type(exc).__name__}: {exc}",
             retryable=_is_retryable_invoke_error(exc),
-        ) from exc
+        )
 
     stream = response.get("response")
     if stream is None:
-        raise ApiError(
+        _raise_public(
             502,
-            "AgentCore response missing 'response' body",
             code="agent_bad_response",
+            detail="AgentCore response missing 'response' body",
         )
 
     raw = stream.read() if hasattr(stream, "read") else stream
@@ -112,17 +138,17 @@ def invoke_agent(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ApiError(
+        _raise_public(
             502,
-            "AgentCore returned non-JSON body",
             code="agent_bad_response",
-        ) from exc
+            detail=f"AgentCore returned non-JSON body: {exc}",
+        )
 
     if not isinstance(data, dict):
-        raise ApiError(
+        _raise_public(
             502,
-            f"AgentCore returned non-object JSON: {type(data).__name__}",
             code="agent_bad_response",
+            detail=f"AgentCore returned non-object JSON: {type(data).__name__}",
         )
 
     # Entrypoint error envelope: { "error": "...", "code": "..." }
@@ -136,6 +162,7 @@ def invoke_agent(payload: dict[str, Any]) -> dict[str, Any]:
     ):
         code = str(data.get("code") or "agent_error")
         status = _ENVELOPE_STATUS.get(code, 502)
-        raise ApiError(status, str(data["error"]), code=code)
+        detail = str(data["error"])
+        _raise_public(status, code=code, detail=detail)
 
     return data
