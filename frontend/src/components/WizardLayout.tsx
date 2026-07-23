@@ -1,3 +1,5 @@
+import { AuthBar } from "../auth/AuthBar";
+
 export type WizardStep = "details" | "cities" | "days";
 
 type Props = {
@@ -44,15 +46,18 @@ export function WizardLayout({
           </p>
         </div>
         <div className="flex flex-col items-stretch gap-3 sm:items-end">
-          {onOpenProfile && (
-            <button
-              type="button"
-              onClick={onOpenProfile}
-              className="self-start rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold text-teal hover:bg-teal-soft sm:self-end"
-            >
-              Profile
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-end">
+            <AuthBar />
+            {onOpenProfile && (
+              <button
+                type="button"
+                onClick={onOpenProfile}
+                className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold text-teal hover:bg-teal-soft"
+              >
+                Profile
+              </button>
+            )}
+          </div>
           <nav aria-label="Trip steps" className="flex items-center gap-2 sm:gap-4">
             {STEPS.map((s, i) => {
               const done = i < activeIndex;

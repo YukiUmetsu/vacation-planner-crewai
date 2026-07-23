@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { createTrip } from "../api/trips";
+import { withEndDateChange, withStartDateChange } from "../lib/tripDates";
 import type { CreateTripInput, DestinationType } from "../types/trip";
 
 type Props = {
@@ -106,7 +107,9 @@ export function CreateTripForm({ onCreated }: Props) {
             className={fieldClass}
             type="date"
             value={form.start_date}
-            onChange={(e) => updateField("start_date", e.target.value)}
+            onChange={(e) =>
+              setForm((prev) => withStartDateChange(prev, e.target.value))
+            }
             required
           />
         </label>
@@ -116,7 +119,10 @@ export function CreateTripForm({ onCreated }: Props) {
             className={fieldClass}
             type="date"
             value={form.end_date}
-            onChange={(e) => updateField("end_date", e.target.value)}
+            min={form.start_date}
+            onChange={(e) =>
+              setForm((prev) => withEndDateChange(prev, e.target.value))
+            }
             required
           />
         </label>

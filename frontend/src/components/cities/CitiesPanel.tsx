@@ -80,7 +80,12 @@ export function CitiesPanel({
         <button
           type="button"
           className="flex-1 rounded-lg bg-teal px-4 py-3 text-sm font-semibold text-white hover:bg-teal-deep disabled:opacity-50"
-          disabled={!onConfirm || confirmPending || proposePending}
+          disabled={
+            !onConfirm ||
+            cities.length === 0 ||
+            confirmPending ||
+            proposePending
+          }
           onClick={onConfirm}
         >
           {confirmPending ? "Confirming…" : "Confirm route"}

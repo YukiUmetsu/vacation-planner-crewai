@@ -50,9 +50,10 @@ describe("loadProfile / saveProfile", () => {
     expect(localStorage.getItem(PROFILE_STORAGE_KEY)).toContain("Sam");
   });
 
-  it("falls back to demo defaults when empty", () => {
+  it("falls back to empty visited places for new users", () => {
     const loaded = loadProfile();
     expect(loaded.displayName).toBeTruthy();
     expect(loaded.energyLevel).toBeGreaterThanOrEqual(1);
+    expect(loaded.visitedPlaces).toEqual([]);
   });
 });

@@ -121,7 +121,7 @@ describe("pollUntilDayReady", () => {
     );
 
     const pending = pollUntilDayReady("t1", 1, { maxMs: 10_000 });
-    await expect(pending).rejects.toThrow(/crew_failed/);
+    await expect(pending).rejects.toThrow(/Day planning failed/);
   });
 
   it("pauses timeout while the tab is hidden and fetches on visible", async () => {

@@ -102,9 +102,7 @@ export async function pollUntilDayReady(
       (bundle.trip.status === "failed" || Boolean(bundle.trip.planning_error));
 
     if (failed) {
-      throw new Error(
-        bundle.trip.planning_error || "Day planning failed; try again.",
-      );
+      throw new Error("Day planning failed. Please try again.");
     }
 
     await sleep(delay, signal);

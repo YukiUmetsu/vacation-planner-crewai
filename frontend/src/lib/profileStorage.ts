@@ -10,6 +10,14 @@ function isVisitedPlace(value: unknown): value is UserProfile["visitedPlaces"][n
   return typeof place.name === "string";
 }
 
+function blankProfile(): UserProfile {
+  return {
+    ...DEMO_PROFILE,
+    interests: [...DEMO_PROFILE.interests],
+    visitedPlaces: [],
+  };
+}
+
 /** Parse stored JSON into a UserProfile; returns null if unusable. */
 export function parseStoredProfile(raw: string): UserProfile | null {
   try {
@@ -31,7 +39,7 @@ export function parseStoredProfile(raw: string): UserProfile | null {
           city: typeof p.city === "string" ? p.city : undefined,
           note: typeof p.note === "string" ? p.note : undefined,
         }))
-      : DEMO_PROFILE.visitedPlaces.map((p) => ({ ...p }));
+      : [];
 
     return { displayName, preferences, energyLevel, interests, visitedPlaces };
   } catch {
@@ -41,34 +49,16 @@ export function parseStoredProfile(raw: string): UserProfile | null {
 
 export function loadProfile(): UserProfile {
   if (typeof localStorage === "undefined") {
-    return {
-      ...DEMO_PROFILE,
-      interests: [...DEMO_PROFILE.interests],
-      visitedPlaces: DEMO_PROFILE.visitedPlaces.map((p) => ({ ...p })),
-    };
+    return blankProfile();
   }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      return {
-        ...DEMO_PROFILE,
-        interests: [...DEMO_PROFILE.interests],
-        visitedPlaces: DEMO_PROFILE.visitedPlaces.map((p) => ({ ...p })),
-      };
+      return blankProfile();
     }
-    return (
-      parseStoredProfile(raw) ?? {
-        ...DEMO_PROFILE,
-        interests: [...DEMO_PROFILE.interests],
-        visitedPlaces: DEMO_PROFILE.visitedPlaces.map((p) => ({ ...p })),
-      }
-    );
+    return parseStoredProfile(raw) ?? blankProfile();
   } catch {
-    return {
-      ...DEMO_PROFILE,
-      interests: [...DEMO_PROFILE.interests],
-      visitedPlaces: DEMO_PROFILE.visitedPlaces.map((p) => ({ ...p })),
-    };
+    return blankProfile();
   }
 }
 
