@@ -2,13 +2,12 @@ import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-q
 import {
   confirmCities,
   getTrip,
-  planNextDay,
   proposeCities,
   suggestPlace,
 } from "../api/trips";
 import type { CityStop, DayPlan, Route, Trip, TripBundle } from "../types/trip";
 import type { SetStateAction } from "react";
-import { pollUntilDayReady } from "./pollPlanDay";
+import { executePlanDayRequest } from "./executePlanDayRequest";
 
 export type LiveTripState = {
   trip: Trip | null;
@@ -122,30 +121,11 @@ export function useLiveTripActions({
   });
 
   const planDayMutation = useMutation({
-    mutationFn: async ({ id, resumeDayIndex }: PlanDayVars) => {
-      // On resume (refresh), POST again so the BFF can finalize a stuck DAY+claim.
-      if (resumeDayIndex != null) {
-        try {
-          const started = await planNextDay(id);
-          if (started.status === 200) {
-            return { day: started.day, trip: started.trip };
-          }
-          onApplied((prev) => ({ ...prev, trip: started.trip }));
-          return pollUntilDayReady(id, started.planning_day_index);
-        } catch {
-          return pollUntilDayReady(id, resumeDayIndex);
-        }
-      }
-      const started = await planNextDay(id);
-      if (started.status === 200) {
-        return { day: started.day, trip: started.trip };
-      }
-      onApplied((prev) => ({
-        ...prev,
-        trip: started.trip,
-      }));
-      return pollUntilDayReady(id, started.planning_day_index);
-    },
+    mutationFn: ({ id, resumeDayIndex }: PlanDayVars) =>
+      executePlanDayRequest(id, {
+        resumeDayIndex,
+        onAsyncStarted: (trip) => onApplied((prev) => ({ ...prev, trip })),
+      }),
     onSuccess: (data, { id }) => {
       onActionError(null);
       const day = data.day;

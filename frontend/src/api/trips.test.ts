@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { confirmCities, listTrips, routeForConfirmRequest } from "./trips";
+import {
+  confirmCities,
+  listTrips,
+  planNextDay,
+  routeForConfirmRequest,
+} from "./trips";
 import type { Route } from "../types/trip";
 
 const sampleRoute: Route = {
@@ -118,6 +123,53 @@ describe("confirmCities", () => {
     for (const city of parsed.cities) {
       expect(city).not.toHaveProperty("client_id");
       expect(city.city).toBeTruthy();
+    }
+  });
+});
+
+describe("planNextDay", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    vi.stubEnv("DEV", true);
+    vi.stubEnv("VITE_API_URL", "");
+  });
+
+  it("discriminates sync 200 vs async 202", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          day: {
+            day_index: 1,
+            date: "2026-08-01",
+            theme: "A",
+            overnight_city: "Tokyo",
+            places: [],
+          },
+          trip: { trip_id: "t1", status: "planning", next_day_index: 2 },
+        }),
+        { status: 200 },
+      ),
+    );
+    const sync = await planNextDay("t1");
+    expect(sync.status).toBe(200);
+    if (sync.status === 200) {
+      expect(sync.day.day_index).toBe(1);
+    }
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          trip: { trip_id: "t1", status: "planning", planning_day_index: 1 },
+          planning_day_index: 1,
+        }),
+        { status: 202 },
+      ),
+    );
+    const asyncResult = await planNextDay("t1");
+    expect(asyncResult.status).toBe(202);
+    if (asyncResult.status === 202) {
+      expect(asyncResult.planning_day_index).toBe(1);
     }
   });
 });

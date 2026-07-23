@@ -357,3 +357,151 @@ def test_handler_worker_reraises_retryable_agent_error(
     trip = repo.get_trip_meta(user_sub=USER, trip_id=trip_id, table=dynamodb_table)
     assert trip is not None
     assert trip.get("planning_day_index") == 1
+
+
+def test_handler_http_returns_202_when_async_enabled(
+    dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """API Gateway path must return 202 with planning_day_index, not wait on crew."""
+    import json
+
+    from handler import handler
+
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    monkeypatch.setenv("PLAN_NEXT_DAY_ASYNC", "on")
+    enqueued: list[tuple[str, str, int]] = []
+
+    service = TripService(
+        table=dynamodb_table,
+        runner=FakeCrewRunner(),
+        safety=NoopSafetyGate(),
+        enqueue_plan_day=lambda u, t, d: enqueued.append((u, t, d)),
+    )
+
+    def _svc(**_kwargs: Any) -> TripService:
+        return service
+
+    monkeypatch.setattr("routes.trips._service", _svc)
+
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+
+    event = {
+        "requestContext": {"http": {"method": "POST"}},
+        "rawPath": f"/trips/{trip_id}/plan-next-day",
+        "headers": {"x-dev-user-sub": USER},
+        "body": "{}",
+    }
+    resp = handler(event)
+    assert resp["statusCode"] == 202
+    body = json.loads(resp["body"])
+    assert body["planning_day_index"] == 1
+    assert body["trip"]["planning_day_index"] == 1
+    assert "day" not in body
+    assert enqueued == [(USER, trip_id, 1)]
+
+
+def test_stale_reclaim_with_existing_day_finalizes_without_crew(
+    dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PLAN_NEXT_DAY_ASYNC", "on")
+    service = TripService(
+        table=dynamodb_table,
+        runner=FakeCrewRunner(),
+        safety=NoopSafetyGate(),
+        enqueue_plan_day=lambda *_a: None,
+    )
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+    service.start_plan_next_day(USER, trip_id)
+
+    repo.put_day_if_absent(
+        user_sub=USER,
+        trip_id=trip_id,
+        day={
+            "day_index": 1,
+            "date": "2026-08-01",
+            "theme": "Orphan",
+            "overnight_city": "Tokyo",
+            "places": [{"name": "A", "place_key": "a", "category": "other"}],
+        },
+        table=dynamodb_table,
+    )
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    repo.update_trip(
+        user_sub=USER,
+        trip_id=trip_id,
+        updates={"planning_started_at": stale},
+        table=dynamodb_table,
+    )
+
+    calls = {"n": 0}
+    real = service.runner.plan_day
+
+    def _count(inputs: dict[str, Any]) -> dict[str, Any]:
+        calls["n"] += 1
+        return real(inputs)
+
+    monkeypatch.setattr(service.runner, "plan_day", _count)
+
+    result = service.start_plan_next_day(USER, trip_id)
+    assert result["async"] is False
+    assert result["trip"]["next_day_index"] == 2
+    assert calls["n"] == 0
+
+
+def test_handler_worker_success_returns_ok(
+    async_service: TripService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from handler import handler
+
+    trip_id = _create_country(async_service)
+    _confirm_country(async_service, trip_id)
+    async_service.start_plan_next_day(USER, trip_id)
+    monkeypatch.setattr("handler.TripService", lambda: async_service)
+
+    result = handler(
+        {
+            "worker": "plan_next_day",
+            "user_sub": USER,
+            "trip_id": trip_id,
+            "day_index": 1,
+        }
+    )
+    assert result == {"ok": True}
+
+
+def test_handler_worker_log_keeps_api_retryable_separate_from_outcome(
+    async_service: TripService,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Claim-held finalize failures log outcome=retry without forcing retryable=true."""
+    import logging
+
+    from handler import handler
+
+    trip_id = _create_country(async_service)
+    _confirm_country(async_service, trip_id)
+    async_service.start_plan_next_day(USER, trip_id)
+    monkeypatch.setattr("handler.TripService", lambda: async_service)
+
+    def _boom(*_a: Any, **_k: Any) -> dict[str, Any]:
+        raise RuntimeError("ddb blip after day")
+
+    monkeypatch.setattr(async_service, "execute_plan_next_day", _boom)
+
+    with caplog.at_level(logging.INFO):
+        with pytest.raises(RuntimeError):
+            handler(
+                {
+                    "worker": "plan_next_day",
+                    "user_sub": USER,
+                    "trip_id": trip_id,
+                    "day_index": 1,
+                }
+            )
+    joined = "\n".join(r.message for r in caplog.records)
+    assert "outcome=retry" in joined
+    assert "retryable=true" not in joined
+    assert "error_type=RuntimeError" in joined

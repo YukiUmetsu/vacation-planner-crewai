@@ -20,6 +20,7 @@ from routes import profile as profile_routes
 from routes import trips as trip_routes
 from services.plan_day_worker import is_plan_next_day_worker_event
 from services.trip_service import TripService
+from services.worker_observability import WorkerTimer, log_worker_outcome
 
 logger = logging.getLogger(__name__)
 
@@ -49,29 +50,52 @@ def _handle_plan_next_day_worker(event: dict[str, Any]) -> dict[str, Any]:
     transient DynamoDB blips and the ``DAY written / cursor not advanced`` case.
 
     If ``execute_plan_next_day`` already cleared the claim (terminal
-    ``fail_planning_in_progress``), return success so Lambda does not burn
+    ``fail_planning_in_progress``), return without raising so Lambda does not burn
     useless retries — client/BFF reclaim paths own recovery from there.
     """
     user_sub = str(event["user_sub"])
     trip_id = str(event["trip_id"])
     day_index = int(event["day_index"])
     service = TripService()
+    timer = WorkerTimer()
     try:
         service.execute_plan_next_day(user_sub, trip_id, day_index)
-    except Exception:
+    except Exception as exc:
+        duration_ms = timer.duration_ms()
+        retryable = isinstance(exc, ApiError) and bool(exc.retryable)
+        claim_held = _planning_claim_held(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            day_index=day_index,
+            table=getattr(service, "_table", None),
+        )
+        # Prefer claim_held for Event retry: non-ApiError transients also retry.
+        will_retry = claim_held
         logger.exception(
             "plan_next_day worker failed trip_id=%s day_index=%s",
             trip_id,
             day_index,
         )
-        if _planning_claim_held(
-            user_sub=user_sub,
+        log_worker_outcome(
             trip_id=trip_id,
             day_index=day_index,
-            table=getattr(service, "_table", None),
-        ):
+            outcome="retry" if will_retry else "terminal",
+            duration_ms=duration_ms,
+            # ApiError.retryable only — do not OR with claim_held (outcome already says retry).
+            retryable=retryable if isinstance(exc, ApiError) else None,
+            error_code=getattr(exc, "code", None) if isinstance(exc, ApiError) else None,
+            error_type=type(exc).__name__,
+        )
+        if will_retry:
             raise
         return {"ok": False, "terminal": True}
+
+    log_worker_outcome(
+        trip_id=trip_id,
+        day_index=day_index,
+        outcome="success",
+        duration_ms=timer.duration_ms(),
+    )
     return {"ok": True}
 
 

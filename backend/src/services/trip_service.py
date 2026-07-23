@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from decimal import Decimal
 from typing import Any, Callable
@@ -32,6 +33,7 @@ from services.plan_day_worker import (
 from services.places_enrich import enrich_place, enrich_places
 from services.profile_service import ProfileService
 from services.safety import SafetyGate, get_safety_gate
+from services.worker_observability import WorkerTimer, log_crew_duration
 
 
 def _json_safe(value: Any) -> Any:
@@ -287,7 +289,14 @@ class TripService:
             "day_count": str(int(trip["day_count"])),
             "preferences": trip.get("preferences") or "",
         }
+        timer = WorkerTimer()
         route_data = _sync_total_nights(self.runner.propose_cities(inputs))
+        log_crew_duration(
+            operation="propose_cities",
+            trip_id=trip_id,
+            duration_ms=timer.duration_ms(),
+            extra={"crew_mode": os.environ.get("CREW_MODE", "fake")},
+        )
         route_data["status"] = "proposed"
         _assert_route_fits_window(route_data, int(trip["day_count"]))
 
