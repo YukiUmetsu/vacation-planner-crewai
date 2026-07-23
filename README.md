@@ -64,7 +64,7 @@ flowchart TB
 
 **MVP / deploy planning:** `CREW_MODE=fake` / `local` keep sync **200**. Deployed AgentCore: async claim → **202** → poll `GET /trips/{id}` ([ADR 001](./docs/architecture-decisions/001-async-plan-next-day-polling.md) — includes pros/cons of sync vs Event self-invoke vs SQS vs push). Runtime only (no Memory/Gateway/Browser). See [docs/architecture-decisions](./docs/architecture-decisions/).
 
-### Planning sequence (city route, then days) — MVP
+### Planning sequence (city route, then days)
 
 ```mermaid
 sequenceDiagram
@@ -77,22 +77,34 @@ sequenceDiagram
   API->>DDB: Put TRIP meta
   alt destination is country or multi-city region
     UI->>API: POST /trips/id/propose-cities
+    Note over API,AC: Still sync on gateway path (MVP risk if crew is slow)
     API->>AC: city_route_crew (sync wait)
     AC-->>API: CityRouteProposal
     API->>DDB: Put ROUTE item
-    API-->>UI: Proposed cities and nights
+    API-->>UI: 200 proposed cities and nights
     UI->>API: PUT /trips/id/cities confirmed route
     API->>DDB: Update ROUTE plus TRIP
   end
-  loop Each day until complete
+  loop Each day until complete (AgentCore deploy)
     UI->>API: POST /trips/id/plan-next-day
-    API->>DDB: Claim next day
-    API->>AC: plan_day (sync wait)
-    AC-->>API: DayPlan
-    API->>DDB: Put DAY
-    API-->>UI: 200 day plus trip
+    API->>DDB: Claim planning_day_index
+    API->>API: Event self-invoke worker
+    API-->>UI: 202 trip plus planning_day_index
+    par Worker
+      API->>AC: plan_day
+      AC-->>API: DayPlan
+      API->>DDB: Put DAY clear claim
+    and Client poll
+      loop until DAY ready or failed
+        UI->>API: GET /trips/id
+        API->>DDB: Load trip bundle
+        API-->>UI: trip plus days
+      end
+    end
   end
 ```
+
+Fake/local `plan-next-day` stays sync **200** (no Event worker). Async `propose-cities` is deferred — see [ADR 001](./docs/architecture-decisions/001-async-plan-next-day-polling.md).
 
 **City detection (MVP):** user selects `destination_type` (`city` \| `country` \| `region`). City destinations skip propose-cities.
 
