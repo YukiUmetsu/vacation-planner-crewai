@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   addCityStop,
+  canAddCityStop,
+  maxEditableNights,
   overnightCityForDay,
   recomputeCityDayRanges,
+  removeCityAtIndex,
   removeCityByClientId,
+  routeWindowIssue,
   setCityNights,
 } from "./cityRoute";
 import type { CityStop } from "../types/trip";
@@ -167,6 +171,52 @@ describe("removeCityByClientId", () => {
       ["Kyoto", 3, 4, 7],
     ]);
     expect(next.reduce((sum, c) => sum + c.nights, 0)).toBe(6);
+  });
+});
+
+describe("removeCityAtIndex", () => {
+  it("removes by index and recomputes day windows", () => {
+    const cities = recomputeCityDayRanges(
+      [stop("Tokyo", 3), stop("Kyoto", 2), stop("Osaka", 1)],
+      7,
+    );
+    const next = removeCityAtIndex(cities, 1, 7);
+    expect(next.map((c) => c.city)).toEqual(["Tokyo", "Osaka"]);
+    expect(next.map((c) => [c.city, c.nights, c.arrival_day_index, c.departure_day_index])).toEqual([
+      ["Tokyo", 3, 1, 3],
+      ["Osaka", 3, 4, 7],
+    ]);
+  });
+});
+
+describe("maxEditableNights and routeWindowIssue", () => {
+  it("caps non-last nights so the window still fits", () => {
+    const cities = recomputeCityDayRanges(
+      [stop("Tokyo", 3), stop("Kyoto", 2), stop("Osaka", 1)],
+      7,
+    );
+    expect(maxEditableNights(cities, 0, 7)).toBe(4); // 6 expected − 2 Kyoto
+    expect(maxEditableNights(cities, 2, 7)).toBe(1); // last locked to current
+    expect(canAddCityStop(cities, 7)).toBe(true);
+    expect(canAddCityStop(cities, 3)).toBe(false);
+  });
+
+  it("setCityNights refuses to overflow the trip window", () => {
+    const cities = recomputeCityDayRanges(
+      [stop("Tokyo", 3), stop("Kyoto", 2), stop("Osaka", 1)],
+      7,
+    );
+    const next = setCityNights(cities, 0, 99, 7);
+    expect(next[0]!.nights).toBe(4);
+    expect(routeWindowIssue(next, 7)).toBeNull();
+  });
+
+  it("reports a clear issue when too many cities for the window", () => {
+    const cities = recomputeCityDayRanges(
+      [stop("A", 1), stop("B", 1), stop("C", 1), stop("D", 1)],
+      3,
+    );
+    expect(routeWindowIssue(cities, 3)).toMatch(/at most 3 cities/i);
   });
 });
 

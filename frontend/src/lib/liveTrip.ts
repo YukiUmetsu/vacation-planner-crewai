@@ -1,12 +1,14 @@
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   confirmCities,
+  deleteDay,
   getTrip,
   proposeCities,
+  removePlace,
   suggestPlace,
 } from "../api/trips";
 import type { CityStop, DayPlan, Route, Trip, TripBundle } from "../types/trip";
-import type { SetStateAction } from "react";
+import { useRef, type SetStateAction } from "react";
 import { executePlanDayRequest } from "./executePlanDayRequest";
 
 export type LiveTripState = {
@@ -86,72 +88,128 @@ export function useLiveTripActions({
   onActionError,
 }: LiveTripActionsArgs) {
   const queryClient = useQueryClient();
+  /** Bumped to ignore stale propose responses after cancel / replace. */
+  const proposeEpochRef = useRef(0);
+  /** Bumped to ignore stale plan-next-day updates after trip switch. */
+  const planEpochRef = useRef(0);
+  /** Bumped to ignore stale getTrip hydrations after trip switch. */
+  const hydrateEpochRef = useRef(0);
 
   const proposeMutation = useMutation({
-    mutationFn: (id: string) => proposeCities(id),
-    onSuccess: (data, id) => {
-      onActionError(null);
-      onApplied((prev) =>
-        applyTripBundle({
-          trip: data.trip,
-          route: data.route,
-          days: prev.days,
-        }),
-      );
-      invalidateTrip(queryClient, id);
+    mutationFn: async (id: string) => {
+      const epoch = proposeEpochRef.current;
+      try {
+        const data = await proposeCities(id);
+        return { data, epoch, id, ok: true as const };
+      } catch (err) {
+        return { err, epoch, id, ok: false as const };
+      }
     },
-    onError: (err: Error) => onActionError(err.message),
+    onSuccess: (result) => {
+      if (result.epoch !== proposeEpochRef.current) return;
+      if (tripId !== result.id) return;
+      if (!result.ok) {
+        const message =
+          result.err instanceof Error
+            ? result.err.message
+            : "Failed to propose cities";
+        onActionError(message);
+        return;
+      }
+      onActionError(null);
+      onApplied((prev) => {
+        if (prev.trip?.trip_id && prev.trip.trip_id !== result.id) return prev;
+        return applyTripBundle({
+          trip: result.data.trip,
+          route: result.data.route,
+          days: prev.days,
+        });
+      });
+      invalidateTrip(queryClient, result.id);
+    },
   });
 
   const confirmMutation = useMutation({
     mutationFn: ({ id, route }: { id: string; route: Route }) =>
       confirmCities(id, route),
     onSuccess: (data, { id }) => {
+      if (tripId !== id) return;
       onActionError(null);
-      onApplied((prev) =>
-        applyTripBundle({
+      onApplied((prev) => {
+        if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+        return applyTripBundle({
           trip: data.trip,
           route: data.route,
           days: prev.days,
-        }),
-      );
+        });
+      });
       invalidateTrip(queryClient, id);
     },
-    onError: (err: Error) => onActionError(err.message),
+    onError: (err: Error, { id }) => {
+      if (tripId !== id) return;
+      onActionError(err.message);
+    },
   });
 
   const planDayMutation = useMutation({
-    mutationFn: ({ id, resumeDayIndex }: PlanDayVars) =>
-      executePlanDayRequest(id, {
-        resumeDayIndex,
-        onAsyncStarted: (trip) => onApplied((prev) => ({ ...prev, trip })),
-      }),
-    onSuccess: (data, { id }) => {
+    mutationFn: async ({ id, resumeDayIndex }: PlanDayVars) => {
+      const epoch = planEpochRef.current;
+      try {
+        const data = await executePlanDayRequest(id, {
+          resumeDayIndex,
+          onAsyncStarted: (trip) => {
+            if (planEpochRef.current !== epoch) return;
+            if (tripId !== id) return;
+            onApplied((prev) => {
+              if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+              return { ...prev, trip };
+            });
+          },
+        });
+        return { data, epoch, id, ok: true as const };
+      } catch (err) {
+        return { err, epoch, id, ok: false as const };
+      }
+    },
+    onSuccess: (result) => {
+      if (planEpochRef.current !== result.epoch) return;
+      if (tripId !== result.id) return;
+      if (!result.ok) {
+        const message =
+          result.err instanceof Error
+            ? result.err.message
+            : "Failed to plan next day";
+        onActionError(message);
+        return;
+      }
       onActionError(null);
-      const day = data.day;
+      const day = result.data.day;
+      const id = result.id;
       onApplied((prev) => {
+        if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
         const nextDays = [
           ...prev.days.filter((d) => d.day_index !== day.day_index),
           day,
         ].sort((a, b) => a.day_index - b.day_index);
         return {
           ...prev,
-          trip: data.trip,
+          trip: result.data.trip,
           days: nextDays,
         };
       });
       invalidateTrip(queryClient, id);
     },
-    onError: (err: Error) => onActionError(err.message),
   });
 
   const suggestPlaceMutation = useMutation({
     mutationFn: ({ id, dayIndex }: { id: string; dayIndex: number }) =>
       suggestPlace(id, dayIndex),
     onSuccess: (data, { id }) => {
+      if (tripId !== id) return;
       onActionError(null);
       const day = data.day;
       onApplied((prev) => {
+        if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
         const nextDays = [
           ...prev.days.filter((d) => d.day_index !== day.day_index),
           day,
@@ -164,22 +222,102 @@ export function useLiveTripActions({
       });
       invalidateTrip(queryClient, id);
     },
-    onError: (err: Error) => onActionError(err.message),
+    onError: (err: Error, { id }) => {
+      if (tripId !== id) return;
+      onActionError(err.message);
+    },
+  });
+
+  const removePlaceMutation = useMutation({
+    mutationFn: ({
+      id,
+      dayIndex,
+      placeIndex,
+    }: {
+      id: string;
+      dayIndex: number;
+      placeIndex: number;
+    }) => removePlace(id, dayIndex, placeIndex),
+    onSuccess: (data, { id }) => {
+      if (tripId !== id) return;
+      onActionError(null);
+      const day = data.day;
+      onApplied((prev) => {
+        if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+        const nextDays = [
+          ...prev.days.filter((d) => d.day_index !== day.day_index),
+          day,
+        ].sort((a, b) => a.day_index - b.day_index);
+        return {
+          ...prev,
+          trip: data.trip,
+          days: nextDays,
+        };
+      });
+      invalidateTrip(queryClient, id);
+    },
+    onError: (err: Error, { id }) => {
+      if (tripId !== id) return;
+      onActionError(err.message);
+    },
+  });
+
+  const deleteDayMutation = useMutation({
+    mutationFn: ({ id, dayIndex }: { id: string; dayIndex: number }) =>
+      deleteDay(id, dayIndex),
+    onSuccess: (data, { id }) => {
+      if (tripId !== id) return;
+      onActionError(null);
+      onApplied((prev) => {
+        if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+        return {
+          ...prev,
+          trip: data.trip,
+          days: data.days.map((d) => ({
+            ...d,
+            places: d.places.map((p) => ({ ...p })),
+          })),
+        };
+      });
+      invalidateTrip(queryClient, id);
+    },
+    onError: (err: Error, { id }) => {
+      if (tripId !== id) return;
+      onActionError(err.message);
+    },
   });
 
   async function hydrateFromApi(id: string) {
+    const epoch = ++hydrateEpochRef.current;
     const bundle = await getTrip(id);
+    if (hydrateEpochRef.current !== epoch) {
+      return { bundle, applied: false as const };
+    }
     onApplied(applyTripBundle(bundle));
     const resume = pendingPlanningDayIndex(bundle.trip, bundle.days);
     if (resume != null && !planDayMutation.isPending) {
       planDayMutation.mutate({ id, resumeDayIndex: resume });
     }
-    return bundle;
+    return { bundle, applied: true as const };
   }
 
-  function runPropose() {
-    if (!tripId) return;
-    proposeMutation.mutate(tripId);
+  function runPropose(idOverride?: string) {
+    const id = idOverride ?? tripId;
+    if (!id) return;
+    proposeEpochRef.current += 1;
+    proposeMutation.mutate(id);
+  }
+
+  function cancelPropose() {
+    proposeEpochRef.current += 1;
+    planEpochRef.current += 1;
+    hydrateEpochRef.current += 1;
+    proposeMutation.reset();
+    confirmMutation.reset();
+    planDayMutation.reset();
+    suggestPlaceMutation.reset();
+    removePlaceMutation.reset();
+    deleteDayMutation.reset();
   }
 
   function runConfirm(route: Route) {
@@ -187,9 +325,10 @@ export function useLiveTripActions({
     confirmMutation.mutate({ id: tripId, route });
   }
 
-  function runPlanNextDay() {
-    if (!tripId) return;
-    planDayMutation.mutate({ id: tripId });
+  function runPlanNextDay(idOverride?: string) {
+    const id = idOverride ?? tripId;
+    if (!id) return;
+    planDayMutation.mutate({ id });
   }
 
   function runSuggestPlace(dayIndex: number) {
@@ -197,15 +336,30 @@ export function useLiveTripActions({
     suggestPlaceMutation.mutate({ id: tripId, dayIndex });
   }
 
+  function runRemovePlace(dayIndex: number, placeIndex: number) {
+    if (!tripId) return;
+    removePlaceMutation.mutate({ id: tripId, dayIndex, placeIndex });
+  }
+
+  function runDeleteDay(dayIndex: number) {
+    if (!tripId) return;
+    deleteDayMutation.mutate({ id: tripId, dayIndex });
+  }
+
   return {
     proposeMutation,
     confirmMutation,
     planDayMutation,
     suggestPlaceMutation,
+    removePlaceMutation,
+    deleteDayMutation,
     hydrateFromApi,
     runPropose,
+    cancelPropose,
     runConfirm,
     runPlanNextDay,
     runSuggestPlace,
+    runRemovePlace,
+    runDeleteDay,
   };
 }

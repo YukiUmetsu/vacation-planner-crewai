@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   allocateUniquePlaceKey,
   appendPlaceToDay,
+  removeDayFromDays,
   removePlaceAt,
   removePlaceFromDays,
   slugifyPlaceName,
@@ -69,6 +70,16 @@ describe("removePlaceFromDays", () => {
 
     expect(next[0]!.places).toHaveLength(0);
     expect(next[1]!.places).toEqual([{ name: "Kyoto A", place_key: "a" }]);
+  });
+});
+
+describe("removeDayFromDays", () => {
+  it("drops only the matching day_index", () => {
+    const days = [
+      day([{ name: "A", place_key: "a" }], 1),
+      day([{ name: "B", place_key: "b" }], 2),
+    ];
+    expect(removeDayFromDays(days, 1)).toEqual([days[1]]);
   });
 });
 

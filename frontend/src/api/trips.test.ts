@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   confirmCities,
+  deleteTrip,
   listTrips,
   planNextDay,
   routeForConfirmRequest,
@@ -91,6 +92,40 @@ describe("listTrips", () => {
     );
     expect(result.trips).toHaveLength(1);
     expect(result.trips[0]?.trip_id).toBe("t1");
+  });
+});
+
+describe("deleteTrip", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    vi.stubEnv("DEV", true);
+    vi.stubEnv("VITE_API_URL", "");
+  });
+
+  it("DELETEs /trips/{id}", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          trip_id: "t1",
+          deleted: { TRIP: 1, ROUTE: 1, DAY: 1, total: 3 },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await deleteTrip("t1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/trips/t1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(result).toEqual({
+      ok: true,
+      trip_id: "t1",
+      deleted: { TRIP: 1, ROUTE: 1, DAY: 1, total: 3 },
+    });
   });
 });
 

@@ -1,11 +1,13 @@
 import { useEffect } from "react";
 import { DetailsStep } from "./components/DetailsStep";
+import { DevCrewModeSwitch } from "./components/DevCrewModeSwitch";
 import { ProfileScreen } from "./components/ProfileScreen";
 import { TripStatusBanner } from "./components/TripStatusBanner";
-import { WizardLayout } from "./components/WizardLayout";
+import { WizardLayout, type WizardStep } from "./components/WizardLayout";
 import { CitiesPanel } from "./components/cities/CitiesPanel";
 import { DaysPanel } from "./components/days/DaysPanel";
 import { useTripWizard } from "./hooks/useTripWizard";
+import { overnightCityForDay } from "./lib/cityRoute";
 import {
   ensureIdToken,
   isCognitoConfigured,
@@ -30,10 +32,19 @@ export function requiresAuthGate(demoMode: boolean): boolean {
 }
 
 export function App({ demoMode = DEFAULT_DEMO_MODE }: AppProps) {
-  if (requiresAuthGate(demoMode)) {
-    return <LandingPage />;
-  }
-  return <TripApp demoMode={demoMode} />;
+  const devChrome = import.meta.env.DEV === true;
+  return (
+    <>
+      <DevCrewModeSwitch />
+      <div className={devChrome ? "dev-crew-chrome-pad" : undefined}>
+        {requiresAuthGate(demoMode) ? (
+          <LandingPage />
+        ) : (
+          <TripApp demoMode={demoMode} />
+        )}
+      </div>
+    </>
+  );
 }
 
 function TripApp({ demoMode }: { demoMode: boolean }) {
@@ -45,6 +56,17 @@ function TripApp({ demoMode }: { demoMode: boolean }) {
   }, [demoMode]);
 
   const wizard = useTripWizard(demoMode);
+
+  function handleWizardStepChange(next: WizardStep) {
+    // Live mode: only allow going back to earlier steps (not skipping ahead).
+    const order = ["details", "cities", "days"] as const;
+    const cur = order.indexOf(wizard.step);
+    const tgt = order.indexOf(next);
+    if (tgt < 0 || tgt > cur) return;
+    if (next === "details") wizard.goToDetails();
+    else if (next === "cities") void wizard.goToCities();
+    else wizard.setStep(next);
+  }
 
   if (wizard.screen === "profile") {
     return (
@@ -60,7 +82,7 @@ function TripApp({ demoMode }: { demoMode: boolean }) {
   return (
     <WizardLayout
       step={wizard.step}
-      onStepChange={demoMode ? wizard.setStep : undefined}
+      onStepChange={demoMode ? wizard.setStep : handleWizardStepChange}
       demoBadge={demoMode}
       onOpenProfile={() => wizard.setScreen("profile")}
     >
@@ -73,10 +95,18 @@ function TripApp({ demoMode }: { demoMode: boolean }) {
         <DetailsStep
           demoMode={demoMode}
           tripId={wizard.tripId}
+          liveTrip={wizard.liveTrip}
+          tripsList={wizard.tripsList}
+          tripsLoading={wizard.tripsLoading}
+          deletingTripId={wizard.deletingTripId}
           demoTrip={wizard.demoTrip}
           demoRoute={wizard.demoRoute}
           demoDays={wizard.demoDays}
           onCreatedTrip={wizard.handleCreatedTrip}
+          onUpdatedTrip={wizard.handleUpdatedTrip}
+          onSelectTrip={(id) => void wizard.selectTrip(id)}
+          onDeleteTrip={(id) => void wizard.removeTrip(id)}
+          onStartNewTrip={wizard.startNewTrip}
           onGoToCities={() => void wizard.goToCities()}
           onGoToDays={() => void wizard.goToDays()}
           onOpenProfile={() => wizard.setScreen("profile")}
@@ -86,14 +116,18 @@ function TripApp({ demoMode }: { demoMode: boolean }) {
       {wizard.step === "cities" && (
         <CitiesPanel
           cities={wizard.cities}
+          dayCount={wizard.dayCount}
+          destination={wizard.destination}
           checkingCity={wizard.checkingCity}
           feasibilityMessage={wizard.feasibilityMessage}
           proposePending={wizard.proposePending}
           confirmPending={wizard.confirmPending}
           onNightsChange={wizard.handleNightsChange}
+          onRemoveCity={wizard.handleRemoveCity}
           onAddCity={wizard.handleAddCity}
           onPropose={wizard.handlePropose}
           onConfirm={() => void wizard.handleConfirm()}
+          onBackToDetails={wizard.goToDetails}
           onKeepFeasibility={wizard.handleKeepFeasibility}
           onUndoFeasibility={wizard.handleUndoFeasibility}
         />
@@ -103,6 +137,17 @@ function TripApp({ demoMode }: { demoMode: boolean }) {
         <DaysPanel
           days={wizard.days}
           dayCount={wizard.dayCount}
+          destination={wizard.destination}
+          planningCity={
+            overnightCityForDay(
+              wizard.cities,
+              wizard.liveTrip?.planning_day_index ??
+                wizard.liveTrip?.next_day_index ??
+                wizard.days.length + 1,
+            ) ??
+            wizard.cities[wizard.cities.length - 1]?.city ??
+            wizard.destination
+          }
           energyLevel={wizard.profile.energyLevel}
           pending={wizard.planPending}
           complete={wizard.days.length >= wizard.dayCount}
@@ -110,7 +155,8 @@ function TripApp({ demoMode }: { demoMode: boolean }) {
           onPlanNextDay={() => void wizard.handlePlanNextDay()}
           onAddPlace={demoMode ? wizard.handleAddPlace : undefined}
           onSuggestPlace={wizard.handleSuggestPlace}
-          onRemovePlace={demoMode ? wizard.handleRemovePlace : undefined}
+          onRemovePlace={wizard.handleRemovePlace}
+          onRemoveDay={wizard.handleRemoveDay}
         />
       )}
     </WizardLayout>

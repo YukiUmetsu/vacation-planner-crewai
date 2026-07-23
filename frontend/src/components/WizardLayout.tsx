@@ -42,7 +42,7 @@ export function WizardLayout({
           </div>
           <p className="mt-1 text-sm text-ink-muted">
             Plan calmly — details, cities, then days.
-            {onStepChange ? " Click steps to navigate." : null}
+            {onStepChange ? " Click a previous step to go back." : null}
           </p>
         </div>
         <div className="flex flex-col items-stretch gap-3 sm:items-end">

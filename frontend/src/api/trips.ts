@@ -10,12 +10,29 @@ export async function createTrip(input: CreateTripInput) {
   });
 }
 
+export async function updateTrip(tripId: string, input: CreateTripInput) {
+  return apiFetch<{ trip: Trip; route: Route | null }>(`/trips/${tripId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function listTrips(): Promise<{ trips: Trip[] }> {
   return apiFetch<{ trips: Trip[] }>("/trips", { method: "GET" });
 }
 
 export async function getTrip(tripId: string): Promise<TripBundle> {
   return apiFetch<TripBundle>(`/trips/${tripId}`);
+}
+
+export async function deleteTrip(
+  tripId: string,
+): Promise<{
+  ok: boolean;
+  trip_id: string;
+  deleted: { TRIP: number; ROUTE: number; DAY: number; total: number };
+}> {
+  return apiFetch(`/trips/${tripId}`, { method: "DELETE" });
 }
 
 export function proposeCities(tripId: string) {
@@ -111,4 +128,23 @@ export function suggestPlace(tripId: string, dayIndex: number) {
     `/trips/${tripId}/days/${dayIndex}/suggest-place`,
     { method: "POST", body: "{}" },
   );
+}
+
+export function removePlace(
+  tripId: string,
+  dayIndex: number,
+  placeIndex: number,
+) {
+  return apiFetch<{ day: DayPlan; trip: Trip }>(
+    `/trips/${tripId}/days/${dayIndex}/places/${placeIndex}`,
+    { method: "DELETE" },
+  );
+}
+
+export function deleteDay(tripId: string, dayIndex: number) {
+  return apiFetch<{
+    deleted_day_index: number;
+    trip: Trip;
+    days: DayPlan[];
+  }>(`/trips/${tripId}/days/${dayIndex}`, { method: "DELETE" });
 }

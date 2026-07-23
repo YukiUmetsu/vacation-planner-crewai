@@ -9,6 +9,8 @@ export type UserProfile = {
   energyLevel: EnergyLevel;
   interests: string[];
   visitedPlaces: { name: string; city?: string; note?: string }[];
+  /** When true, day plans also suggest breakfast (lunch + dinner always). */
+  suggestIncludeBreakfast: boolean;
 };
 
 type Props = {
@@ -158,6 +160,29 @@ export function ProfilePage({ profile, onChange, onBack }: Props) {
             }
             placeholder="Pace, food style, must-avoids…"
           />
+        </label>
+
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line/80 bg-sand/40 px-4 py-3">
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 rounded border-line text-teal focus:ring-teal"
+            checked={profile.suggestIncludeBreakfast}
+            onChange={(e) =>
+              onChange({
+                ...profile,
+                suggestIncludeBreakfast: e.target.checked,
+              })
+            }
+          />
+          <span>
+            <span className="block text-sm font-semibold text-ink">
+              Suggest include breakfast
+            </span>
+            <span className="mt-0.5 block text-xs font-normal normal-case tracking-normal text-ink-muted">
+              Day plans always include lunch and dinner. Turn this on to add
+              breakfast too.
+            </span>
+          </span>
         </label>
 
         <fieldset>

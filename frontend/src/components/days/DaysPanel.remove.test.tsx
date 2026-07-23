@@ -85,4 +85,25 @@ describe("DaysPanel remove", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByText("Harajuku")).toBeInTheDocument();
   });
+
+  it("calls onRemoveDay after confirm", async () => {
+    const user = userEvent.setup();
+    const onRemoveDay = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(
+      <DaysPanel
+        days={sampleDays()}
+        dayCount={7}
+        complete
+        onRemoveDay={onRemoveDay}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Remove day 1" }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(onRemoveDay).toHaveBeenCalledWith(1);
+    confirmSpy.mockRestore();
+  });
 });

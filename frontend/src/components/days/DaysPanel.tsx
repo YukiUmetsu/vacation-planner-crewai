@@ -9,6 +9,7 @@ import {
   assessDayEnergyLoad,
   type EnergyLevel,
 } from "../../lib/energyLevel";
+import { TravelPlanningLoading } from "../cities/ProposeCitiesLoading";
 import { AddPlaceForm, type PlaceDraft } from "./AddPlaceForm";
 import { DayEnergyWarning } from "./DayEnergyWarning";
 import { PlaceDetailPanel } from "./PlaceDetailPanel";
@@ -16,6 +17,10 @@ import { PlaceDetailPanel } from "./PlaceDetailPanel";
 type Props = {
   days: DayPlan[];
   dayCount: number;
+  /** Trip destination — scenes/quotes while planning. */
+  destination?: string;
+  /** Overnight city for the day currently being planned. */
+  planningCity?: string;
   /** Traveler energy from profile (1–5). */
   energyLevel?: EnergyLevel;
   onPlanNextDay?: () => void;
@@ -26,12 +31,16 @@ type Props = {
   onSuggestPlace?: (dayIndex: number) => void;
   /** Remove one place by day + index (not place_key — keys can collide). */
   onRemovePlace?: (dayIndex: number, placeIndex: number) => void;
+  /** Remove an entire planned day. */
+  onRemoveDay?: (dayIndex: number) => void;
 };
 
 /** Presentational Days timeline with per-day add / suggest + place detail. */
 export function DaysPanel({
   days,
   dayCount,
+  destination = "",
+  planningCity,
   energyLevel = 3,
   onPlanNextDay,
   pending,
@@ -40,6 +49,7 @@ export function DaysPanel({
   onAddPlace,
   onSuggestPlace,
   onRemovePlace,
+  onRemoveDay,
 }: Props) {
   const sorted = [...days].sort((a, b) => a.day_index - b.day_index);
   const [selected, setSelected] = useState<{
@@ -58,6 +68,31 @@ export function DaysPanel({
       setSelected(null);
     }
     onRemovePlace?.(dayIndex, placeIndex);
+  }
+
+  function handleRemoveDay(dayIndex: number) {
+    if (selected?.dayIndex === dayIndex) {
+      setSelected(null);
+    }
+    onRemoveDay?.(dayIndex);
+  }
+
+  if (pending && sorted.length === 0) {
+    const city = (planningCity || destination).trim() || "your day";
+    return (
+      <section className="overflow-hidden rounded-2xl border border-line/80 bg-surface/90 shadow-sm">
+        <TravelPlanningLoading
+          destination={destination || city}
+          title={city}
+          eyebrow="Planning your day"
+        />
+        <div className="border-t border-line/60 px-6 py-4 sm:px-8">
+          <p className="text-sm text-ink-muted">
+            This usually takes a minute — gathering places for {city}.
+          </p>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -100,6 +135,9 @@ export function DaysPanel({
                 ? (placeIndex) => handleRemovePlace(day.day_index, placeIndex)
                 : undefined
             }
+            onRemoveDay={
+              onRemoveDay ? () => handleRemoveDay(day.day_index) : undefined
+            }
           />
         ))}
       </ol>
@@ -140,6 +178,7 @@ function DayBlock({
   onAddPlace,
   onSuggestPlace,
   onRemovePlace,
+  onRemoveDay,
 }: {
   day: DayPlan;
   energyLevel: EnergyLevel;
@@ -152,6 +191,7 @@ function DayBlock({
   onAddPlace?: (place: PlaceDraft) => void;
   onSuggestPlace?: () => void;
   onRemovePlace?: (placeIndex: number) => void;
+  onRemoveDay?: () => void;
 }) {
   const times = summarizeDayTimes(day);
   const energyLoad = assessDayEnergyLoad(energyLevel, times.totalMinutes);
@@ -170,20 +210,40 @@ function DayBlock({
             {day.date} · {day.overnight_city}
           </p>
         </div>
-        {day.places.length > 0 && (
-          <p className="text-sm text-ink-muted sm:text-right">
-            Min. total{" "}
-            <span className="font-semibold text-teal">
-              {formatDuration(times.totalMinutes)}
-            </span>
-            {times.travelMinutes > 0 && (
-              <span className="text-ink-muted">
-                {" "}
-                (incl. {formatDuration(times.travelMinutes)} travel)
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          {day.places.length > 0 && (
+            <p className="text-sm text-ink-muted sm:text-right">
+              Min. total{" "}
+              <span className="font-semibold text-teal">
+                {formatDuration(times.totalMinutes)}
               </span>
-            )}
-          </p>
-        )}
+              {times.travelMinutes > 0 && (
+                <span className="text-ink-muted">
+                  {" "}
+                  (incl. {formatDuration(times.travelMinutes)} travel)
+                </span>
+              )}
+            </p>
+          )}
+          {onRemoveDay && (
+            <button
+              type="button"
+              aria-label={`Remove day ${day.day_index}`}
+              className="text-xs font-semibold text-ink-muted hover:text-warn"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Remove day ${day.day_index} (${day.theme || "Untitled"})? You can plan it again later.`,
+                  )
+                ) {
+                  onRemoveDay();
+                }
+              }}
+            >
+              Remove day
+            </button>
+          )}
+        </div>
       </div>
 
       {day.places.length > 0 && <DayEnergyWarning load={energyLoad} />}

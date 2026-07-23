@@ -3,12 +3,22 @@ import { useState } from "react";
 type Props = {
   /** Append city to the draft route (parent may run a feasibility check afterward). */
   onAdd?: (city: string, reason: string) => void;
+  /** When set, hide the add affordance or show why adding is blocked. */
+  disabledReason?: string;
 };
 
-export function AddCityForm({ onAdd }: Props) {
+export function AddCityForm({ onAdd, disabledReason }: Props) {
   const [open, setOpen] = useState(false);
   const [city, setCity] = useState("");
   const [reason, setReason] = useState("");
+
+  if (disabledReason && !onAdd) {
+    return (
+      <p className="mt-2 text-sm text-ink-muted" role="status">
+        {disabledReason}
+      </p>
+    );
+  }
 
   if (!open) {
     return (
@@ -74,12 +84,6 @@ export function AddCityForm({ onAdd }: Props) {
             Cancel
           </button>
         </div>
-        {!onAdd && (
-          <p className="text-xs text-ink-muted">
-            Pass <code className="text-teal">onAdd</code> from the Cities step to enable
-            saving.
-          </p>
-        )}
       </div>
     </div>
   );

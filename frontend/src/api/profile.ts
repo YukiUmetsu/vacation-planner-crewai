@@ -15,7 +15,10 @@ export type ApiProfile = {
   energy_level: number;
   interests: string[];
   visited_places: ApiVisitedPlace[];
+  suggest_include_breakfast?: boolean;
   max_comfortable_minutes?: number;
+  /** false when GET returns blank defaults (nothing saved server-side yet). */
+  persisted?: boolean;
 };
 
 export function profileFromApi(api: ApiProfile): UserProfile {
@@ -29,6 +32,7 @@ export function profileFromApi(api: ApiProfile): UserProfile {
       city: p.city || undefined,
       note: p.note || undefined,
     })),
+    suggestIncludeBreakfast: Boolean(api.suggest_include_breakfast),
   };
 }
 
@@ -43,6 +47,7 @@ export function profileToApi(profile: UserProfile): ApiProfile {
       city: p.city ?? "",
       note: p.note ?? "",
     })),
+    suggest_include_breakfast: profile.suggestIncludeBreakfast,
   };
 }
 

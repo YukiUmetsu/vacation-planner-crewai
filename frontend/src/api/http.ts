@@ -1,5 +1,6 @@
 import { isCognitoConfigured } from "../auth/config";
 import { ensureIdToken, logout } from "../auth/oauth";
+import { getDevCrewMode, isDevCrewModeUiEnabled } from "../lib/devCrewMode";
 
 const DEV_USER = "local-dev-user";
 
@@ -41,6 +42,10 @@ export async function buildAuthHeaders(
     headers.Authorization = `Bearer ${idToken}`;
   } else if (shouldSendDevIdentity() && !headers["x-dev-user-sub"]) {
     headers["x-dev-user-sub"] = DEV_USER;
+  }
+  // Vite DEV only — production builds never send this; API ignores unless AUTH_MODE=dev.
+  if (isDevCrewModeUiEnabled() && !headers["x-crew-mode"]) {
+    headers["x-crew-mode"] = getDevCrewMode();
   }
   return headers;
 }

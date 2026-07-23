@@ -64,7 +64,7 @@ export const DEMO_TRIP_BUNDLE: TripBundle = {
     start_date: "2026-08-01",
     end_date: "2026-08-07",
     day_count: 7,
-    preferences: "food and trains",
+    preferences: "food",
     status: "routing_confirmed",
     next_day_index: 3,
   },

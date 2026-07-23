@@ -24,6 +24,9 @@ export type Trip = {
     planning_day_index?: number | null;
     planning_started_at?: string | null;
     planning_error?: string | null;
+    /** ISO timestamp from API list/get; used for newest-first ordering. */
+    created_at?: string;
+    updated_at?: string;
 };
 
 export type CityStop = {

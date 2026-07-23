@@ -7,4 +7,5 @@ export const DEMO_PROFILE: UserProfile = {
   energyLevel: 3,
   interests: ["Food", "Culture", "Trains"],
   visitedPlaces: [],
+  suggestIncludeBreakfast: false,
 };

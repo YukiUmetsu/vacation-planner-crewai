@@ -1,33 +1,68 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { createTrip } from "../api/trips";
-import { withEndDateChange, withStartDateChange } from "../lib/tripDates";
+import { createTrip, updateTrip } from "../api/trips";
+import {
+  withEndDateChange,
+  withStartDateChange,
+  inclusiveDayCount,
+  maxEndDateForStart,
+  MAX_TRIP_DAYS,
+} from "../lib/tripDates";
 import type { CreateTripInput, DestinationType } from "../types/trip";
 
 type Props = {
-  onCreated: (tripId: string) => void;
+  /** Prefill when editing an existing trip. */
+  initialValues?: CreateTripInput;
+  /** When set, save via PUT instead of create. */
+  tripId?: string | null;
+  /** Called after create; may hydrate + start propose. Awaited so the button stays disabled. */
+  onCreated?: (tripId: string) => void | Promise<void>;
+  /** Called after a successful date/details update. */
+  onUpdated?: (tripId: string) => void | Promise<void>;
 };
 
-const initialForm: CreateTripInput = {
+const defaultForm: CreateTripInput = {
   origin: "New York",
   destination: "Japan",
   destination_type: "country",
   start_date: "2026-08-01",
   end_date: "2026-08-07",
-  preferences: "food and trains",
+  preferences: "food",
 };
 
 const fieldClass =
   "mt-1.5 w-full rounded-lg border border-line bg-surface px-3 py-2.5 text-ink outline-none transition focus:border-teal focus:ring-2 focus:ring-teal-soft";
 const labelClass = "block text-xs font-semibold uppercase tracking-wide text-ink-muted";
 
-export function CreateTripForm({ onCreated }: Props) {
-  const [form, setForm] = useState<CreateTripInput>(initialForm);
+export function CreateTripForm({
+  initialValues,
+  tripId,
+  onCreated,
+  onUpdated,
+}: Props) {
+  const editing = Boolean(tripId);
+  const [form, setForm] = useState<CreateTripInput>(
+    () => initialValues ?? defaultForm,
+  );
 
-  const createMutation = useMutation({
-    mutationFn: createTrip,
-    onSuccess: (data) => {
-      onCreated(data.trip.trip_id);
+  useEffect(() => {
+    if (initialValues) setForm(initialValues);
+  }, [initialValues]);
+
+  const dayCount = inclusiveDayCount(form.start_date, form.end_date);
+  const datesOk = dayCount >= 1 && dayCount <= MAX_TRIP_DAYS;
+
+  const saveMutation = useMutation({
+    // Keep isPending true through post-save hydrate/propose kickoff.
+    mutationFn: async (input: CreateTripInput) => {
+      if (editing && tripId) {
+        const data = await updateTrip(tripId, input);
+        await onUpdated?.(tripId);
+        return data;
+      }
+      const data = await createTrip(input);
+      await onCreated?.(data.trip.trip_id);
+      return data;
     },
   });
 
@@ -43,15 +78,19 @@ export function CreateTripForm({ onCreated }: Props) {
       className="space-y-5"
       onSubmit={(e) => {
         e.preventDefault();
-        createMutation.mutate(form);
+        if (saveMutation.isPending || !datesOk) return;
+        const clamped = withEndDateChange(form, form.end_date);
+        saveMutation.mutate(clamped);
       }}
     >
       <div>
         <h2 className="font-display text-2xl font-semibold text-ink">
-          Let’s create your trip
+          {editing ? "Edit trip details" : "Let’s create your trip"}
         </h2>
         <p className="mt-1 text-sm text-ink-muted">
-          Where, when, and how you like to travel.
+          {editing
+            ? "Change dates or destination, then re-propose cities."
+            : "Where, when, and how you like to travel."}
         </p>
       </div>
 
@@ -120,6 +159,7 @@ export function CreateTripForm({ onCreated }: Props) {
             type="date"
             value={form.end_date}
             min={form.start_date}
+            max={maxEndDateForStart(form.start_date)}
             onChange={(e) =>
               setForm((prev) => withEndDateChange(prev, e.target.value))
             }
@@ -127,6 +167,10 @@ export function CreateTripForm({ onCreated }: Props) {
           />
         </label>
       </div>
+      <p className="text-sm text-ink-muted">
+        {dayCount} inclusive day{dayCount === 1 ? "" : "s"} (max {MAX_TRIP_DAYS}
+        ). Pick an end date at most {MAX_TRIP_DAYS - 1} days after start.
+      </p>
 
       <label className={labelClass}>
         Preferences
@@ -140,15 +184,22 @@ export function CreateTripForm({ onCreated }: Props) {
 
       <button
         type="submit"
-        disabled={createMutation.isPending}
+        disabled={saveMutation.isPending || !datesOk}
         className="w-full rounded-lg bg-teal px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-deep disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {createMutation.isPending ? "Creating…" : "Create trip"}
+        {saveMutation.isPending
+          ? editing
+            ? "Saving…"
+            : "Creating…"
+          : editing
+            ? "Save & re-propose cities"
+            : "Create trip"}
       </button>
 
-      {createMutation.isError && (
+      {saveMutation.isError && (
         <p className="text-sm text-warn" role="alert">
-          Create failed: {(createMutation.error as Error).message}
+          {editing ? "Save failed" : "Create failed"}:{" "}
+          {(saveMutation.error as Error).message}
         </p>
       )}
     </form>

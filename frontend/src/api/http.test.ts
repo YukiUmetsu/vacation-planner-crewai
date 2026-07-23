@@ -56,9 +56,44 @@ describe("apiFetch", () => {
         headers: expect.objectContaining({
           "content-type": "application/json",
           "x-dev-user-sub": "local-dev-user",
+          "x-crew-mode": "fake",
         }),
       }),
     );
+  });
+
+  it("sends x-crew-mode agentcore when preferred in DEV", async () => {
+    vi.stubEnv("DEV", true);
+    vi.stubEnv("VITE_API_URL", "");
+    localStorage.setItem("vp.devCrewMode", "agentcore");
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+
+    await apiFetch("/trips");
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const headers = init?.headers as Record<string, string>;
+    expect(headers["x-crew-mode"]).toBe("agentcore");
+    localStorage.removeItem("vp.devCrewMode");
+  });
+
+  it("omits x-crew-mode when not in DEV", async () => {
+    vi.stubEnv("DEV", false);
+    vi.stubEnv("VITE_API_URL", "https://api.example.com");
+    localStorage.setItem("vp.devCrewMode", "agentcore");
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+
+    await apiFetch("/trips");
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const headers = init?.headers as Record<string, string>;
+    expect(headers["x-crew-mode"]).toBeUndefined();
+    localStorage.removeItem("vp.devCrewMode");
   });
 
   it("omits dev identity when not in DEV", async () => {

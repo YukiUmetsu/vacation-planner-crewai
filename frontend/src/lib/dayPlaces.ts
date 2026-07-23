@@ -40,6 +40,11 @@ export function removePlaceFromDays(
   );
 }
 
+/** Drop an entire day plan (does not renumber remaining day_index values). */
+export function removeDayFromDays(days: DayPlan[], dayIndex: number): DayPlan[] {
+  return days.filter((day) => day.day_index !== dayIndex);
+}
+
 export function appendPlaceToDay(day: DayPlan, place: Place): DayPlan {
   const order = day.places.length + 1;
   const place_key = allocateUniquePlaceKey(

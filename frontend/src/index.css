@@ -34,6 +34,11 @@
   #root {
     @apply min-h-dvh;
   }
+
+  /* Reserve space for fixed Dev crew switch at the bottom in Vite DEV. */
+  .dev-crew-chrome-pad {
+    padding-bottom: 7rem;
+  }
 }
 
 /* Landing hero atmosphere + entrance motion */
@@ -70,5 +75,59 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+.trip-switcher {
+  animation: landing-fade-up 0.55s ease-out both;
+}
+
+.trip-switcher-row {
+  animation: landing-fade-up 0.45s ease-out both;
+}
+
+.trip-switcher-row:nth-child(1) {
+  animation-delay: 0.04s;
+}
+.trip-switcher-row:nth-child(2) {
+  animation-delay: 0.08s;
+}
+.trip-switcher-row:nth-child(3) {
+  animation-delay: 0.12s;
+}
+.trip-switcher-row:nth-child(4) {
+  animation-delay: 0.16s;
+}
+.trip-switcher-row:nth-child(5) {
+  animation-delay: 0.2s;
+}
+
+@keyframes propose-copy-swap {
+  from {
+    opacity: 0;
+    transform: translateY(0.4rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes propose-shimmer {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+@layer utilities {
+  .propose-copy-swap {
+    animation: propose-copy-swap 0.55s ease-out both;
+  }
+
+  .propose-loading-shimmer-bar {
+    animation: propose-shimmer 1.8s ease-in-out infinite;
   }
 }

@@ -41,7 +41,14 @@ export function parseStoredProfile(raw: string): UserProfile | null {
         }))
       : [];
 
-    return { displayName, preferences, energyLevel, interests, visitedPlaces };
+    return {
+      displayName,
+      preferences,
+      energyLevel,
+      interests,
+      visitedPlaces,
+      suggestIncludeBreakfast: data.suggestIncludeBreakfast === true,
+    };
   } catch {
     return null;
   }

@@ -20,6 +20,7 @@ describe("parseStoredProfile", () => {
     expect(profile?.displayName).toBe("Ada");
     expect(profile?.energyLevel).toBe(5);
     expect(profile?.interests).toEqual(["Food"]);
+    expect(profile?.suggestIncludeBreakfast).toBe(false);
   });
 
   it("returns null for garbage JSON", () => {
@@ -43,10 +44,12 @@ describe("loadProfile / saveProfile", () => {
       energyLevel: 2,
       interests: ["Nature"],
       visitedPlaces: [],
+      suggestIncludeBreakfast: false,
     });
     const loaded = loadProfile();
     expect(loaded.displayName).toBe("Sam");
     expect(loaded.energyLevel).toBe(2);
+    expect(loaded.suggestIncludeBreakfast).toBe(false);
     expect(localStorage.getItem(PROFILE_STORAGE_KEY)).toContain("Sam");
   });
 
