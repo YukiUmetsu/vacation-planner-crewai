@@ -6,7 +6,11 @@ The frontend talks only to this API — never to AgentCore or DynamoDB directly.
 
 ## Routes
 
+**Contract:** [`openapi.yaml`](./openapi.yaml) (OpenAPI 3.1) — full path/method list, request/response schemas, and `GET /places/photo` (`refresh` bypass). Drift-checked by `tests/test_openapi.py`.
+
 Implemented and covered by moto tests. **Local use requires `AUTH_MODE=dev`.** Deployed Lambda uses `AUTH_MODE=cognito` and expects API Gateway JWT claims (`requestContext.authorizer.jwt.claims.sub`).
+
+Local Vite proxies `/api/*` and strips the prefix; OpenAPI paths match Lambda/API Gateway (`/trips`, not `/api/trips`).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -18,6 +22,9 @@ Implemented and covered by moto tests. **Local use requires `AUTH_MODE=dev`.** D
 | `GET` | `/trips` | List current user’s trips |
 | `GET` | `/profile` | Load user profile (defaults if missing) |
 | `PUT` | `/profile` | Upsert prefs, energy_level, interests, visited_places |
+| `GET` | `/places/photo` | Resolve owned-trip place photo (`refresh=1` bypasses cache) |
+| `POST` | `/events` | Product analytics event |
+| `GET` | `/admin/metrics/*` | Eval / online metrics (admin allowlist) |
 
 ## Layout
 

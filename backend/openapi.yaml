@@ -1,0 +1,944 @@
+openapi: 3.1.0
+info:
+  title: Vacation Planner BFF
+  version: 0.1.0
+  description: |
+    HTTP API for the Vacation Planner SPA (API Gateway + Lambda).
+
+    Paths below match the Lambda router (`handler.py`) and API Gateway.
+    Local Vite proxies `/api/*` to the local adapter and strips the `/api` prefix —
+    call `http://127.0.0.1:8787/api/trips` locally, or `/trips` on the deployed API.
+
+    **Auth:** Cognito JWT (`Authorization: Bearer`) in deploy (`AUTH_MODE=cognito`).
+    Locally (`AUTH_MODE=dev`), send `X-Dev-User-Sub` (or rely on `DEV_USER_SUB`).
+servers:
+  - url: /
+    description: API Gateway / Lambda (no `/api` prefix)
+  - url: http://127.0.0.1:8787/api
+    description: Local adapter (Vite proxy target; includes `/api` prefix)
+tags:
+  - name: trips
+  - name: profile
+  - name: places
+  - name: events
+  - name: admin
+security:
+  - bearerAuth: []
+  - devUserSub: []
+
+paths:
+  /profile:
+    get:
+      tags: [profile]
+      summary: Get current user profile
+      operationId: getProfile
+      responses:
+        "200":
+          description: Profile (defaults if missing)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [profile]
+                properties:
+                  profile:
+                    $ref: "#/components/schemas/Profile"
+        default:
+          $ref: "#/components/responses/Error"
+    put:
+      tags: [profile]
+      summary: Upsert profile
+      operationId: putProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileRequest"
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [profile]
+                properties:
+                  profile:
+                    $ref: "#/components/schemas/Profile"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /events:
+    post:
+      tags: [events]
+      summary: Record a product analytics event
+      operationId: postEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductEventRequest"
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: string
+        "400":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /places/photo:
+    get:
+      tags: [places]
+      summary: Resolve a photo for a place on the caller's trip
+      description: |
+        Requires `trip_id` plus at least one of `place_key`, `place_id`, or `photo_name`.
+        Ownership is checked against places nested on the trip's DAY items.
+
+        Caching (skipped when `refresh` is set):
+        1. Short in-process payload cache (~15m)
+        2. Durable miss (`photo_status=none` within ~7d) → 404
+        3. Durable stable Wikimedia `photo_url` on the place
+
+        Otherwise resolves Google Places (New) → Wikipedia fallback, then persists
+        refs on the DAY place (`photo_url` only for stable hosts, `places_photo_name`,
+        `photo_status`, `photo_checked_at`). Never returns/stores Google CDN URLs as
+        durable `photo_url`; prefer `photo_data_url` for `<img>`.
+      operationId: getPlacePhoto
+      parameters:
+        - name: trip_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: place_key
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Preferred stable place identity on the trip
+        - name: place_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Google Places place ID (e.g. ChIJ…)
+        - name: photo_name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Places photo resource name (`places/{id}/photos/{ref}`)
+        - name: refresh
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["1", "true", "yes"]
+          description: |
+            Bypass process cache, durable miss, and durable stable URL; re-resolve
+            Places → Wikipedia and persist. Used by the SPA after `<img onError>`.
+      responses:
+        "200":
+          description: Photo payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolvePlacePhotoResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          description: Photo not linked to a place on this trip (`photo_forbidden`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Trip missing or no photo (`photo_not_found`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Places API not configured (`places_not_configured`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /trips:
+    get:
+      tags: [trips]
+      summary: List current user's trips
+      operationId: listTrips
+      responses:
+        "200":
+          description: Trip list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [trips]
+                properties:
+                  trips:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Trip"
+        default:
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [trips]
+      summary: Create a trip
+      description: City destinations may auto-confirm a synthetic route.
+      operationId: createTrip
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTripRequest"
+      responses:
+        "201":
+          description: Created trip bundle or trip meta
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripBundle"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /trips/{trip_id}:
+    parameters:
+      - $ref: "#/components/parameters/TripId"
+    get:
+      tags: [trips]
+      summary: Get trip + route + days
+      operationId: getTrip
+      responses:
+        "200":
+          description: Trip bundle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripBundle"
+        "404":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+    put:
+      tags: [trips]
+      summary: Partial update trip meta
+      description: Changing dates clears the route.
+      operationId: updateTrip
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTripRequest"
+      responses:
+        "200":
+          description: Updated trip
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripBundle"
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [trips]
+      summary: Delete trip and related items
+      operationId: deleteTrip
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        default:
+          $ref: "#/components/responses/Error"
+
+  /trips/{trip_id}/propose-cities:
+    parameters:
+      - $ref: "#/components/parameters/TripId"
+    post:
+      tags: [trips]
+      summary: Propose a city route via crew
+      operationId: proposeCities
+      responses:
+        "200":
+          description: Proposed route on trip
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripBundle"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /trips/{trip_id}/cities:
+    parameters:
+      - $ref: "#/components/parameters/TripId"
+    put:
+      tags: [trips]
+      summary: Confirm or edit city route
+      operationId: confirmCities
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmCitiesRequest"
+      responses:
+        "200":
+          description: Confirmed route
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TripBundle"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /trips/{trip_id}/plan-next-day:
+    parameters:
+      - $ref: "#/components/parameters/TripId"
+    post:
+      tags: [trips]
+      summary: Plan and persist the next day
+      description: |
+        Sync mode returns 200 with `{ day, trip }`.
+        Async mode (AgentCore / `PLAN_NEXT_DAY_ASYNC`) returns 202 with
+        `{ trip, planning_day_index }` while a worker runs.
+      operationId: planNextDay
+      responses:
+        "200":
+          description: Day planned synchronously
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [day, trip]
+                properties:
+                  day:
+                    $ref: "#/components/schemas/DayPlan"
+                  trip:
+                    $ref: "#/components/schemas/Trip"
+        "202":
+          description: Planning started asynchronously
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [trip, planning_day_index]
+                properties:
+                  trip:
+                    $ref: "#/components/schemas/Trip"
+                  planning_day_index:
+                    type: integer
+        default:
+          $ref: "#/components/responses/Error"
+
+  /trips/{trip_id}/days/{day_index}/suggest-place:
+    parameters:
+      - $ref: "#/components/parameters/TripId"
+      - $ref: "#/components/parameters/DayIndex"
+    post:
+      tags: [trips]
+      summary: Suggest an additional place for a day
+      operationId: suggestPlace
+      responses:
+        "200":
+          description: Updated day / trip
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Error"
+
+  /trips/{trip_id}/days/{day_index}:
+    parameters:
+      - $ref: "#/components/parameters/TripId"
+      - $ref: "#/components/parameters/DayIndex"
+    delete:
+      tags: [trips]
+      summary: Delete a planned day
+      operationId: deleteDay
+      responses:
+        "200":
+          description: Day deleted; trip cursor updated
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Error"
+
+  /trips/{trip_id}/days/{day_index}/places/{place_index}:
+    parameters:
+      - $ref: "#/components/parameters/TripId"
+      - $ref: "#/components/parameters/DayIndex"
+      - name: place_index
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+        description: Zero-based index in the day's places array
+    delete:
+      tags: [trips]
+      summary: Remove a place from a day
+      operationId: removePlace
+      responses:
+        "200":
+          description: Place removed
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Error"
+
+  /admin/metrics/runs:
+    get:
+      tags: [admin]
+      summary: List offline eval runs
+      description: Requires caller `sub` in `METRICS_ADMIN_SUBS`.
+      operationId: listEvalRuns
+      parameters:
+        - name: experiment_key
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Eval runs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+        "403":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /admin/metrics/runs/{run_id}:
+    get:
+      tags: [admin]
+      summary: Get one eval run
+      description: Requires `started_at` query param and admin allowlist.
+      operationId: getEvalRun
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: started_at
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: include_cases
+          in: query
+          schema:
+            type: string
+            default: "1"
+      responses:
+        "200":
+          description: Eval run detail
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /admin/metrics/online:
+    get:
+      tags: [admin]
+      summary: List online metrics rows
+      description: Requires caller `sub` in `METRICS_ADMIN_SUBS`.
+      operationId: listOnlineMetrics
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [quality, product]
+            default: quality
+        - name: experiment_key
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Online metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "403":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Cognito ID token (deploy / AUTH_MODE=cognito)
+    devUserSub:
+      type: apiKey
+      in: header
+      name: X-Dev-User-Sub
+      description: Local AUTH_MODE=dev user subject override
+
+  parameters:
+    TripId:
+      name: trip_id
+      in: path
+      required: true
+      schema:
+        type: string
+    DayIndex:
+      name: day_index
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 14
+
+  responses:
+    Error:
+      description: Error envelope
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          description: Machine-readable code (e.g. photo_not_found, not_found)
+
+    DestinationType:
+      type: string
+      enum: [city, country, region]
+
+    CreateTripRequest:
+      type: object
+      required: [origin, destination, destination_type, start_date, end_date]
+      properties:
+        origin:
+          type: string
+          maxLength: 200
+        destination:
+          type: string
+          maxLength: 200
+        destination_type:
+          $ref: "#/components/schemas/DestinationType"
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        preferences:
+          type: string
+          maxLength: 2000
+          default: ""
+
+    UpdateTripRequest:
+      type: object
+      properties:
+        origin:
+          type: string
+          maxLength: 200
+        destination:
+          type: string
+          maxLength: 200
+        destination_type:
+          $ref: "#/components/schemas/DestinationType"
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        preferences:
+          type: string
+          maxLength: 2000
+
+    ConfirmCitiesRequest:
+      type: object
+      required: [destination_type, cities]
+      properties:
+        destination_type:
+          $ref: "#/components/schemas/DestinationType"
+        cities:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/CityStop"
+        rationale:
+          type: string
+          default: ""
+        total_nights:
+          type: integer
+          minimum: 0
+          default: 0
+        status:
+          type: string
+          enum: [proposed, confirmed]
+          default: confirmed
+
+    VisitedPlaceIn:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        city:
+          type: string
+          maxLength: 200
+          default: ""
+        note:
+          type: string
+          maxLength: 500
+          default: ""
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+          maxLength: 200
+        preferences:
+          type: string
+          maxLength: 2000
+        energy_level:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 3
+        interests:
+          type: array
+          maxItems: 40
+          items:
+            type: string
+        visited_places:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/VisitedPlaceIn"
+        suggest_include_breakfast:
+          type: boolean
+          default: false
+
+    Profile:
+      type: object
+      additionalProperties: true
+      properties:
+        display_name:
+          type: string
+        preferences:
+          type: string
+        energy_level:
+          type: integer
+        interests:
+          type: array
+          items:
+            type: string
+        visited_places:
+          type: array
+          items:
+            $ref: "#/components/schemas/VisitedPlaceIn"
+        suggest_include_breakfast:
+          type: boolean
+
+    ProductEventRequest:
+      type: object
+      required: [event_name]
+      properties:
+        event_name:
+          type: string
+          enum:
+            - proposal_accepted
+            - proposal_accepted_without_edit
+            - plan_regenerated
+            - place_deleted
+            - place_reordered
+            - suggestion_accepted
+            - manual_edit
+            - time_to_accept
+        trip_id:
+          type: string
+          nullable: true
+        day_index:
+          type: integer
+          minimum: 1
+          maximum: 14
+          nullable: true
+        payload:
+          type: object
+          additionalProperties: true
+        client_ts:
+          type: string
+          nullable: true
+
+    Trip:
+      type: object
+      required: [trip_id, origin, destination, destination_type, start_date, end_date, day_count, status]
+      properties:
+        trip_id:
+          type: string
+        origin:
+          type: string
+        destination:
+          type: string
+        destination_type:
+          $ref: "#/components/schemas/DestinationType"
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        day_count:
+          type: integer
+        preferences:
+          type: string
+        status:
+          type: string
+        next_day_index:
+          type: integer
+        planning_day_index:
+          type: integer
+          nullable: true
+        planning_started_at:
+          type: string
+          nullable: true
+        planning_error:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+        updated_at:
+          type: string
+
+    CityStop:
+      type: object
+      required: [city, nights, arrival_day_index, departure_day_index]
+      properties:
+        city:
+          type: string
+        country:
+          type: string
+        nights:
+          type: integer
+        arrival_day_index:
+          type: integer
+        departure_day_index:
+          type: integer
+        reason:
+          type: string
+        highlights:
+          type: array
+          items:
+            type: string
+
+    Route:
+      type: object
+      required: [destination_type, cities, total_nights, status]
+      properties:
+        destination_type:
+          $ref: "#/components/schemas/DestinationType"
+        cities:
+          type: array
+          items:
+            $ref: "#/components/schemas/CityStop"
+        rationale:
+          type: string
+        total_nights:
+          type: integer
+        status:
+          type: string
+        updated_at:
+          type: string
+
+    PlaceWatchOut:
+      type: object
+      required: [label, detail]
+      properties:
+        label:
+          type: string
+        detail:
+          type: string
+
+    Place:
+      type: object
+      required: [name, place_key]
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+        category:
+          type: string
+        reason_to_visit:
+          type: string
+        details:
+          type: string
+        estimated_minutes:
+          type: integer
+        has_bathroom:
+          type: boolean
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        order_in_day:
+          type: integer
+        place_key:
+          type: string
+        place_id:
+          type: string
+          description: Google Places place ID when known (not an internal UUID)
+        cost:
+          type: string
+        photo_url:
+          type: string
+          description: Durable only for stable hosts (e.g. Wikimedia); not Google CDN
+        places_photo_name:
+          type: string
+          description: Places photo resource name for refresh
+        photo_status:
+          type: string
+          description: Durable photo cache status (`ok` | `none`)
+        photo_checked_at:
+          type: string
+          description: ISO timestamp for soft TTL on photo_status / places_photo_name
+        open_hours:
+          type: string
+        operational_status:
+          type: string
+          enum: [open, closed, unknown]
+        closed_weekdays:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 6
+        main_attraction:
+          type: string
+        map_url:
+          type: string
+        map_embed_query:
+          type: string
+        why_suggested:
+          type: string
+        watch_outs:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlaceWatchOut"
+        travel_minutes_from_previous:
+          type: integer
+          minimum: 0
+
+    DayPlan:
+      type: object
+      required: [day_index, date, overnight_city, places]
+      properties:
+        day_index:
+          type: integer
+        date:
+          type: string
+          format: date
+        theme:
+          type: string
+        summary:
+          type: string
+        overnight_city:
+          type: string
+        places:
+          type: array
+          items:
+            $ref: "#/components/schemas/Place"
+
+    TripBundle:
+      type: object
+      required: [trip]
+      properties:
+        trip:
+          $ref: "#/components/schemas/Trip"
+        route:
+          oneOf:
+            - $ref: "#/components/schemas/Route"
+            - type: "null"
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/DayPlan"
+
+    ResolvePlacePhotoResponse:
+      type: object
+      properties:
+        photo_url:
+          type: string
+          nullable: true
+          description: Stable URL when available (e.g. Wikimedia)
+        places_photo_name:
+          type: string
+          nullable: true
+        photo_data_url:
+          type: string
+          nullable: true
+          description: data:image/… for Google-backed bytes (preferred for img tags)

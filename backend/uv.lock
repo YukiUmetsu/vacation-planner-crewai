@@ -631,6 +631,7 @@ dependencies = [
 dev = [
     { name = "moto", extra = ["dynamodb"] },
     { name = "pytest" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
@@ -644,6 +645,7 @@ requires-dist = [
 dev = [
     { name = "moto", extras = ["dynamodb"], specifier = ">=5.0" },
     { name = "pytest", specifier = ">=8.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 
 [[package]]
