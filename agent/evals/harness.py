@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
 from evals.case import EvalCase
-from evals.scorers import score_output
+from evals.scorers import collect_day_plan_metrics, score_output
 
 Producer = Callable[[EvalCase], dict[str, Any]]
+
+
+def unwrap_eval_output(output: dict[str, Any]) -> dict[str, Any]:
+    """Prefer CrewEnvelope.result when present."""
+    result = output.get("result")
+    if isinstance(result, dict) and (
+        "invocation" in output or "quality" in output or "day_index" in result
+    ):
+        return result
+    return output
 
 
 @dataclass(frozen=True)
@@ -17,16 +27,43 @@ class EvalResult:
     passed: bool
     failures: tuple[str, ...]
     output: dict[str, Any] | None = None
+    metrics: dict[str, float | int | bool] = field(default_factory=dict)
 
 
 def run_case(case: EvalCase, output: dict[str, Any]) -> EvalResult:
-    failures = tuple(score_output(output, case))
+    domain = unwrap_eval_output(output)
+    failures = tuple(score_output(domain, case))
+    metrics: dict[str, float | int | bool] = {
+        "schema_valid": 1.0 if len(failures) == 0 else 0.0,
+        "hard_constraint_pass": 1.0 if len(failures) == 0 else 0.0,
+    }
+    if case.crew == "day_plan":
+        metrics.update(collect_day_plan_metrics(domain, case))
     return EvalResult(
         case_id=case.id,
         passed=len(failures) == 0,
         failures=failures,
         output=output,
+        metrics=metrics,
     )
+
+
+def aggregate_metrics(results: Sequence[EvalResult]) -> dict[str, float]:
+    """Mean of numeric metrics across cases (rates are 0–1)."""
+    if not results:
+        return {}
+    keys = sorted({k for r in results for k in r.metrics})
+    out: dict[str, float] = {}
+    for key in keys:
+        values = [float(r.metrics[key]) for r in results if key in r.metrics]
+        if values:
+            out[key] = sum(values) / len(values)
+    # Alias common catalog names.
+    if "schema_valid" in out:
+        out["schema_valid_rate"] = out["schema_valid"]
+    if "hard_constraint_pass" in out:
+        out["hard_constraint_pass_rate"] = out["hard_constraint_pass"]
+    return out
 
 
 def run_cases(
@@ -44,6 +81,7 @@ def run_cases(
                     passed=False,
                     failures=(f"{type(exc).__name__}: {exc}",),
                     output=None,
+                    metrics={"schema_valid": 0.0, "hard_constraint_pass": 0.0},
                 )
             )
             continue
@@ -52,8 +90,11 @@ def run_cases(
                 EvalResult(
                     case_id=case.id,
                     passed=False,
-                    failures=(f"producer returned non-object: {type(output).__name__}",),
+                    failures=(
+                        f"producer returned non-object: {type(output).__name__}",
+                    ),
                     output=None,
+                    metrics={"schema_valid": 0.0, "hard_constraint_pass": 0.0},
                 )
             )
             continue

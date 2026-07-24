@@ -169,6 +169,19 @@ def score_day_plan(output: dict[str, Any], case: EvalCase) -> list[str]:
     if len(keys) != len(set(keys)):
         failures.append("place_key values must be unique within the day")
 
+    food_count = sum(
+        1
+        for place in places
+        if isinstance(place, dict)
+        and str(place.get("category") or "").strip().lower() == "food"
+    )
+    # Full day plans (3+ stops) must include lunch + dinner food Places.
+    if len(places) >= 3 and food_count < 2:
+        failures.append(
+            f"day plan must include lunch and dinner food stops "
+            f"(got {food_count} category=food place(s))"
+        )
+
     already = _as_key_list(case.inputs.get("already_visited"))
     if already:
         blocked = set(already)
@@ -311,6 +324,72 @@ def score_suggest_place(output: dict[str, Any], case: EvalCase) -> list[str]:
                 )
 
     return failures
+
+
+def collect_day_plan_metrics(
+    output: dict[str, Any], case: EvalCase
+) -> dict[str, float]:
+    """Deterministic offline metrics (0–1 rates / scores) for a day_plan output."""
+    places = output.get("places") if isinstance(output.get("places"), list) else []
+    n = max(1, len(places))
+    closed = 0
+    dup = 0
+    grounded = 0
+    keys: list[str] = []
+    for place in places:
+        if not isinstance(place, dict):
+            continue
+        if str(place.get("operational_status") or "").lower() == "closed":
+            closed += 1
+        key = str(place.get("place_key") or "").strip()
+        if key:
+            if key in keys:
+                dup += 1
+            keys.append(key)
+        if str(place.get("address") or "").strip() or str(place.get("maps_url") or "").strip():
+            grounded += 1
+
+    already = set(_as_key_list(case.inputs.get("already_visited")))
+    exclusion_hits = len(set(keys) & already)
+
+    interests = [
+        str(i).strip().lower()
+        for i in (case.expected.get("interests") or case.inputs.get("interests") or [])
+        if str(i).strip()
+    ]
+    if isinstance(case.inputs.get("interests"), str):
+        interests = [
+            p.strip().lower()
+            for p in str(case.inputs.get("interests") or "").split(",")
+            if p.strip()
+        ]
+    preference_hits = 0
+    if interests:
+        blob = " ".join(
+            str(place.get(field) or "")
+            for place in places
+            if isinstance(place, dict)
+            for field in ("name", "reason_to_visit", "details", "category")
+        ).lower()
+        preference_hits = sum(1 for interest in interests if interest in blob)
+        preference_relevance_score = preference_hits / max(1, len(interests))
+    else:
+        preference_relevance_score = 1.0
+
+    max_minutes = _resolve_max_minutes(case)
+    total = _day_total_minutes([p for p in places if isinstance(p, dict)])
+    energy_overage = (
+        1.0 if max_minutes is not None and total > max_minutes else 0.0
+    )
+
+    return {
+        "preference_relevance_score": float(preference_relevance_score),
+        "explicit_exclusion_violation_rate": float(exclusion_hits > 0),
+        "duplicate_rate": float(dup > 0),
+        "closed_place_rate": closed / n,
+        "energy_overage_rate": energy_overage,
+        "grounding_rate": grounded / n,
+    }
 
 
 def score_output(output: dict[str, Any], case: EvalCase) -> list[str]:

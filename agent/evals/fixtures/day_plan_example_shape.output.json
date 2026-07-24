@@ -13,9 +13,10 @@
       "order_in_day": 1
     },
     {
-      "name": "Nakamise Street",
-      "place_key": "nakamise|tokyo",
-      "category": "shopping",
+      "name": "Daikokuya Tempura",
+      "place_key": "daikokuya|tokyo",
+      "category": "food",
+      "reason_to_visit": "Lunch — classic Asakusa tempura",
       "estimated_minutes": 60,
       "order_in_day": 2
     },
@@ -25,6 +26,14 @@
       "category": "park",
       "estimated_minutes": 45,
       "order_in_day": 3
+    },
+    {
+      "name": "Asakusa Imahan",
+      "place_key": "asakusa-imahan|tokyo",
+      "category": "food",
+      "reason_to_visit": "Dinner — sukiyaki",
+      "estimated_minutes": 75,
+      "order_in_day": 4
     }
   ]
 }

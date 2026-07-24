@@ -16,6 +16,7 @@ Short, dated decisions about how this system is shaped — especially cost, AWS 
 | [001](./001-async-plan-next-day-polling.md) | Async plan-next-day + client polling | Accepted (AgentCore: 202+poll; fake/local: sync 200) |
 | [002](./002-single-api-lambda.md) | Single API Lambda behind HTTP API | Accepted |
 | [003](./003-bff-agentcore-runtime-only.md) | BFF-only AgentCore + Runtime-only MVP | Accepted |
+| [004](./004-crew-quality-envelope.md) | Crew quality envelope + hard vs soft relevance | Accepted |
 
 ## System context (target)
 

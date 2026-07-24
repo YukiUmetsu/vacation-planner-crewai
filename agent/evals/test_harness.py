@@ -165,9 +165,9 @@ def test_scorer_accepts_valid_day_plan() -> None:
         {
             "overnight_city": "Tokyo",
             "places": [
-                {"name": "A", "place_key": "a"},
-                {"name": "B", "place_key": "b"},
-                {"name": "C", "place_key": "c"},
+                {"name": "Lunch Spot", "place_key": "lunch", "category": "food"},
+                {"name": "Park", "place_key": "park", "category": "park"},
+                {"name": "Dinner Spot", "place_key": "dinner", "category": "food"},
             ],
         },
     )
