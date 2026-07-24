@@ -63,6 +63,7 @@ Demo-only UI (no API): leave `VITE_USE_DEMO_DATA` unset and `npm run dev`.
 | `AGENT_RUNTIME_ARN` | unset | unset | Required for `CREW_MODE=agentcore`. |
 | `GOOGLE_PLACES_API_KEY` | optional | unset | BFF Places enrich before `place_quality`. |
 | `PRODUCT_METRICS_HASH_PEPPER` | optional | code fallback (local only) | Pepper for `user_sub` hashes in product metrics. Prod sets via Terraform. |
+| `BACKEND_GIT_SHA` | optional | unset | Attached to `QUALITY_METRIC` logs when set (deploy/CI). |
 | `PLACES_ENRICH` | `on` | `on` | `off` disables enrich even if key set. |
 | `CREW_INPUT_MAX_CHARS` | optional | `16000` | Soft crew-input char budget. |
 | `PLAN_NEXT_DAY_ASYNC` | `auto` / `off` | `auto` | `auto` = async only when `CREW_MODE=agentcore`. Local fake stays sync. |

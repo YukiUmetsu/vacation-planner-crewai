@@ -445,3 +445,130 @@ def test_load_cases_rejects_bad_crew(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="crew must be"):
         load_cases(tmp_path)
+
+
+def test_llm_preference_scorer_uses_injected_invoke() -> None:
+    from evals.preference_scorer import LlmPreferenceScorer
+
+    case = EvalCase(
+        id="judge",
+        crew="day_plan",
+        inputs={"interests": "museum"},
+        expected={"interests": ["museum"]},
+        source_path=Path("judge.json"),
+    )
+    scorer = LlmPreferenceScorer(
+        invoke=lambda _prompt: '{"preference_relevance_score": 0.25, "notes": "weak"}'
+    )
+    score = scorer.score_preference_relevance(
+        {
+            "places": [
+                {
+                    "name": "Mall",
+                    "category": "other",
+                    "place_key": "mall",
+                    "estimated_minutes": 30,
+                }
+            ]
+        },
+        case,
+    )
+    assert score == 0.25
+
+
+def test_llm_preference_scorer_falls_back_on_bad_json() -> None:
+    from evals.preference_scorer import HeuristicPreferenceScorer, LlmPreferenceScorer
+
+    case = EvalCase(
+        id="judge_fallback",
+        crew="day_plan",
+        inputs={},
+        expected={"interests": ["ramen"]},
+        source_path=Path("judge_fallback.json"),
+    )
+    output = {
+        "places": [
+            {
+                "name": "Ichiran",
+                "category": "food",
+                "reason_to_visit": "Lunch — ramen",
+                "place_key": "ichiran",
+                "estimated_minutes": 45,
+            }
+        ]
+    }
+    scorer = LlmPreferenceScorer(
+        invoke=lambda _prompt: "not-json",
+        fallback=HeuristicPreferenceScorer(),
+    )
+    assert scorer.score_preference_relevance(output, case) == 1.0
+
+
+def test_metrics_report_writes_markdown(tmp_path: Path) -> None:
+    from evals.report import build_metrics_report, write_metrics_report
+
+    case = EvalCase(
+        id="r1",
+        crew="day_plan",
+        inputs={"overnight_city": "Tokyo"},
+        expected={"min_places": 1},
+        source_path=Path("r1.json"),
+    )
+    result = run_case(
+        case,
+        {
+            "overnight_city": "Tokyo",
+            "places": [
+                {
+                    "name": "Park",
+                    "place_key": "park",
+                    "category": "park",
+                    "estimated_minutes": 30,
+                }
+            ],
+        },
+    )
+    report = build_metrics_report([result], preference_judge="heuristic")
+    path = tmp_path / "metrics.md"
+    write_metrics_report(report, path)
+    text = path.read_text(encoding="utf-8")
+    assert "Aggregate rates" in text
+    assert "preference_relevance_score" in text or "schema_valid" in text
+
+
+def test_cli_prints_aggregate_and_writes_report(tmp_path: Path) -> None:
+    from evals.__main__ import main
+
+    fixtures = tmp_path / "fixtures"
+    fixtures.mkdir()
+    (fixtures / "one.json").write_text(
+        json.dumps(
+            {
+                "id": "one",
+                "crew": "day_plan",
+                "inputs": {"overnight_city": "Tokyo"},
+                "expected": {"min_places": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (fixtures / "one.output.json").write_text(
+        json.dumps(
+            {
+                "overnight_city": "Tokyo",
+                "places": [
+                    {
+                        "name": "Park",
+                        "place_key": "park",
+                        "estimated_minutes": 20,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    report = tmp_path / "out.json"
+    assert main(["--fixtures-dir", str(fixtures), "--report", str(report)]) == 0
+    data = json.loads(report.read_text(encoding="utf-8"))
+    assert data["summary"]["passed"] == 1
+    assert "aggregates" in data

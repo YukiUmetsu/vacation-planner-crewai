@@ -332,9 +332,14 @@ def score_suggest_place(output: dict[str, Any], case: EvalCase) -> list[str]:
 
 
 def collect_day_plan_metrics(
-    output: dict[str, Any], case: EvalCase
+    output: dict[str, Any],
+    case: EvalCase,
+    *,
+    preference_scorer: Any | None = None,
 ) -> dict[str, float]:
     """Deterministic offline metrics (0–1 rates / scores) for a day_plan output."""
+    from evals.preference_scorer import HeuristicPreferenceScorer
+
     places = output.get("places") if isinstance(output.get("places"), list) else []
     n = max(1, len(places))
     closed = 0
@@ -357,33 +362,10 @@ def collect_day_plan_metrics(
     already = set(_as_key_list(case.inputs.get("already_visited")))
     exclusion_hits = len(set(keys) & already)
 
-    interests = [
-        str(i).strip().lower()
-        for i in (case.expected.get("interests") or [])
-        if str(i).strip()
-    ]
-    if not interests:
-        raw_interests = case.inputs.get("interests")
-        if isinstance(raw_interests, str):
-            interests = [
-                p.strip().lower() for p in raw_interests.split(",") if p.strip()
-            ]
-        elif isinstance(raw_interests, list):
-            interests = [
-                str(i).strip().lower() for i in raw_interests if str(i).strip()
-            ]
-    preference_hits = 0
-    if interests:
-        blob = " ".join(
-            str(place.get(field) or "")
-            for place in places
-            if isinstance(place, dict)
-            for field in ("name", "reason_to_visit", "details", "category")
-        ).lower()
-        preference_hits = sum(1 for interest in interests if interest in blob)
-        preference_relevance_score = preference_hits / max(1, len(interests))
-    else:
-        preference_relevance_score = 1.0
+    scorer = preference_scorer or HeuristicPreferenceScorer()
+    preference_relevance_score = float(
+        scorer.score_preference_relevance(output, case)
+    )
 
     excluded_categories = _as_lower_token_list(
         case.expected.get("excluded_categories")
@@ -408,7 +390,7 @@ def collect_day_plan_metrics(
     )
 
     return {
-        "preference_relevance_score": float(preference_relevance_score),
+        "preference_relevance_score": preference_relevance_score,
         "explicit_exclusion_violation_rate": float(
             exclusion_hits > 0 or category_exclusion_hits > 0
         ),
@@ -417,6 +399,7 @@ def collect_day_plan_metrics(
         "energy_overage_rate": energy_overage,
         "grounding_rate": grounded / n,
     }
+
 
 
 def score_output(output: dict[str, Any], case: EvalCase) -> list[str]:

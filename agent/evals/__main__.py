@@ -1,8 +1,9 @@
 """CLI for offline / live eval runs: ``uv run python -m evals``.
 
 Examples:
-  uv run python -m evals                 # score fixtures with sibling *.output.json
-  uv run python -m evals --live          # call crew_kickoff.run_crew (needs AWS/model creds)
+  uv run python -m evals
+  uv run python -m evals --live
+  uv run python -m evals --preference-judge llm --report reports/metrics.md
 """
 
 from __future__ import annotations
@@ -14,7 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from evals.case import EvalCase, load_cases
-from evals.harness import run_cases
+from evals.harness import aggregate_metrics, run_cases
+from evals.preference_scorer import resolve_preference_scorer
+from evals.report import (
+    build_metrics_report,
+    format_metrics_table,
+    write_metrics_report,
+)
 
 
 def _offline_producer(case: EvalCase) -> dict[str, Any]:
@@ -53,6 +60,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Invoke real crews via crew_kickoff (needs credentials)",
     )
+    parser.add_argument(
+        "--preference-judge",
+        choices=("heuristic", "llm"),
+        default="heuristic",
+        help="Scorer backend for preference_relevance_score (default: heuristic)",
+    )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="Write graded metrics dashboard to .json or .md",
+    )
     args = parser.parse_args(argv)
 
     cases = load_cases(args.fixtures_dir)
@@ -73,8 +92,14 @@ def main(argv: list[str] | None = None) -> int:
             print("No offline outputs found (add fixtures/<id>.output.json or use --live).")
             return 0
 
+    try:
+        preference_scorer = resolve_preference_scorer(args.preference_judge)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
     producer = _live_producer if args.live else _offline_producer
-    results = run_cases(cases, producer)
+    results = run_cases(cases, producer, preference_scorer=preference_scorer)
 
     failed = 0
     for result in results:
@@ -86,6 +111,18 @@ def main(argv: list[str] | None = None) -> int:
             failed += 1
 
     print(f"\n{len(results) - failed}/{len(results)} passed")
+
+    aggregates = aggregate_metrics(results)
+    print("\n=== Graded metrics (aggregate) ===")
+    print(format_metrics_table(aggregates))
+
+    report = build_metrics_report(
+        results, preference_judge=args.preference_judge
+    )
+    if args.report is not None:
+        write_metrics_report(report, args.report)
+        print(f"\nWrote metrics report → {args.report}")
+
     return 1 if failed else 0
 
 

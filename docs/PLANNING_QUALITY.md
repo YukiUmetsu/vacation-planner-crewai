@@ -117,7 +117,7 @@ Useful rates (derive in Logs Insights): empty/dedupe/closed/energy/meals/safety/
 
 Preference fixtures: `day_plan_preference_food`, `day_plan_preference_exclusion`, `day_plan_preference_mismatch`.
 
-**Phase 2.1 — LLM-as-judge:** same metric keys; swap the scorer backend for `preference_relevance_score` only (documented hook; not implemented).
+**Phase 2.1 — LLM-as-judge:** same metric keys; swap the scorer backend for `preference_relevance_score` only via `uv run python -m evals --preference-judge llm` (`EVAL_JUDGE_MODEL_ID` / Bedrock Converse). Default remains heuristic. Offline dashboard: CLI prints aggregate rates and optional `--report path.md|.json`.
 
 **Online product (`PRODUCT_METRIC` via `POST /events`)** — allowlisted names: `proposal_accepted`, `proposal_accepted_without_edit`, `manual_edit`, `time_to_accept` (payload `ms`), `plan_regenerated`, `place_deleted`, `suggestion_accepted`, `place_reordered` (reserved until reorder UX). No PII; `user_sub_hash` is peppered SHA-256.
 
@@ -153,4 +153,4 @@ fields @timestamp, event_name, payload.ms
 4. [x] Venue open status via Places API when Serper is not enough (BFF enrich with Google Places API New before `place_quality`; tool-assisted discovery remains soft).
 5. [x] Runtime QualityReport envelope (hard block / soft log) + invocation metadata + POST /events (ADR 004).
 6. [x] Offline graded metrics + preference fixtures (heuristic `preference_relevance_score`).
-7. [ ] Offline graded metric dashboards + LLM-as-judge scorer backend (same metric keys).
+7. [x] Offline graded metric dashboard (`--report`) + LLM-as-judge scorer backend (same metric keys).

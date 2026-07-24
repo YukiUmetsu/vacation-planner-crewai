@@ -31,7 +31,16 @@ Traveler energy hour caps (for future scorers): [`docs/PLANNING_QUALITY.md`](../
 }
 ```
 
-`EvalResult.metrics` holds graded rates (see [`docs/PLANNING_QUALITY.md`](../../docs/PLANNING_QUALITY.md) metric catalog). **Phase 2.1:** LLM-as-judge may replace the heuristic for `preference_relevance_score` only — keep the same keys.
+`EvalResult.metrics` holds graded rates (see [`docs/PLANNING_QUALITY.md`](../../docs/PLANNING_QUALITY.md) metric catalog).
+
+**Preference judge backends** (same key `preference_relevance_score`):
+
+| Flag | Backend |
+| --- | --- |
+| `--preference-judge heuristic` (default) | Deterministic keyword overlap |
+| `--preference-judge llm` | Bedrock Converse JSON judge (`EVAL_JUDGE_MODEL_ID`); falls back to heuristic on errors |
+
+**Dashboard:** every CLI run prints an aggregate metrics table. Write a file with `--report reports/metrics.md` or `.json`.
 
 Files starting with `_` are ignored.
 
@@ -51,6 +60,7 @@ uv run pytest evals/test_harness.py -q
 cd agent
 uv run python -m evals            # score fixtures that have sibling *.output.json
 uv run python -m evals --live     # call crew_kickoff (needs credentials)
+uv run python -m evals --preference-judge llm --report reports/metrics.md
 ```
 
 Offline mode **skips** cases without `fixtures/<id>.output.json` (prints `SKIP`). A golden for `day_plan_example_shape` is included so the default command exits 0.

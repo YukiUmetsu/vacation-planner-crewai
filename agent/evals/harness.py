@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
 from evals.case import EvalCase
+from evals.preference_scorer import PreferenceScorer
 from evals.scorers import collect_day_plan_metrics, score_output
 
 Producer = Callable[[EvalCase], dict[str, Any]]
@@ -30,7 +32,13 @@ class EvalResult:
     metrics: dict[str, float | int | bool] = field(default_factory=dict)
 
 
-def run_case(case: EvalCase, output: dict[str, Any]) -> EvalResult:
+def run_case(
+    case: EvalCase,
+    output: dict[str, Any],
+    *,
+    preference_scorer: PreferenceScorer | None = None,
+    latency_ms: float | None = None,
+) -> EvalResult:
     domain = unwrap_eval_output(output)
     failures = tuple(score_output(domain, case))
     metrics: dict[str, float | int | bool] = {
@@ -38,7 +46,15 @@ def run_case(case: EvalCase, output: dict[str, Any]) -> EvalResult:
         "hard_constraint_pass": 1.0 if len(failures) == 0 else 0.0,
     }
     if case.crew == "day_plan":
-        metrics.update(collect_day_plan_metrics(domain, case))
+        metrics.update(
+            collect_day_plan_metrics(
+                domain, case, preference_scorer=preference_scorer
+            )
+        )
+    if latency_ms is not None:
+        metrics["latency_ms"] = float(latency_ms)
+    # Cost stub until Bedrock usage is plumbed.
+    metrics.setdefault("cost", 0.0)
     return EvalResult(
         case_id=case.id,
         passed=len(failures) == 0,
@@ -69,9 +85,12 @@ def aggregate_metrics(results: Sequence[EvalResult]) -> dict[str, float]:
 def run_cases(
     cases: Sequence[EvalCase],
     producer: Producer,
+    *,
+    preference_scorer: PreferenceScorer | None = None,
 ) -> list[EvalResult]:
     results: list[EvalResult] = []
     for case in cases:
+        started = time.perf_counter()
         try:
             output = producer(case)
         except Exception as exc:  # noqa: BLE001 — eval boundary
@@ -81,10 +100,15 @@ def run_cases(
                     passed=False,
                     failures=(f"{type(exc).__name__}: {exc}",),
                     output=None,
-                    metrics={"schema_valid": 0.0, "hard_constraint_pass": 0.0},
+                    metrics={
+                        "schema_valid": 0.0,
+                        "hard_constraint_pass": 0.0,
+                        "cost": 0.0,
+                    },
                 )
             )
             continue
+        latency_ms = (time.perf_counter() - started) * 1000.0
         if not isinstance(output, dict):
             results.append(
                 EvalResult(
@@ -94,9 +118,21 @@ def run_cases(
                         f"producer returned non-object: {type(output).__name__}",
                     ),
                     output=None,
-                    metrics={"schema_valid": 0.0, "hard_constraint_pass": 0.0},
+                    metrics={
+                        "schema_valid": 0.0,
+                        "hard_constraint_pass": 0.0,
+                        "cost": 0.0,
+                        "latency_ms": latency_ms,
+                    },
                 )
             )
             continue
-        results.append(run_case(case, output))
+        results.append(
+            run_case(
+                case,
+                output,
+                preference_scorer=preference_scorer,
+                latency_ms=latency_ms,
+            )
+        )
     return results

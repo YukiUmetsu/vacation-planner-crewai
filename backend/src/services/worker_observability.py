@@ -95,11 +95,15 @@ def log_quality_metrics(
         "prompt_version": inv.get("prompt_version"),
         "prompt_hash": inv.get("prompt_hash"),
         "model_id": inv.get("model_id"),
-        "git_sha": inv.get("git_sha"),
+        "git_sha": inv.get("git_sha") or os.getenv("BACKEND_GIT_SHA", ""),
+        "backend_git_sha": os.getenv("BACKEND_GIT_SHA", "") or None,
         "input_context_chars": inv.get("input_context_chars"),
         "context_was_slimmed": inv.get("context_was_slimmed"),
         "output_schema_version": inv.get("output_schema_version"),
     }
+    if payload["backend_git_sha"] is None:
+        payload.pop("backend_git_sha")
+
     logger.info(
         "QUALITY_METRIC %s", json.dumps(payload, ensure_ascii=False, default=str)
     )
