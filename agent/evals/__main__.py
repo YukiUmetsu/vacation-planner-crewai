@@ -4,6 +4,7 @@ Examples:
   uv run python -m evals
   uv run python -m evals --live
   uv run python -m evals --preference-judge llm --report reports/metrics.md
+  uv run python -m evals --persist   # write to DynamoDB (DYNAMODB_METRICS_TABLE_NAME)
 """
 
 from __future__ import annotations
@@ -72,6 +73,16 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Write graded metrics dashboard to .json or .md",
     )
+    parser.add_argument(
+        "--persist",
+        action="store_true",
+        help="Write run + case metrics to DynamoDB (DYNAMODB_METRICS_TABLE_NAME)",
+    )
+    parser.add_argument(
+        "--persist-required",
+        action="store_true",
+        help="Exit non-zero if --persist fails (default: soft-fail with warning)",
+    )
     args = parser.parse_args(argv)
 
     cases = load_cases(args.fixtures_dir)
@@ -122,6 +133,26 @@ def main(argv: list[str] | None = None) -> int:
     if args.report is not None:
         write_metrics_report(report, args.report)
         print(f"\nWrote metrics report → {args.report}")
+
+    if args.persist or args.persist_required:
+        from evals.persist import persist_eval_results
+
+        try:
+            persisted = persist_eval_results(
+                results,
+                cases,
+                preference_judge=args.preference_judge,
+                live=bool(args.live),
+            )
+            print(
+                "\nPersisted eval run "
+                f"experiment_key={persisted['experiment_key']} "
+                f"run_id={persisted['run_id']}"
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"\nPersist failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            if args.persist_required:
+                return 2
 
     return 1 if failed else 0
 

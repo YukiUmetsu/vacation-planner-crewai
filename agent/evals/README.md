@@ -42,6 +42,24 @@ Traveler energy hour caps (for future scorers): [`docs/PLANNING_QUALITY.md`](../
 
 **Dashboard:** every CLI run prints an aggregate metrics table. Write a file with `--report reports/metrics.md` or `.json`.
 
+**Persist (durable fair A/B):** write run + case rows to the dedicated metrics DynamoDB table:
+
+```bash
+# Local DynamoDB (after ./scripts/dev.sh or create_local_table.py)
+export DYNAMODB_ENDPOINT=http://127.0.0.1:8000
+export DYNAMODB_METRICS_TABLE_NAME=vacation-planner-local-metrics
+export AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local AWS_REGION=us-east-1
+uv run python -m evals --persist
+
+# Prod table (real AWS creds; no DYNAMODB_ENDPOINT)
+export DYNAMODB_METRICS_TABLE_NAME=vacation-planner-prod-metrics   # terraform output
+uv run python -m evals --persist
+```
+
+Same `experiment_key` ⇒ comparable runs (fixture suite hash, prompt version/hash, preference judge, judge/model ids, git sha, live flag). Soft-fails by default; use `--persist-required` in CI.
+
+Private SPA: open `/metrics` (Cognito session + `METRICS_ADMIN_SUBS` allowlist). Not linked from the main trip wizard.
+
 Files starting with `_` are ignored.
 
 ## Run harness tests
@@ -61,6 +79,7 @@ cd agent
 uv run python -m evals            # score fixtures that have sibling *.output.json
 uv run python -m evals --live     # call crew_kickoff (needs credentials)
 uv run python -m evals --preference-judge llm --report reports/metrics.md
+uv run python -m evals --persist
 ```
 
 Offline mode **skips** cases without `fixtures/<id>.output.json` (prints `SKIP`). A golden for `day_plan_example_shape` is included so the default command exits 0.

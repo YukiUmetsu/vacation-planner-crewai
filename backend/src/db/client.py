@@ -13,10 +13,15 @@ from db.safe_table import ensure_safe_table
 
 
 DEFAULT_TABLE_NAME = "vacation-planner-local-table"
+DEFAULT_METRICS_TABLE_NAME = "vacation-planner-local-metrics"
 
 
 def table_name() -> str:
     return os.getenv("DYNAMODB_TABLE_NAME", DEFAULT_TABLE_NAME)
+
+
+def metrics_table_name() -> str:
+    return os.getenv("DYNAMODB_METRICS_TABLE_NAME", DEFAULT_METRICS_TABLE_NAME)
 
 
 def aws_region() -> str:
@@ -56,6 +61,12 @@ def get_table(name: str | None = None) -> DynamoDBTable:
     new endpoints cannot regress the DynamoDB float TypeError.
     """
     raw = get_dynamodb_resource().Table(name or table_name())
+    return ensure_safe_table(raw)
+
+
+def get_metrics_table(name: str | None = None) -> DynamoDBTable:
+    """Sanitizing Table for the dedicated offline-eval metrics table."""
+    raw = get_dynamodb_resource().Table(name or metrics_table_name())
     return ensure_safe_table(raw)
 
 

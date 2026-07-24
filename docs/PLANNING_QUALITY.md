@@ -119,6 +119,10 @@ Preference fixtures: `day_plan_preference_food`, `day_plan_preference_exclusion`
 
 **Phase 2.1 — LLM-as-judge:** same metric keys; swap the scorer backend for `preference_relevance_score` only via `uv run python -m evals --preference-judge llm` (`EVAL_JUDGE_MODEL_ID` / Bedrock Converse). Default remains heuristic. Offline dashboard: CLI prints aggregate rates and optional `--report path.md|.json`.
 
+**Durable store + private UI:** `uv run python -m evals --persist` writes run/case rows to the dedicated metrics DynamoDB table (`DYNAMODB_METRICS_TABLE_NAME`). Fair A/B uses deterministic `experiment_key` (fixture suite + prompt + judge + model + git + live). Private SPA at `/metrics` (no main-nav link); API `GET /admin/metrics/runs` gated by `METRICS_ADMIN_SUBS`.
+
+**Online dual-write:** `QUALITY_METRIC` / `PRODUCT_METRIC` still emit CloudWatch log lines **and** append to the same metrics table (`ONLINE#QUALITY` / `ONLINE#PRODUCT`). Dynamo failures soft-fail so planning/`POST /events` never break. List via `GET /admin/metrics/online?kind=quality|product` and the Online section on `/metrics`.
+
 **Online product (`PRODUCT_METRIC` via `POST /events`)** — allowlisted names: `proposal_accepted`, `proposal_accepted_without_edit`, `manual_edit`, `time_to_accept` (payload `ms`), `plan_regenerated`, `place_deleted`, `suggestion_accepted`, `place_reordered` (reserved until reorder UX). No PII; `user_sub_hash` is peppered SHA-256.
 
 ### CloudWatch Logs Insights (examples)
@@ -154,3 +158,5 @@ fields @timestamp, event_name, payload.ms
 5. [x] Runtime QualityReport envelope (hard block / soft log) + invocation metadata + POST /events (ADR 004).
 6. [x] Offline graded metrics + preference fixtures (heuristic `preference_relevance_score`).
 7. [x] Offline graded metric dashboard (`--report`) + LLM-as-judge scorer backend (same metric keys).
+8. [x] Persist offline eval runs to dedicated DynamoDB metrics table + private `/metrics` dashboard.
+9. [x] Dual-write online QUALITY/PRODUCT metrics to DynamoDB (keep CloudWatch) + Online SPA section.

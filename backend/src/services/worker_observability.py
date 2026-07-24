@@ -1,4 +1,8 @@
-"""Structured outcomes for the plan-next-day Event worker (ops / CloudWatch)."""
+"""Structured outcomes for the plan-next-day Event worker (ops / CloudWatch).
+
+Online quality/product events dual-write to CloudWatch logs and the metrics
+DynamoDB table. Dynamo failures are soft-failed so trip/events paths stay up.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,8 @@ import json
 import logging
 import os
 import time
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -68,6 +74,76 @@ def log_crew_duration(
     logger.info(" ".join(parts))
 
 
+def _utc_now_iso() -> str:
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="microseconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def online_quality_experiment_key(payload: dict[str, Any]) -> str | None:
+    """Fingerprint invocation dims for fair online quality filtering."""
+    dims = {
+        "prompt_version": payload.get("prompt_version") or "",
+        "prompt_hash": payload.get("prompt_hash") or "",
+        "model_id": payload.get("model_id") or "",
+        "git_sha": payload.get("git_sha") or "",
+        "crew_name": payload.get("crew_name") or "",
+    }
+    if not any(dims.values()):
+        return None
+    return hashlib.sha256(_canonical_json(dims).encode("utf-8")).hexdigest()[:16]
+
+
+def _persist_online_quality(payload: dict[str, Any]) -> None:
+    try:
+        from db import repository as repo
+
+        event_id = uuid.uuid4().hex[:12]
+        occurred_at = _utc_now_iso()
+        exp_key = online_quality_experiment_key(payload)
+        repo.put_online_quality_event(
+            event_id=event_id,
+            occurred_at=occurred_at,
+            payload=payload,
+            experiment_key=exp_key,
+        )
+    except Exception as exc:  # noqa: BLE001 — never break planning on metrics I/O
+        logger.warning(
+            "metrics DynamoDB quality persist failed: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+
+
+def _persist_online_product(body: dict[str, Any]) -> None:
+    try:
+        from db import repository as repo
+
+        event_id = uuid.uuid4().hex[:12]
+        occurred_at = _utc_now_iso()
+        repo.put_online_product_event(
+            event_id=event_id,
+            occurred_at=occurred_at,
+            event_name=str(body.get("event_name") or ""),
+            user_sub_hash=str(body.get("user_sub_hash") or ""),
+            trip_id=body.get("trip_id"),
+            day_index=body.get("day_index"),
+            payload=body.get("payload") if isinstance(body.get("payload"), dict) else {},
+        )
+    except Exception as exc:  # noqa: BLE001 — never break product events on metrics I/O
+        logger.warning(
+            "metrics DynamoDB product persist failed: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+
+
 def log_quality_metrics(
     *,
     trip_id: str,
@@ -77,7 +153,7 @@ def log_quality_metrics(
     guardrail_code: str | None = None,
     places_count: int | None = None,
 ) -> None:
-    """CloudWatch-searchable quality + invocation line (no place payloads / PII)."""
+    """CloudWatch + DynamoDB quality + invocation line (no place payloads / PII)."""
     q = quality or {}
     inv = invocation or {}
     tags = q.get("failure_tags") if isinstance(q.get("failure_tags"), list) else []
@@ -107,6 +183,7 @@ def log_quality_metrics(
     logger.info(
         "QUALITY_METRIC %s", json.dumps(payload, ensure_ascii=False, default=str)
     )
+    _persist_online_quality(payload)
 
 
 def stable_user_sub_hash(user_sub: str) -> str:
@@ -137,3 +214,4 @@ def log_product_event(
         "payload": payload or {},
     }
     logger.info("PRODUCT_METRIC %s", json.dumps(body, ensure_ascii=False, default=str))
+    _persist_online_product(body)

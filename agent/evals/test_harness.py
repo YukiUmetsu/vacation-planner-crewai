@@ -326,6 +326,26 @@ def test_run_cases_records_producer_errors() -> None:
     assert len(results) == 1
     assert results[0].passed is False
     assert "RuntimeError" in results[0].failures[0]
+    assert "latency_ms" in results[0].metrics
+    assert float(results[0].metrics["latency_ms"]) >= 0.0
+
+
+def test_run_cases_records_latency_for_non_dict_producer() -> None:
+    case = EvalCase(
+        id="bad_shape",
+        crew="city_route",
+        inputs={},
+        expected={},
+        source_path=Path("bad_shape.json"),
+    )
+
+    def producer(_case: EvalCase) -> list:  # type: ignore[return-value]
+        return ["not", "a", "dict"]
+
+    results = run_cases([case], producer)
+    assert results[0].passed is False
+    assert "non-object" in results[0].failures[0]
+    assert "latency_ms" in results[0].metrics
 
 
 def test_fixture_files_are_valid_json() -> None:
@@ -572,3 +592,33 @@ def test_cli_prints_aggregate_and_writes_report(tmp_path: Path) -> None:
     data = json.loads(report.read_text(encoding="utf-8"))
     assert data["summary"]["passed"] == 1
     assert "aggregates" in data
+
+
+def test_experiment_key_stable_for_same_dimensions(tmp_path: Path) -> None:
+    from evals.persist import build_experiment_dimensions, experiment_key_for
+
+    case_path = tmp_path / "c.json"
+    case_path.write_text(
+        json.dumps(
+            {
+                "id": "c",
+                "crew": "day_plan",
+                "inputs": {},
+                "expected": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    case = EvalCase(
+        id="c",
+        crew="day_plan",
+        inputs={},
+        expected={},
+        source_path=case_path,
+    )
+    d1 = build_experiment_dimensions([case], preference_judge="heuristic", live=False)
+    d2 = build_experiment_dimensions([case], preference_judge="heuristic", live=False)
+    assert experiment_key_for(d1) == experiment_key_for(d2)
+    assert len(experiment_key_for(d1)) == 16
+    d3 = build_experiment_dimensions([case], preference_judge="llm", live=False)
+    assert experiment_key_for(d1) != experiment_key_for(d3)

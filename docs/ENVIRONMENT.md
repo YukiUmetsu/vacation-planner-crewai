@@ -29,6 +29,8 @@ export CREW_MODE=fake
 export SAFETY_MODE=off
 export DYNAMODB_ENDPOINT=http://127.0.0.1:8000
 export DYNAMODB_TABLE_NAME=vacation-planner-local-table
+export DYNAMODB_METRICS_TABLE_NAME=vacation-planner-local-metrics
+export METRICS_ADMIN_SUBS=local-dev-user
 export AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local AWS_REGION=us-east-1
 uv run python scripts/local_api.py
 
@@ -54,7 +56,9 @@ Demo-only UI (no API): leave `VITE_USE_DEMO_DATA` unset and `npm run dev`.
 | `BEDROCK_GUARDRAIL_ID` | unset | unset | Required for `SAFETY_MODE=bedrock`. |
 | `BEDROCK_GUARDRAIL_VERSION` | unset | `DRAFT` | Guardrail version for ApplyGuardrail. |
 | `DYNAMODB_ENDPOINT` | `http://localhost:8000` | unset (AWS) | DynamoDB Local. |
-| `DYNAMODB_TABLE_NAME` | `vacation-planner-local-table` | same | Table name. |
+| `DYNAMODB_TABLE_NAME` | `vacation-planner-local-table` | same | Trip single-table name. |
+| `DYNAMODB_METRICS_TABLE_NAME` | `vacation-planner-local-metrics` | same | Dedicated offline-eval metrics table. |
+| `METRICS_ADMIN_SUBS` | `local-dev-user` (via `dev.sh`) | unset | Comma-separated Cognito (or dev) subs for `GET /admin/metrics`. Empty → 403 for everyone. Online quality/product also dual-write to the metrics table (soft-fail). |
 | `AWS_REGION` / `AWS_DEFAULT_REGION` | `us-east-1` | `us-east-1` | Region for boto3. |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | `local` / `local` | `local` when endpoint set | Dummy creds for DynamoDB Local. |
 | `DEV_USER_SUB` | optional | unset | Default user when header missing (smoke scripts). |
@@ -131,6 +135,7 @@ Terraform automatically reads `TF_VAR_<variable_name>` for each root module vari
 | `serper_api_key` | `TF_VAR_serper_api_key` | **yes** | → AgentCore `SERPER_API_KEY`. |
 | `google_places_api_key` | `TF_VAR_google_places_api_key` | **yes** | Optional → API Lambda `GOOGLE_PLACES_API_KEY`. |
 | `product_metrics_hash_pepper` | `TF_VAR_product_metrics_hash_pepper` | **yes** | Optional override → API Lambda `PRODUCT_METRICS_HASH_PEPPER`. Empty → Terraform `random_password`. |
+| `metrics_admin_subs` | `TF_VAR_metrics_admin_subs` | no | Comma-separated Cognito subs → `METRICS_ADMIN_SUBS` for `/admin/metrics` + `/metrics` SPA. Empty → 403 for all. |
 | `enable_genai_observability` | | no | Account/region Transaction Search singleton. |
 | `genai_observability_indexing_percentage` | | no | e.g. `1` free tier. |
 | `enable_bedrock_guardrails` | | no | Create Guardrail module. |
@@ -162,7 +167,8 @@ Also run `backend/scripts/build_lambda.sh` before `terraform apply`.
 
 | Env | Source |
 | --- | --- |
-| `DYNAMODB_TABLE_NAME` | DynamoDB module |
+| `DYNAMODB_TABLE_NAME` | DynamoDB module (trip single-table) |
+| `DYNAMODB_METRICS_TABLE_NAME` | DynamoDB module (eval metrics table) |
 | `COGNITO_ISSUER` / `COGNITO_AUDIENCE` | Cognito module |
 | `AGENT_RUNTIME_ARN` | AgentCore module |
 | `AUTH_MODE` | fixed `cognito` |
@@ -172,6 +178,7 @@ Also run `backend/scripts/build_lambda.sh` before `terraform apply`.
 | `BEDROCK_GUARDRAIL_ID` / `BEDROCK_GUARDRAIL_VERSION` | Guardrail outputs / vars |
 | `GOOGLE_PLACES_API_KEY` | optional `var.google_places_api_key` |
 | `PRODUCT_METRICS_HASH_PEPPER` | `var.product_metrics_hash_pepper` or Terraform-managed `random_password` |
+| `METRICS_ADMIN_SUBS` | `var.metrics_admin_subs` |
 | `AWS_LAMBDA_FUNCTION_NAME` | AWS runtime (async plan-next-day worker) |
 
 **AgentCore runtime** (`infra/agentcore`):

@@ -3,8 +3,9 @@ locals {
 }
 
 module "dynamodb" {
-  source     = "./dynamodb"
-  table_name = "${local.name_prefix}-table"
+  source             = "./dynamodb"
+  table_name         = "${local.name_prefix}-table"
+  metrics_table_name = "${local.name_prefix}-metrics"
 }
 
 module "cognito" {
@@ -77,6 +78,8 @@ module "api" {
   environment                 = var.environment
   dynamodb_table_name         = module.dynamodb.table_name
   dynamodb_table_arn          = module.dynamodb.table_arn
+  dynamodb_metrics_table_name = module.dynamodb.metrics_table_name
+  dynamodb_metrics_table_arn  = module.dynamodb.metrics_table_arn
   cognito_user_pool_client_id = module.cognito.user_pool_client_id
   cognito_issuer              = module.cognito.issuer
   agent_runtime_arn           = module.agentcore.agent_runtime_arn
@@ -86,6 +89,7 @@ module "api" {
   bedrock_guardrail_arn       = local.bedrock_guardrail_arn
   google_places_api_key       = var.google_places_api_key
   product_metrics_hash_pepper = var.product_metrics_hash_pepper
+  metrics_admin_subs          = var.metrics_admin_subs
   # Built package (src + pip deps). Run: ../backend/scripts/build_lambda.sh
   backend_source_dir = "${path.root}/../backend/.build/lambda"
 }

@@ -102,11 +102,14 @@ docker compose -f "${BACKEND}/docker-compose.yml" up -d
 
 export DYNAMODB_ENDPOINT="${DYNAMODB_ENDPOINT:-http://127.0.0.1:8000}"
 export DYNAMODB_TABLE_NAME="${DYNAMODB_TABLE_NAME:-vacation-planner-local-table}"
+export DYNAMODB_METRICS_TABLE_NAME="${DYNAMODB_METRICS_TABLE_NAME:-vacation-planner-local-metrics}"
 export AWS_REGION="${AWS_REGION:-us-east-1}"
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 export AUTH_MODE="${AUTH_MODE:-dev}"
 export CREW_MODE="${CREW_MODE:-fake}"
 export SAFETY_MODE="${SAFETY_MODE:-off}"
+# Local: allow the default X-Dev-User-Sub so /metrics works without Cognito.
+export METRICS_ADMIN_SUBS="${METRICS_ADMIN_SUBS:-local-dev-user}"
 
 # DynamoDB Local accepts any credentials. Prefer the real AWS credential chain
 # (~/.aws/credentials, AWS_PROFILE, env keys) so AgentCore can InvokeAgentRuntime.

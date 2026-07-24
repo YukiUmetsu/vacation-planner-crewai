@@ -55,6 +55,15 @@ resource "aws_iam_role_policy" "lambda_app" {
           Resource = [var.dynamodb_table_arn, "${var.dynamodb_table_arn}/index/*"]
         },
         {
+          Sid    = "DynamoDBMetrics"
+          Effect = "Allow"
+          Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"]
+          Resource = [
+            var.dynamodb_metrics_table_arn,
+            "${var.dynamodb_metrics_table_arn}/index/*",
+          ]
+        },
+        {
           Sid      = "SelfInvokePlanWorker"
           Effect   = "Allow"
           Action   = ["lambda:InvokeFunction"]
@@ -108,6 +117,7 @@ resource "aws_lambda_function" "api" {
     variables = merge(
       {
         DYNAMODB_TABLE_NAME         = var.dynamodb_table_name
+        DYNAMODB_METRICS_TABLE_NAME = var.dynamodb_metrics_table_name
         COGNITO_ISSUER              = var.cognito_issuer
         COGNITO_AUDIENCE            = var.cognito_user_pool_client_id
         AGENT_RUNTIME_ARN           = var.agent_runtime_arn
@@ -118,6 +128,7 @@ resource "aws_lambda_function" "api" {
         BEDROCK_GUARDRAIL_ID        = var.bedrock_guardrail_id
         BEDROCK_GUARDRAIL_VERSION   = var.bedrock_guardrail_version
         PRODUCT_METRICS_HASH_PEPPER = local.product_metrics_hash_pepper
+        METRICS_ADMIN_SUBS          = var.metrics_admin_subs
       },
       var.google_places_api_key != "" ? {
         GOOGLE_PLACES_API_KEY = var.google_places_api_key

@@ -131,3 +131,8 @@
     animation: propose-shimmer 1.8s ease-in-out infinite;
   }
 }
+
+.metrics-table th,
+.metrics-table td {
+  vertical-align: top;
+}

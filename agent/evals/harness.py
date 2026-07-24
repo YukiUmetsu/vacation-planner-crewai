@@ -94,6 +94,7 @@ def run_cases(
         try:
             output = producer(case)
         except Exception as exc:  # noqa: BLE001 — eval boundary
+            latency_ms = (time.perf_counter() - started) * 1000.0
             results.append(
                 EvalResult(
                     case_id=case.id,
@@ -104,6 +105,7 @@ def run_cases(
                         "schema_valid": 0.0,
                         "hard_constraint_pass": 0.0,
                         "cost": 0.0,
+                        "latency_ms": latency_ms,
                     },
                 )
             )

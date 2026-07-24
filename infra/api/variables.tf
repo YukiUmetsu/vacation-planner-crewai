@@ -14,6 +14,15 @@ variable "dynamodb_table_arn" {
   type = string
 }
 
+variable "dynamodb_metrics_table_name" {
+  description = "Dedicated DynamoDB table for offline eval / admin metrics"
+  type        = string
+}
+
+variable "dynamodb_metrics_table_arn" {
+  type = string
+}
+
 variable "cognito_user_pool_client_id" {
   type = string
 }
@@ -68,4 +77,10 @@ variable "product_metrics_hash_pepper" {
   type        = string
   default     = ""
   sensitive   = true
+}
+
+variable "metrics_admin_subs" {
+  description = "Comma-separated Cognito subs allowed for GET /admin/metrics (empty → all callers get 403)."
+  type        = string
+  default     = ""
 }

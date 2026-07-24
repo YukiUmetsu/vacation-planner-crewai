@@ -27,6 +27,7 @@ from log_config import configure_logging
 from routes import profile as profile_routes
 from routes import trips as trip_routes
 from routes import events as event_routes
+from routes import admin_metrics as admin_metrics_routes
 from services.plan_day_worker import is_plan_next_day_worker_event
 from services.trip_service import TripService
 from services.worker_observability import WorkerTimer, log_worker_outcome
@@ -162,6 +163,30 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         if path == "/events" or path.rstrip("/") == "/events":
             if method == "POST":
                 return json_response(200, event_routes.post_event(event, user_sub))
+            raise ApiError(405, f"method {method} not allowed")
+
+        if path == "/admin/metrics/runs" or path.rstrip("/") == "/admin/metrics/runs":
+            if method == "GET":
+                return json_response(
+                    200, admin_metrics_routes.list_runs(event, user_sub)
+                )
+            raise ApiError(405, f"method {method} not allowed")
+
+        if path == "/admin/metrics/online" or path.rstrip("/") == "/admin/metrics/online":
+            if method == "GET":
+                return json_response(
+                    200, admin_metrics_routes.list_online(event, user_sub)
+                )
+            raise ApiError(405, f"method {method} not allowed")
+
+        if path.startswith("/admin/metrics/runs/"):
+            run_id = path[len("/admin/metrics/runs/") :].strip("/")
+            if not run_id or "/" in run_id:
+                raise ApiError(404, f"route not found: {method} {path}", code="not_found")
+            if method == "GET":
+                return json_response(
+                    200, admin_metrics_routes.get_run(event, user_sub, run_id)
+                )
             raise ApiError(405, f"method {method} not allowed")
 
         if path == "/trips" or path.rstrip("/") == "/trips":

@@ -24,9 +24,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 
 def _prepare_local_dynamodb() -> None:
-    """Point at DynamoDB Local and ensure the table exists (fail with a clear hint)."""
+    """Point at DynamoDB Local and ensure trip + metrics tables exist."""
     os.environ.setdefault("DYNAMODB_ENDPOINT", "http://127.0.0.1:8000")
     os.environ.setdefault("DYNAMODB_TABLE_NAME", "vacation-planner-local-table")
+    os.environ.setdefault("DYNAMODB_METRICS_TABLE_NAME", "vacation-planner-local-metrics")
     os.environ.setdefault("AWS_REGION", "us-east-1")
     os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
     # DynamoDB Local accepts any keys. Do not invent dummy keys when a real
@@ -44,14 +45,17 @@ def _prepare_local_dynamodb() -> None:
         os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "local")
 
     from botocore.exceptions import EndpointConnectionError
-    from db.client import get_dynamodb_client, reset_clients, table_name
-    from db.schema import ensure_table
+    from db.client import get_dynamodb_client, metrics_table_name, reset_clients, table_name
+    from db.schema import ensure_metrics_table, ensure_table
 
     reset_clients()
     name = table_name()
+    metrics_name = metrics_table_name()
     endpoint = os.environ["DYNAMODB_ENDPOINT"]
     try:
-        ensure_table(get_dynamodb_client(), name, enable_ttl=False)
+        client = get_dynamodb_client()
+        ensure_table(client, name, enable_ttl=False)
+        ensure_metrics_table(client, metrics_name)
     except EndpointConnectionError:
         print(
             "local_api: cannot reach DynamoDB Local at "
@@ -73,6 +77,7 @@ def _prepare_local_dynamodb() -> None:
         )
         raise SystemExit(3) from None
     print(f"local_api: DynamoDB ok — {name} @ {endpoint}", flush=True)
+    print(f"local_api: metrics table ok — {metrics_name}", flush=True)
 
 
 def main() -> int:

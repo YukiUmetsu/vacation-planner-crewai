@@ -2,6 +2,10 @@ output "dynamodb_table_name" {
   value = module.dynamodb.table_name
 }
 
+output "dynamodb_metrics_table_name" {
+  value = module.dynamodb.metrics_table_name
+}
+
 output "cognito_user_pool_id" {
   value = module.cognito.user_pool_id
 }

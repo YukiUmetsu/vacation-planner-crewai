@@ -245,3 +245,73 @@ Storing keys on the trip keeps the next planning call O(1) for the denylist inst
 | Place as its own item | No place-centric queries; would complicate day writes |
 | OpenSearch / global place index | Out of scope for MVP; add if we need discovery across users |
 | Storing full crew transcripts in DynamoDB | Large and noisy; use Phoenix locally / CloudWatch for runs |
+
+---
+
+## Offline eval metrics table (separate)
+
+Eval / admin metrics live in a **dedicated** DynamoDB table (`{project}-{env}-metrics`), not the trip single-table. Different IAM, retention, and access patterns from traveler data.
+
+| Property | Value |
+| --- | --- |
+| Table name | `{project}-{env}-metrics` (local: `vacation-planner-local-metrics`) |
+| Billing | On-demand |
+| Keys | `pk` + `sk`, GSI1 `gsi1pk` + `gsi1sk` (same shape as trip table, no TTL) |
+
+### Metrics access patterns
+
+| Pattern | How | Why |
+| --- | --- | --- |
+| List eval runs (newest first) | `pk = EVAL`, `sk begins_with RUN#` | Private `/metrics` dashboard |
+| Fair-compare one experiment | GSI1: `gsi1pk = EXP#{experiment_key}` | Same fixture/prompt/judge knobs |
+| Run + cases | `pk = EVAL`, `sk begins_with CASE#{started_at}#{run_id}#` | Drill-down |
+| List online quality events | `pk = ONLINE#QUALITY`, `sk begins_with TS#` | `/metrics` Online section |
+| Filter quality by experiment | GSI1: `gsi1pk = ONLINEEXP#{experiment_key}` | Invocation fingerprint (not eval `EXP#`) |
+| List online product events | `pk = ONLINE#PRODUCT`, `sk begins_with TS#` | `/metrics` Online section |
+| Filter product by name | GSI1: `gsi1pk = EVT#{event_name}` | e.g. `proposal_accepted` |
+
+### Metrics item shapes
+
+**Eval run** (`entity_type = METRICS_EVAL_RUN`)
+
+```text
+pk / sk:     EVAL  /  RUN#{started_at_iso}#{run_id}
+gsi1pk/sk:   EXP#{experiment_key}  /  RUN#{started_at_iso}#{run_id}
++ experiment_key, dimensions{}, aggregates{}, case_count, passed_count, updated_at
+```
+
+`experiment_key` is `sha256(canonical_json(dimensions))[:16]` where dimensions include
+`fixture_suite_hash`, `prompt_version`, `prompt_hash`, `preference_judge`,
+`judge_model_id`, `model_id`, `git_sha`, `live`. Same knobs → same bucket for fair A/B.
+
+**Eval case** (`entity_type = METRICS_EVAL_CASE`)
+
+```text
+pk / sk:     EVAL  /  CASE#{started_at_iso}#{run_id}#{case_id}
++ case_id, passed, failures[], metrics{}, experiment_key, run_id, started_at
+```
+
+Case rows are not indexed on GSI1 (experiment listing is runs-only). Distinct `CASE#` /
+`RUN#` prefixes keep DynamoDB `Limit` accurate for list queries.
+
+**Online quality event** (`entity_type = METRICS_ONLINE_QUALITY`)
+
+```text
+pk / sk:     ONLINE#QUALITY  /  TS#{occurred_at_iso}#{event_id}
+gsi1pk/sk:   ONLINEEXP#{experiment_key}  /  TS#{…}   # when invocation dims present
++ QUALITY_METRIC payload fields + experiment_key + occurred_at
+```
+
+`experiment_key` for online quality is `sha256(canonical_json({prompt_version, prompt_hash, model_id, git_sha, crew_name}))[:16]`.
+Uses `ONLINEEXP#` (not eval `EXP#`) so GSI `Limit` is not shared with offline runs.
+**Online product event** (`entity_type = METRICS_ONLINE_PRODUCT`)
+
+```text
+pk / sk:     ONLINE#PRODUCT  /  TS#{occurred_at_iso}#{event_id}
+gsi1pk/sk:   EVT#{event_name}  /  TS#{…}
++ event_name, user_sub_hash, trip_id, day_index, payload, occurred_at
+```
+
+Offline writes: `uv run python -m evals --persist`.
+Online dual-write: `log_quality_metrics` / `log_product_event` → CloudWatch **and** metrics DynamoDB (soft-fail).
+Reads: `GET /admin/metrics/runs`, `GET /admin/metrics/online` (gated by `METRICS_ADMIN_SUBS`).

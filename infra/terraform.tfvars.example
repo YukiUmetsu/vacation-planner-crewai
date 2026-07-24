@@ -29,6 +29,7 @@ agent_bedrock_models = ["us.amazon.nova-pro-v1:0"]
 # serper_api_key                 = ""  # prefer TF_VAR_serper_api_key env var
 # google_places_api_key          = ""  # prefer TF_VAR_google_places_api_key (BFF open-status enrich)
 # product_metrics_hash_pepper    = ""  # optional; empty → Terraform random_password for PRODUCT_METRICS_HASH_PEPPER
+# metrics_admin_subs             = ""  # your Cognito sub(s), comma-separated — required for /metrics dashboard
 
 # CloudWatch GenAI Observability — account/region singleton (enable in ONE stack per region only).
 enable_genai_observability              = true

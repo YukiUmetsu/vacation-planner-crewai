@@ -1,4 +1,4 @@
-"""Single-table persistence for trips / routes / days / profiles.
+"""Persistence for trips / routes / days / profiles / eval metrics.
 
 Public API stays on ``db.repository`` so callers keep ``from db import repository as repo``.
 Implementation is split by concern:
@@ -8,6 +8,7 @@ Implementation is split by concern:
 - ``planning`` — plan-next-day locks and itinerary cursors
 - ``days`` — day rows and suggest-place writes
 - ``profile`` — traveler profile
+- ``metrics`` — offline eval + online quality/product (dedicated metrics DynamoDB table)
 """
 
 from __future__ import annotations
@@ -41,6 +42,15 @@ from db.repository.planning import (
     rollback_next_day_slot,
 )
 from db.repository.profile import get_profile, put_profile
+from db.repository.metrics import (
+    get_eval_run,
+    list_eval_runs,
+    list_online_events,
+    put_eval_case,
+    put_eval_run,
+    put_online_product_event,
+    put_online_quality_event,
+)
 from db.repository.trips import (
     append_visited_place_key,
     begin_trip_delete,
@@ -93,4 +103,11 @@ __all__ = [
     "prune_visited_place_keys",
     "get_profile",
     "put_profile",
+    "put_eval_run",
+    "put_eval_case",
+    "list_eval_runs",
+    "get_eval_run",
+    "put_online_quality_event",
+    "put_online_product_event",
+    "list_online_events",
 ]

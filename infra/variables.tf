@@ -121,6 +121,12 @@ variable "product_metrics_hash_pepper" {
   sensitive   = true
 }
 
+variable "metrics_admin_subs" {
+  description = "Comma-separated Cognito user subs allowed to use GET /admin/metrics (empty disables admin metrics)."
+  type        = string
+  default     = ""
+}
+
 variable "safety_mode" {
   description = "API Lambda SAFETY_MODE: keyword (default), bedrock/guardrails (ApplyGuardrail), or off."
   type        = string
