@@ -67,8 +67,18 @@ export type Place = {
   notes?: string | null;
   order_in_day?: number;
   place_key: string;
-  /** Rich detail (demo / later crew enrichment) */
+  /** Google Places place ID when known (not an internal UUID). */
+  place_id?: string;
+  /** Rich detail (demo / Places enrich) */
   cost?: string;
+  /** Google Places photo CDN URL when enrich succeeded. */
+  photo_url?: string;
+  /** Stable Places photo resource name (`places/{id}/photos/{ref}`) for refresh. */
+  places_photo_name?: string;
+  /** Durable photo cache: ok | none (nested on DAY.places). */
+  photo_status?: "ok" | "none" | string;
+  /** ISO timestamp for soft TTL on photo_status / places_photo_name. */
+  photo_checked_at?: string;
   open_hours?: string;
   operational_status?: "open" | "closed" | "unknown";
   /** Monday=0 … Sunday=6 */

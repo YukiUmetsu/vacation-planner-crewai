@@ -17,6 +17,8 @@ import { PlaceDetailPanel } from "./PlaceDetailPanel";
 type Props = {
   days: DayPlan[];
   dayCount: number;
+  /** Live trip id — used to refresh place photos via the owned-trip proxy. */
+  tripId?: string | null;
   /** Trip destination — scenes/quotes while planning. */
   destination?: string;
   /** Overnight city for the day currently being planned. */
@@ -39,6 +41,7 @@ type Props = {
 export function DaysPanel({
   days,
   dayCount,
+  tripId,
   destination = "",
   planningCity,
   energyLevel = 3,
@@ -126,7 +129,7 @@ export function DaysPanel({
                 : undefined
             }
             onSuggestPlace={
-              onSuggestPlace && day.places.length < 6
+              onSuggestPlace && day.places.length < 7
                 ? () => onSuggestPlace(day.day_index)
                 : undefined
             }
@@ -162,6 +165,7 @@ export function DaysPanel({
       {selected && (
         <PlaceDetailPanel
           place={selected.place}
+          tripId={tripId}
           previousPlaceName={selected.previousName}
           onClose={() => setSelected(null)}
         />

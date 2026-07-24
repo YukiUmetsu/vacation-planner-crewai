@@ -60,6 +60,10 @@ _PUBLIC_BY_CODE: dict[str, str] = {
     "missing_meals": (
         "That day plan was missing lunch or dinner. Please try planning the day again."
     ),
+    "food_only_day": (
+        "That day was all restaurants. Please try again so the plan includes "
+        "at least one non-food stop (museum, park, shrine, shopping, etc.)."
+    ),
     "quality_hard_fail": "That day plan did not meet quality checks. Please try again.",
     "wrong_city": "That day plan did not match the overnight city. Please try again.",
     "excluded_category": (

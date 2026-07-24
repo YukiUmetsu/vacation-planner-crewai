@@ -69,6 +69,12 @@ def test_always_open_hours_empty_closed_weekdays() -> None:
 def test_names_match_and_pick() -> None:
     assert names_match("Senso-ji Temple", "Senso-ji")
     assert names_match("Tokyo Tower", "Tokyo Tower")
+    assert names_match("Asakusa and Senso-ji Temple", "Senso-ji")
+    assert names_match("Asakusa and Senso-ji Temple", "Sensō-ji")
+    assert names_match("Sumida River Cruise", "TOKYO CRUISE Sumida River")
+    assert names_match("Golden Gai", "Golden Gai")
+    assert names_match("Meiji Shrine", "Meiji Jingu")
+    assert names_match("TeamLab Borderless", "teamLab Borderless")
     assert not names_match("Senso-ji", "Tokyo Skytree")
     assert not names_match("Park", "Parking Garage")
 
@@ -88,6 +94,92 @@ def test_names_match_and_pick() -> None:
         pick_matching_lookup("Senso-ji", [wrong], overnight_city="Tokyo") is None
     )
 
+    compound = pick_matching_lookup(
+        "Asakusa and Senso-ji Temple",
+        [
+            PlacesLookupResult(
+                "3",
+                "OPERATIONAL",
+                "2-3-1 Asakusa, Taito City, Tokyo, Japan",
+                "Senso-ji",
+                None,
+            )
+        ],
+        crew_address="2-3-1 Asakusa, Taito City, Tokyo 111-0032, Japan",
+        overnight_city="Tokyo",
+    )
+    assert compound is not None
+    assert compound.place_id == "3"
+
+    meiji = pick_matching_lookup(
+        "Meiji Shrine",
+        [
+            PlacesLookupResult(
+                "m1",
+                "OPERATIONAL",
+                "1-1 Yoyogi Kamizonocho, Shibuya City, Tokyo, Japan",
+                "Meiji Jingu",
+                None,
+            )
+        ],
+        crew_address="1-1 Yoyogikamizonocho, Shibuya City, Tokyo",
+        overnight_city="Tokyo",
+    )
+    assert meiji is not None
+    assert meiji.display_name == "Meiji Jingu"
+
+    # Localized sole in-city hit with no Latin overlap.
+    localized = pick_matching_lookup(
+        "Meiji Shrine",
+        [
+            PlacesLookupResult(
+                "m2",
+                "OPERATIONAL",
+                "1-1 Yoyogi Kamizonocho, Shibuya City, Tokyo, Japan",
+                "明治神宮",
+                None,
+            )
+        ],
+        crew_address="1-1 Yoyogikamizonocho, Shibuya City, Tokyo",
+        overnight_city="Tokyo",
+    )
+    assert localized is not None
+    assert localized.place_id == "m2"
+
+    # Missing formattedAddress still matches when overnight city scoped the query.
+    no_addr = pick_matching_lookup(
+        "Meiji Shrine",
+        [
+            PlacesLookupResult(
+                "m3",
+                "OPERATIONAL",
+                None,
+                "Meiji Jingu",
+                None,
+            )
+        ],
+        overnight_city="Tokyo",
+    )
+    assert no_addr is not None
+
+    # Loose photo pick: sole in-city hit with unrelated Latin name.
+    loose = pick_matching_lookup(
+        "Harajuku",
+        [
+            PlacesLookupResult(
+                "h1",
+                "OPERATIONAL",
+                "Jingumae, Shibuya City, Tokyo, Japan",
+                "Takeshita Street",
+                None,
+            )
+        ],
+        overnight_city="Tokyo",
+        loose=True,
+    )
+    assert loose is not None
+    assert loose.place_id == "h1"
+
 
 def test_location_compatible_requires_city_or_address() -> None:
     assert location_compatible(
@@ -100,21 +192,40 @@ def test_location_compatible_requires_city_or_address() -> None:
         overnight_city="Tokyo",
         formatted_address="1-1 Umeda, Osaka 530-0001, Japan",
     )
-    assert not location_compatible(
+    # Missing address is allowed when overnight city scoped the Text query.
+    assert location_compatible(
         crew_address="",
         overnight_city="Tokyo",
         formatted_address=None,
     )
+    assert not location_compatible(
+        crew_address="",
+        overnight_city="",
+        formatted_address=None,
+    )
+    # Same city + shared ward/neighborhood is enough (ignore street spelling).
     assert location_compatible(
         crew_address="1-2 Dogenzaka, Shibuya, Tokyo",
         overnight_city="Tokyo",
         formatted_address="1-2 Dogenzaka, Shibuya City, Tokyo, Japan",
     )
-    # Address given but hit is a different branch in another city — reject.
+    # Wrong city — reject even with a street-looking address.
     assert not location_compatible(
         crew_address="1-2 Dogenzaka, Shibuya, Tokyo",
         overnight_city="Tokyo",
         formatted_address="2-1 Umeda, Osaka, Japan",
+    )
+    # Postal code match is enough even without city string.
+    assert location_compatible(
+        crew_address="2-3-1 Asakusa, Taito City, Tokyo 111-0032, Japan",
+        overnight_city="Kyoto",
+        formatted_address="2-3-1 Asakusa, Taito City, Tokyo 111-0032, Japan",
+    )
+    # Vague crew address falls back to overnight city.
+    assert location_compatible(
+        crew_address="Various departure points along the Sumida River",
+        overnight_city="Tokyo",
+        formatted_address="1-1 Asakusa, Taito City, Tokyo, Japan",
     )
 
 
@@ -165,6 +276,26 @@ def test_enrich_rejects_same_name_wrong_city_hit() -> None:
     assert out["operational_status"] == "open"
 
 
+def test_apply_lookup_overwrites_crew_slug_place_id() -> None:
+    place = {
+        "name": "TeamLab Borderless",
+        "place_key": "teamlab-borderless",
+        "place_id": "teamlab-borderless",
+        "operational_status": "unknown",
+    }
+    lookup = PlacesLookupResult(
+        place_id="ChIJrealGoogleId01",
+        business_status="OPERATIONAL",
+        formatted_address="Tokyo",
+        display_name="teamLab Borderless",
+        regular_opening_hours=None,
+        photo_name="places/ChIJrealGoogleId01/photos/Aa",
+    )
+    out = apply_lookup_to_place(place, lookup)
+    assert out["place_id"] == "ChIJrealGoogleId01"
+    assert out["places_photo_name"] == "places/ChIJrealGoogleId01/photos/Aa"
+
+
 def test_apply_lookup_sets_status_and_place_id() -> None:
     place = {"name": "Cafe", "operational_status": "unknown"}
     lookup = PlacesLookupResult(
@@ -172,13 +303,63 @@ def test_apply_lookup_sets_status_and_place_id() -> None:
         business_status="CLOSED_PERMANENTLY",
         formatted_address="1 Main St",
         display_name="Cafe",
-        regular_opening_hours=None,
+        regular_opening_hours={
+            "weekdayDescriptions": [
+                "Monday: 6:00 AM – 5:00 PM",
+                "Tuesday: Closed",
+            ]
+        },
+        price_level="PRICE_LEVEL_MODERATE",
+        price_range={
+            "startPrice": {"currencyCode": "JPY", "units": "1000"},
+            "endPrice": {"currencyCode": "JPY", "units": "3000"},
+        },
     )
-    out = apply_lookup_to_place(place, lookup)
+    out = apply_lookup_to_place(
+        place,
+        lookup,
+        photo_uri="https://lh3.googleusercontent.com/photo.jpg",
+    )
     assert out["operational_status"] == "closed"
     assert out["place_id"] == "ChIJabc"
     assert out["address"] == "1 Main St"
+    assert out["open_hours"] == "Monday: 6:00 AM – 5:00 PM\nTuesday: Closed"
+    assert out["cost"] == "¥1,000–¥3,000 ($$ · Moderate)"
+    assert out["photo_url"] == "https://lh3.googleusercontent.com/photo.jpg"
+    assert out.get("places_photo_name") is None
     assert place["operational_status"] == "unknown"
+
+
+def test_apply_lookup_refreshes_stale_photo_url() -> None:
+    place = {
+        "name": "Cafe",
+        "photo_url": "https://expired.example/old.jpg",
+        "operational_status": "unknown",
+    }
+    lookup = PlacesLookupResult(
+        place_id="ChIJabc",
+        business_status="OPERATIONAL",
+        formatted_address="1 Main St",
+        display_name="Cafe",
+        regular_opening_hours=None,
+        price_level=None,
+        price_range=None,
+        photo_name="places/ChIJabc/photos/AaBb",
+    )
+    out = apply_lookup_to_place(
+        place,
+        lookup,
+        photo_uri="https://lh3.googleusercontent.com/fresh.jpg",
+    )
+    assert out["photo_url"] == "https://lh3.googleusercontent.com/fresh.jpg"
+    assert out["places_photo_name"] == "places/ChIJabc/photos/AaBb"
+
+
+def test_format_places_cost_labels() -> None:
+    from services.places_client import format_places_cost
+
+    assert format_places_cost("PRICE_LEVEL_FREE", None) == "Free"
+    assert format_places_cost("PRICE_LEVEL_INEXPENSIVE", None) == "$ · Inexpensive"
 
 
 def test_enrich_no_key_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -283,7 +464,7 @@ def test_enrich_then_filter_drops_permanently_closed() -> None:
         {"name": "Park C", "estimated_minutes": 60, "operational_status": "unknown"},
     ]
     enriched = enrich_places(places, overnight_city="Tokyo", client=client)
-    kept = filter_quality_places(
+    kept, _soft = filter_quality_places(
         enriched,
         plan_date=date(2026, 9, 1),
         max_comfortable_minutes=510,
@@ -347,7 +528,7 @@ def test_enrich_always_open_not_weekday_closed() -> None:
     enriched = enrich_place(place, overnight_city="Tokyo", client=client)
     assert enriched["closed_weekdays"] == []
     assert enriched["open_hours"] == "Open 24 hours"
-    ok = validate_suggested_place(
+    ok, soft_tags = validate_suggested_place(
         enriched,
         existing_places=[
             {"name": "A", "estimated_minutes": 60, "place_key": "a"},
@@ -357,6 +538,7 @@ def test_enrich_always_open_not_weekday_closed() -> None:
         max_comfortable_minutes=510,
     )
     assert ok["name"] == "Konbini 24"
+    assert isinstance(soft_tags, list)
 
 
 def test_google_client_parses_results(monkeypatch: pytest.MonkeyPatch) -> None:

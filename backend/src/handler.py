@@ -28,6 +28,7 @@ from log_config import configure_logging
 from routes import profile as profile_routes
 from routes import trips as trip_routes
 from routes import events as event_routes
+from routes import places as places_routes
 from routes import admin_metrics as admin_metrics_routes
 from services.plan_day_worker import is_plan_next_day_worker_event
 from services.trip_service import TripService
@@ -174,6 +175,11 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         if path == "/events" or path.rstrip("/") == "/events":
             if method == "POST":
                 return json_response(200, event_routes.post_event(event, user_sub))
+            raise ApiError(405, f"method {method} not allowed")
+
+        if path == "/places/photo" or path.rstrip("/") == "/places/photo":
+            if method == "GET":
+                return json_response(200, places_routes.get_place_photo(event, user_sub))
             raise ApiError(405, f"method {method} not allowed")
 
         if path == "/admin/metrics/runs" or path.rstrip("/") == "/admin/metrics/runs":
