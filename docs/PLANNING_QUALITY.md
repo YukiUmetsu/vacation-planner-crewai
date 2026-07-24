@@ -71,6 +71,10 @@ Example: energy **3** → warn after **510** min. Day with **540** min → cauti
 | Place count 3–6 / schema | Agent `DayPlan` Pydantic + eval scorers |
 | Permanently closed / weekday-closed | Crew reviewer + **Google Places BFF enrich** + `place_quality` + scorers |
 | Energy budget | Crew prompts + `place_quality` / `validate_suggested_place` + scorers |
+| Lunch + dinner food stops | Crew prompts + `DayPlan` Pydantic (≥2 `category=food`) + BFF `require_meal_stops` (energy trim preserves food) + scorers |
+| Structured relevance (MVP) | Reviewer `QualityReport` in CrewEnvelope; BFF blocks **hard** tags only; soft tags logged (`QUALITY_METRIC`) |
+| Invocation version metadata | `invocation` on CrewEnvelope (`prompt_version`, `prompt_hash`, `model_id`, `git_sha`, …) |
+| Online product events | `POST /events` → `PRODUCT_METRIC` logs (accept / delete / regenerate / …) |
 | Suggest one more place | `suggest_place` crew + `validate_suggested_place` + `score_suggest_place` |
 | Profile prefs / energy / interests | DynamoDB `PROFILE` injected into plan-next-day + suggest-place |
 | User preference / destination text safety | Backend safety gate (keyword or ApplyGuardrail) |
@@ -83,3 +87,5 @@ Example: energy **3** → warn after **510** min. Day with **540** min → cauti
 2. [x] Enforce energy caps + closed / weekday-closed checks in offline scorers **and** API post-crew `place_quality` filter; reviewer crew task (brief-only swaps, no new research tools).
 3. [x] Suggest one more place: `suggest_place` crew + `POST /trips/{id}/days/{n}/suggest-place` with `validate_suggested_place` + offline scorer.
 4. [x] Venue open status via Places API when Serper is not enough (BFF enrich with Google Places API New before `place_quality`; tool-assisted discovery remains soft).
+5. [x] Runtime QualityReport envelope (hard block / soft log) + invocation metadata + POST /events (ADR 004).
+6. [ ] Offline graded metric dashboards + LLM-as-judge scorer backend (same metric keys).

@@ -76,17 +76,187 @@ def place_matches_visited_name(place: dict[str, Any], visited_names: set[str]) -
     return bool(key_name and key_name in visited_names)
 
 
+def is_food_place(place: dict[str, Any]) -> bool:
+    return str(place.get("category") or "").strip().lower() == "food"
+
+
+_MEAL_PREFIXES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "breakfast",
+        (
+            "breakfast —",
+            "breakfast -",
+            "breakfast:",
+            "breakfast –",
+            "brunch —",
+            "brunch -",
+            "brunch:",
+            "brunch –",
+        ),
+    ),
+    (
+        "lunch",
+        ("lunch —", "lunch -", "lunch:", "lunch –", "midday meal"),
+    ),
+    (
+        "dinner",
+        (
+            "dinner —",
+            "dinner -",
+            "dinner:",
+            "dinner –",
+            "supper —",
+            "supper -",
+            "supper:",
+            "evening meal",
+        ),
+    ),
+)
+
+
+def infer_meal_role(place: dict[str, Any]) -> str | None:
+    """Return breakfast|lunch|dinner when the stop is labeled as that meal.
+
+    Prefer ``reason_to_visit`` prefixes (``Lunch —`` …) so incidental words like
+    "brunch" inside a lunch blurb do not steal the role. Fall back to whole-field
+    keywords only when no prefix matches.
+    """
+    reason = str(place.get("reason_to_visit") or "").strip().lower()
+    if reason:
+        for role, prefixes in _MEAL_PREFIXES:
+            if any(reason.startswith(prefix) for prefix in prefixes):
+                return role
+
+    blob = " ".join(
+        str(place.get(field) or "")
+        for field in ("reason_to_visit", "name", "details", "notes")
+    ).lower()
+    # Order: lunch/dinner before brunch/breakfast so "lunch … brunch set" stays lunch.
+    if "lunch" in blob or "midday meal" in blob:
+        return "lunch"
+    if "dinner" in blob or "supper" in blob or "evening meal" in blob:
+        return "dinner"
+    if "breakfast" in blob or "brunch" in blob:
+        return "breakfast"
+    return None
+
+
+def require_meal_stops(
+    places: list[dict[str, Any]],
+    *,
+    include_breakfast: bool = False,
+) -> None:
+    """Raise if the day is missing required meal food stops.
+
+    Lunch and dinner are always required (``category=food``). Breakfast is
+    required when ``include_breakfast`` is true.
+
+    Labeled roles (``Lunch —`` / ``Dinner —`` / …) count first; each remaining
+    unlabeled food stop may cover one missing required role so a labeled lunch
+    plus an unlabeled cafe still satisfies dinner.
+    """
+    food = [p for p in places if is_food_place(p)]
+    roles = [infer_meal_role(p) for p in food]
+    present = {role for role in roles if role is not None}
+    unlabeled = sum(1 for role in roles if role is None)
+    required = (
+        ["breakfast", "lunch", "dinner"]
+        if include_breakfast
+        else ["lunch", "dinner"]
+    )
+
+    missing: list[str] = []
+    for meal in required:
+        if meal in present:
+            continue
+        if unlabeled > 0:
+            unlabeled -= 1
+            continue
+        missing.append(meal)
+
+    if not missing:
+        return
+
+    raise ApiError(
+        422,
+        "day plan must include "
+        + " and ".join(required)
+        + f" as category=food stops (missing: {', '.join(missing)})",
+        code="missing_meals",
+    )
+
+
+def _protected_meal_indices(
+    places: list[dict[str, Any]],
+    *,
+    include_breakfast: bool = False,
+) -> set[int]:
+    """Indices of food stops that cover required lunch/dinner (/breakfast)."""
+    required = (
+        ["breakfast", "lunch", "dinner"]
+        if include_breakfast
+        else ["lunch", "dinner"]
+    )
+    food_indices = [i for i, place in enumerate(places) if is_food_place(place)]
+    assigned: set[int] = set()
+    remaining = list(required)
+
+    for meal in list(remaining):
+        for index in food_indices:
+            if index in assigned:
+                continue
+            if infer_meal_role(places[index]) == meal:
+                assigned.add(index)
+                remaining.remove(meal)
+                break
+
+    for _meal in list(remaining):
+        for index in food_indices:
+            if index in assigned:
+                continue
+            if infer_meal_role(places[index]) is None:
+                assigned.add(index)
+                remaining.remove(_meal)
+                break
+
+    return assigned
+
+
+def _last_droppable_index(
+    places: list[dict[str, Any]],
+    *,
+    protected: set[int],
+) -> int | None:
+    """Drop non-protected stops first; optional food may be dropped after activities."""
+    for index in range(len(places) - 1, -1, -1):
+        if index not in protected and not is_food_place(places[index]):
+            return index
+    for index in range(len(places) - 1, -1, -1):
+        if index not in protected:
+            return index
+    return None
+
+
+def _reindex_order_in_day(places: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for index, place in enumerate(places, start=1):
+        place["order_in_day"] = index
+    return places
+
+
 def filter_quality_places(
     places: list[dict[str, Any]],
     *,
     plan_date: date,
     max_comfortable_minutes: int,
     profile_visited_names: set[str] | None = None,
+    include_breakfast: bool = False,
 ) -> list[dict[str, Any]]:
     """Drop closed / weekday-closed / profile-visited places, then trim for energy.
 
-    Raises ApiError if fewer than 3 usable places remain, or energy still exceeds
-    after trimming while keeping at least 3 stops.
+    Energy trim drops non-required stops first (activities, then optional food)
+    so required lunch/dinner (/breakfast) survive. Raises ApiError if fewer than
+    3 usable places remain, or energy still exceeds after trimming while keeping
+    at least 3 stops.
     """
     visited_names = profile_visited_names or set()
     kept: list[dict[str, Any]] = []
@@ -108,9 +278,14 @@ def filter_quality_places(
             code="quality_empty",
         )
 
-    # Drop from the end until under the energy warning threshold (keep ≥3).
     while len(kept) > 3 and day_total_minutes(kept) > max_comfortable_minutes:
-        kept.pop()
+        protected = _protected_meal_indices(
+            kept, include_breakfast=include_breakfast
+        )
+        drop_at = _last_droppable_index(kept, protected=protected)
+        if drop_at is None:
+            break
+        kept.pop(drop_at)
 
     if day_total_minutes(kept) > max_comfortable_minutes:
         raise ApiError(
@@ -119,7 +294,7 @@ def filter_quality_places(
             f"({day_total_minutes(kept)} > {max_comfortable_minutes} minutes)",
             code="energy_overload",
         )
-    return kept
+    return _reindex_order_in_day(kept)
 
 
 def validate_suggested_place(

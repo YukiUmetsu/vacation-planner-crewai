@@ -15,7 +15,7 @@ from db.place_keys import make_place_key
 from db.protocols import DynamoDBTable
 from http_utils import ApiError, client_facing_message, public_item
 from models.api import ConfirmCitiesRequest, CreateTripRequest, UpdateTripRequest
-from services.crew_context_budget import slim_crew_inputs
+from services.crew_context_budget import inputs_char_len, slim_crew_inputs
 from services.dates import date_for_day_index, parse_iso_date, validate_trip_dates
 from services.dedupe import dedupe_places
 from services.energy import clamp_energy_level, max_minutes_for_energy
@@ -24,8 +24,11 @@ from services.place_quality import (
     day_total_minutes,
     filter_quality_places,
     profile_visited_name_keys,
+    require_meal_stops,
     validate_suggested_place,
 )
+from services.crew_envelope import unwrap_crew_payload
+from services.quality_policy import enforce_hard_quality, merge_quality_reports
 from services.plan_day_worker import (
     enqueue_plan_next_day_worker,
     plan_next_day_async_enabled,
@@ -33,7 +36,11 @@ from services.plan_day_worker import (
 from services.places_enrich import enrich_place, enrich_places
 from services.profile_service import ProfileService
 from services.safety import SafetyGate, get_safety_gate
-from services.worker_observability import WorkerTimer, log_crew_duration
+from services.worker_observability import (
+    WorkerTimer,
+    log_crew_duration,
+    log_quality_metrics,
+)
 
 
 def _json_safe(value: Any) -> Any:
@@ -179,12 +186,14 @@ def _merge_preferences(trip_prefs: str, profile_prefs: str, interests: list[str]
 def _meal_guidance(*, include_breakfast: bool) -> str:
     """Hard meal requirements appended into crew preferences."""
     base = (
-        "Meals: include lunch and dinner as food stops (category=food) "
-        "with realistic meal timing in the day's order."
+        "Meals: include lunch and dinner as itinerary Place stops — "
+        "each is a named restaurant or cafe (category=food, real venue name + "
+        "street address), with realistic meal timing in the day's order. "
+        "Not a food district or abstract meal slot."
     )
     if include_breakfast:
         return (
-            f"{base} Also include breakfast as a food stop "
+            f"{base} Also include a named breakfast restaurant/cafe as a Place "
             "(suggest_include_breakfast=true)."
         )
     return f"{base} Skip breakfast unless the traveler preferences ask for it."
@@ -495,8 +504,10 @@ class TripService:
             "preferences": trip.get("preferences") or "",
         }
         timer = WorkerTimer()
+        proposed_raw = self.runner.propose_cities(inputs)
+        proposed, _, _ = unwrap_crew_payload(proposed_raw)
         route_data = normalize_route_windows(
-            _sync_total_nights(self.runner.propose_cities(inputs)),
+            _sync_total_nights(proposed),
             int(trip["day_count"]),
         )
         log_crew_duration(
@@ -917,9 +928,11 @@ class TripService:
             interests,
         )
         meal_line = _meal_guidance(include_breakfast=include_breakfast)
+        # Prepend (not append): slim_crew_inputs truncates preferences from the
+        # end when over budget, so meal rules must stay at the front.
         if meal_line not in merged_prefs:
             merged_prefs = (
-                f"{merged_prefs} | {meal_line}".strip(" |")
+                f"{meal_line} | {merged_prefs}".strip(" |")
                 if merged_prefs
                 else meal_line
             )
@@ -931,32 +944,56 @@ class TripService:
                 visited.append(key)
 
         route_for_crew = _route_payload(route) if route else {}
+        raw_inputs = {
+            "origin": trip["origin"],
+            "destination": trip["destination"],
+            "destination_type": trip["destination_type"],
+            "day_index": str(next_index),
+            "date": day_date.isoformat(),
+            "overnight_city": overnight,
+            "preferences": merged_prefs,
+            "include_breakfast": "true" if include_breakfast else "false",
+            "energy_level": str(energy_level),
+            "max_comfortable_minutes": str(max_minutes),
+            "interests": ", ".join(interests),
+            "already_visited": ",".join(visited),
+            "prior_days_summary": trip.get("prior_days_summary") or "",
+            "city_route_json": (
+                json.dumps(_json_safe(route_for_crew)) if route_for_crew else ""
+            ),
+        }
+        before_chars = inputs_char_len(raw_inputs)
         inputs = slim_crew_inputs(
-            {
-                "origin": trip["origin"],
-                "destination": trip["destination"],
-                "destination_type": trip["destination_type"],
-                "day_index": str(next_index),
-                "date": day_date.isoformat(),
-                "overnight_city": overnight,
-                "preferences": merged_prefs,
-                "include_breakfast": "true" if include_breakfast else "false",
-                "energy_level": str(energy_level),
-                "max_comfortable_minutes": str(max_minutes),
-                "interests": ", ".join(interests),
-                "already_visited": ",".join(visited),
-                "prior_days_summary": trip.get("prior_days_summary") or "",
-                "city_route_json": (
-                    json.dumps(_json_safe(route_for_crew)) if route_for_crew else ""
-                ),
-            },
+            raw_inputs,
             overnight_city=overnight,
             day_index=next_index,
         )
-        day_data = self.runner.plan_day(inputs)
+        context_was_slimmed = inputs_char_len(inputs) < before_chars
+        if context_was_slimmed:
+            inputs = {**inputs, "__context_was_slimmed": "true"}
+        raw_day = self.runner.plan_day(inputs)
+        day_data, crew_quality, invocation = unwrap_crew_payload(raw_day)
+        if invocation is not None:
+            invocation = {
+                **invocation,
+                "context_was_slimmed": bool(
+                    invocation.get("context_was_slimmed")
+                )
+                or context_was_slimmed,
+            }
         places = list(day_data.get("places") or [])
         filtered = dedupe_places(places, visited)
         if len(filtered) < 1:
+            log_quality_metrics(
+                trip_id=trip_id,
+                day_index=next_index,
+                quality=merge_quality_reports(
+                    crew_quality, {"failure_tags": ["duplicate_place"]}
+                ),
+                invocation=invocation,
+                guardrail_code="dedupe_empty",
+                places_count=0,
+            )
             raise ApiError(
                 422,
                 "all suggested places were already visited; retry plan-next-day",
@@ -966,13 +1003,54 @@ class TripService:
             filtered,
             overnight_city=overnight,
         )
-        filtered = filter_quality_places(
-            filtered,
-            plan_date=day_date,
-            max_comfortable_minutes=max_minutes,
-            profile_visited_names=profile_visited_name_keys(
-                list(profile.get("visited_places") or [])
-            ),
+        try:
+            filtered = filter_quality_places(
+                filtered,
+                plan_date=day_date,
+                max_comfortable_minutes=max_minutes,
+                profile_visited_names=profile_visited_name_keys(
+                    list(profile.get("visited_places") or [])
+                ),
+                include_breakfast=include_breakfast,
+            )
+            require_meal_stops(filtered, include_breakfast=include_breakfast)
+        except ApiError as exc:
+            tag = {
+                "quality_empty": "closed_place",
+                "energy_overload": "energy_overload",
+                "missing_meals": "missing_meals",
+            }.get(str(exc.code or ""), "")
+            log_quality_metrics(
+                trip_id=trip_id,
+                day_index=next_index,
+                quality=merge_quality_reports(
+                    crew_quality,
+                    {"failure_tags": [tag]} if tag else crew_quality,
+                ),
+                invocation=invocation,
+                guardrail_code=exc.code,
+                places_count=len(filtered) if filtered else 0,
+            )
+            raise
+        merged_quality = merge_quality_reports(crew_quality)
+        try:
+            enforce_hard_quality(merged_quality)
+        except ApiError as exc:
+            log_quality_metrics(
+                trip_id=trip_id,
+                day_index=next_index,
+                quality=merged_quality,
+                invocation=invocation,
+                guardrail_code=exc.code,
+                places_count=len(filtered),
+            )
+            raise
+        log_quality_metrics(
+            trip_id=trip_id,
+            day_index=next_index,
+            quality=merged_quality,
+            invocation=invocation,
+            places_count=len(filtered),
         )
         day_data = {
             **day_data,
@@ -1238,6 +1316,7 @@ class TripService:
             and "error" in raw
             and "code" in raw
             and "place_key" not in raw
+            and "result" not in raw
         ):
             code = str(raw.get("code") or "crew_failed")
             status = 400 if code in {"invalid_payload", "invalid_crew"} else 502
@@ -1247,7 +1326,12 @@ class TripService:
                 client_facing_message(status_code=status, code=code, detail=detail),
                 code=code,
             )
-        candidate = raw.get("place") if isinstance(raw.get("place"), dict) else raw
+        unwrapped, _, _ = unwrap_crew_payload(raw)
+        candidate = (
+            unwrapped.get("place")
+            if isinstance(unwrapped.get("place"), dict)
+            else unwrapped
+        )
         if not isinstance(candidate, dict):
             raise ApiError(422, "crew did not return a place", code="invalid_place")
 

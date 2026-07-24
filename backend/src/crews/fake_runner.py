@@ -112,7 +112,7 @@ class FakeCrewRunner:
                     "name": name,
                     "address": address,
                     "category": "food",
-                    "reason_to_visit": "Breakfast",
+                    "reason_to_visit": "Breakfast — cafe",
                     "details": "Synthetic breakfast for FakeCrewRunner",
                     "estimated_minutes": 45,
                     "order_in_day": order,
@@ -121,37 +121,52 @@ class FakeCrewRunner:
                 }
             )
             order += 1
-        for meal, street in (("Lunch", "2 Noon St"), ("Dinner", "8 Evening St")):
-            name = f"{overnight} {meal} D{day_index}"
-            address = f"{street}, {overnight}"
-            places.append(
-                {
-                    "name": name,
-                    "address": address,
-                    "category": "food",
-                    "reason_to_visit": meal,
-                    "details": f"Synthetic {meal.lower()} for FakeCrewRunner",
-                    "estimated_minutes": 60,
-                    "order_in_day": order,
-                    "has_bathroom": None,
-                    "place_key": make_place_key(name, address),
-                }
-            )
-            order += 1
-        # One non-meal activity so day plans stay 3–6 stops.
-        name = f"{overnight} Spot D{day_index}"
-        address = f"5 Main St, {overnight}"
+        lunch_name = f"{overnight} Lunch D{day_index}"
+        lunch_address = f"2 Noon St, {overnight}"
         places.append(
             {
-                "name": name,
-                "address": address,
+                "name": lunch_name,
+                "address": lunch_address,
+                "category": "food",
+                "reason_to_visit": "Lunch — restaurant",
+                "details": "Synthetic lunch for FakeCrewRunner",
+                "estimated_minutes": 60,
+                "order_in_day": order,
+                "has_bathroom": None,
+                "place_key": make_place_key(lunch_name, lunch_address),
+            }
+        )
+        order += 1
+        # Non-meal activity between lunch and dinner (realistic day order).
+        spot_name = f"{overnight} Spot D{day_index}"
+        spot_address = f"5 Main St, {overnight}"
+        places.append(
+            {
+                "name": spot_name,
+                "address": spot_address,
                 "category": "other",
                 "reason_to_visit": "Test stop",
                 "details": "Synthetic place for FakeCrewRunner",
                 "estimated_minutes": 60,
                 "order_in_day": order,
                 "has_bathroom": None,
-                "place_key": make_place_key(name, address),
+                "place_key": make_place_key(spot_name, spot_address),
+            }
+        )
+        order += 1
+        dinner_name = f"{overnight} Dinner D{day_index}"
+        dinner_address = f"8 Evening St, {overnight}"
+        places.append(
+            {
+                "name": dinner_name,
+                "address": dinner_address,
+                "category": "food",
+                "reason_to_visit": "Dinner — restaurant",
+                "details": "Synthetic dinner for FakeCrewRunner",
+                "estimated_minutes": 60,
+                "order_in_day": order,
+                "has_bathroom": None,
+                "place_key": make_place_key(dinner_name, dinner_address),
             }
         )
         return {

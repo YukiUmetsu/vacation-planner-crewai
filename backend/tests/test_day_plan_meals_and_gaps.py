@@ -82,6 +82,28 @@ def test_meal_guidance_lunch_dinner_always() -> None:
     assert "suggest_include_breakfast=true" in with_b
 
 
+def test_meal_guidance_survives_preferences_slim() -> None:
+    """Preferences are truncated from the end — meal rules must be prepended."""
+    from services.crew_context_budget import slim_crew_inputs
+
+    meal = _meal_guidance(include_breakfast=False)
+    huge_tail = "x" * 20_000
+    prefs = f"{meal} | {huge_tail}"
+    slimmed = slim_crew_inputs(
+        {
+            "preferences": prefs,
+            "include_breakfast": "false",
+            "already_visited": "",
+            "prior_days_summary": "",
+            "city_route_json": "",
+        },
+        max_chars=2_000,
+    )
+    out = str(slimmed.get("preferences") or "")
+    assert out.startswith("Meals:")
+    assert "lunch" in out.lower() and "dinner" in out.lower()
+
+
 def test_plan_next_day_heals_missing_day_one(
     service: TripService, dynamodb_table: Any
 ) -> None:
