@@ -57,6 +57,14 @@ _PUBLIC_BY_CODE: dict[str, str] = {
     "internal_error": "Something went wrong. Please try again.",
     "persistence_error": "Could not save your trip. Please try again.",
     "enqueue_failed": "Trip planning is temporarily unavailable. Please try again.",
+    "missing_meals": (
+        "That day plan was missing lunch or dinner. Please try planning the day again."
+    ),
+    "quality_hard_fail": "That day plan did not meet quality checks. Please try again.",
+    "wrong_city": "That day plan did not match the overnight city. Please try again.",
+    "excluded_category": (
+        "That day plan included a place type you asked to avoid. Please try again."
+    ),
 }
 
 _DEFAULT_5XX = "Something went wrong. Please try again."

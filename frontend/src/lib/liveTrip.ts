@@ -10,6 +10,34 @@ import {
 import type { CityStop, DayPlan, Route, Trip, TripBundle } from "../types/trip";
 import { useRef, type SetStateAction } from "react";
 import { executePlanDayRequest } from "./executePlanDayRequest";
+import { trackProductEvent } from "./productEvents";
+
+/** Stable fingerprint of a city route for "accepted without edit" metrics. */
+export function routeAcceptanceFingerprint(route: Route): string {
+  const cities = (route.cities ?? []).map((c) => ({
+    city: c.city,
+    nights: c.nights,
+    arrival_day_index: c.arrival_day_index,
+    departure_day_index: c.departure_day_index,
+  }));
+  return JSON.stringify({
+    destination_type: route.destination_type,
+    total_nights: route.total_nights,
+    cities,
+  });
+}
+
+/**
+ * Baseline fingerprint for an unconfirmed proposal (in-session or hydrated).
+ * Confirmed routes are not a proposal baseline.
+ */
+export function acceptanceBaselineFromRoute(
+  route: Route | null | undefined,
+): string | null {
+  if (!route) return null;
+  if (route.status === "confirmed") return null;
+  return routeAcceptanceFingerprint(route);
+}
 
 export type LiveTripState = {
   trip: Trip | null;
@@ -94,6 +122,8 @@ export function useLiveTripActions({
   const planEpochRef = useRef(0);
   /** Bumped to ignore stale getTrip hydrations after trip switch. */
   const hydrateEpochRef = useRef(0);
+  /** Fingerprint of last successful propose — used for acceptance-without-edit. */
+  const lastProposedFingerprintRef = useRef<string | null>(null);
 
   const proposeMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -117,6 +147,9 @@ export function useLiveTripActions({
         return;
       }
       onActionError(null);
+      lastProposedFingerprintRef.current = acceptanceBaselineFromRoute(
+        result.data.route,
+      );
       onApplied((prev) => {
         if (prev.trip?.trip_id && prev.trip.trip_id !== result.id) return prev;
         return applyTripBundle({
@@ -132,9 +165,24 @@ export function useLiveTripActions({
   const confirmMutation = useMutation({
     mutationFn: ({ id, route }: { id: string; route: Route }) =>
       confirmCities(id, route),
-    onSuccess: (data, { id }) => {
+    onSuccess: (data, { id, route }) => {
       if (tripId !== id) return;
       onActionError(null);
+      const fingerprint = routeAcceptanceFingerprint(route);
+      const withoutEdit =
+        lastProposedFingerprintRef.current != null &&
+        lastProposedFingerprintRef.current === fingerprint;
+      void trackProductEvent("proposal_accepted", {
+        tripId: id,
+        payload: { source: "confirm_cities" },
+      });
+      if (withoutEdit) {
+        void trackProductEvent("proposal_accepted_without_edit", {
+          tripId: id,
+          payload: { source: "confirm_cities" },
+        });
+      }
+      lastProposedFingerprintRef.current = null;
       onApplied((prev) => {
         if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
         return applyTripBundle({
@@ -208,6 +256,10 @@ export function useLiveTripActions({
       if (tripId !== id) return;
       onActionError(null);
       const day = data.day;
+      void trackProductEvent("suggestion_accepted", {
+        tripId: id,
+        dayIndex: day.day_index,
+      });
       onApplied((prev) => {
         if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
         const nextDays = [
@@ -238,9 +290,10 @@ export function useLiveTripActions({
       dayIndex: number;
       placeIndex: number;
     }) => removePlace(id, dayIndex, placeIndex),
-    onSuccess: (data, { id }) => {
+    onSuccess: (data, { id, dayIndex }) => {
       if (tripId !== id) return;
       onActionError(null);
+      void trackProductEvent("place_deleted", { tripId: id, dayIndex });
       const day = data.day;
       onApplied((prev) => {
         if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
@@ -265,9 +318,14 @@ export function useLiveTripActions({
   const deleteDayMutation = useMutation({
     mutationFn: ({ id, dayIndex }: { id: string; dayIndex: number }) =>
       deleteDay(id, dayIndex),
-    onSuccess: (data, { id }) => {
+    onSuccess: (data, { id, dayIndex }) => {
       if (tripId !== id) return;
       onActionError(null);
+      void trackProductEvent("plan_regenerated", {
+        tripId: id,
+        dayIndex,
+        payload: { action: "delete_day" },
+      });
       onApplied((prev) => {
         if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
         return {
@@ -294,6 +352,9 @@ export function useLiveTripActions({
       return { bundle, applied: false as const };
     }
     onApplied(applyTripBundle(bundle));
+    lastProposedFingerprintRef.current = acceptanceBaselineFromRoute(
+      bundle.route,
+    );
     const resume = pendingPlanningDayIndex(bundle.trip, bundle.days);
     if (resume != null && !planDayMutation.isPending) {
       planDayMutation.mutate({ id, resumeDayIndex: resume });
@@ -312,6 +373,7 @@ export function useLiveTripActions({
     proposeEpochRef.current += 1;
     planEpochRef.current += 1;
     hydrateEpochRef.current += 1;
+    lastProposedFingerprintRef.current = null;
     proposeMutation.reset();
     confirmMutation.reset();
     planDayMutation.reset();

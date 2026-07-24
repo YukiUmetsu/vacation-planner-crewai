@@ -62,3 +62,10 @@ variable "google_places_api_key" {
   default     = ""
   sensitive   = true
 }
+
+variable "product_metrics_hash_pepper" {
+  description = "Optional override for PRODUCT_METRICS_HASH_PEPPER on the API Lambda. When empty, a Terraform-managed random pepper is used."
+  type        = string
+  default     = ""
+  sensitive   = true
+}

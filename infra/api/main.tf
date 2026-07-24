@@ -1,8 +1,24 @@
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
+resource "random_password" "product_metrics_hash_pepper" {
+  count   = var.product_metrics_hash_pepper == "" ? 1 : 0
+  length  = 48
+  special = false
+
+  lifecycle {
+    # Keep hashes stable across applies once generated.
+    ignore_changes = [length, special, lower, upper, numeric, min_lower, min_upper, min_numeric, min_special, override_special]
+  }
+}
+
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
+  product_metrics_hash_pepper = (
+    var.product_metrics_hash_pepper != ""
+    ? var.product_metrics_hash_pepper
+    : random_password.product_metrics_hash_pepper[0].result
+  )
 }
 
 data "archive_file" "backend" {
@@ -91,16 +107,17 @@ resource "aws_lambda_function" "api" {
   environment {
     variables = merge(
       {
-        DYNAMODB_TABLE_NAME       = var.dynamodb_table_name
-        COGNITO_ISSUER            = var.cognito_issuer
-        COGNITO_AUDIENCE          = var.cognito_user_pool_client_id
-        AGENT_RUNTIME_ARN         = var.agent_runtime_arn
-        AUTH_MODE                 = "cognito"
-        CREW_MODE                 = "agentcore"
-        SAFETY_MODE               = var.safety_mode
-        LOG_LEVEL                 = "INFO"
-        BEDROCK_GUARDRAIL_ID      = var.bedrock_guardrail_id
-        BEDROCK_GUARDRAIL_VERSION = var.bedrock_guardrail_version
+        DYNAMODB_TABLE_NAME         = var.dynamodb_table_name
+        COGNITO_ISSUER              = var.cognito_issuer
+        COGNITO_AUDIENCE            = var.cognito_user_pool_client_id
+        AGENT_RUNTIME_ARN           = var.agent_runtime_arn
+        AUTH_MODE                   = "cognito"
+        CREW_MODE                   = "agentcore"
+        SAFETY_MODE                 = var.safety_mode
+        LOG_LEVEL                   = "INFO"
+        BEDROCK_GUARDRAIL_ID        = var.bedrock_guardrail_id
+        BEDROCK_GUARDRAIL_VERSION   = var.bedrock_guardrail_version
+        PRODUCT_METRICS_HASH_PEPPER = local.product_metrics_hash_pepper
       },
       var.google_places_api_key != "" ? {
         GOOGLE_PLACES_API_KEY = var.google_places_api_key

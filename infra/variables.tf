@@ -114,6 +114,13 @@ variable "google_places_api_key" {
   sensitive   = true
 }
 
+variable "product_metrics_hash_pepper" {
+  description = "Optional override for API Lambda PRODUCT_METRICS_HASH_PEPPER (user_sub hashing). Empty → Terraform generates a stable random pepper."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "safety_mode" {
   description = "API Lambda SAFETY_MODE: keyword (default), bedrock/guardrails (ApplyGuardrail), or off."
   type        = string

@@ -85,6 +85,7 @@ module "api" {
   bedrock_guardrail_version   = local.bedrock_guardrail_version
   bedrock_guardrail_arn       = local.bedrock_guardrail_arn
   google_places_api_key       = var.google_places_api_key
+  product_metrics_hash_pepper = var.product_metrics_hash_pepper
   # Built package (src + pip deps). Run: ../backend/scripts/build_lambda.sh
   backend_source_dir = "${path.root}/../backend/.build/lambda"
 }

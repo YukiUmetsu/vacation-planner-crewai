@@ -26,6 +26,7 @@ from http_utils import (
 from log_config import configure_logging
 from routes import profile as profile_routes
 from routes import trips as trip_routes
+from routes import events as event_routes
 from services.plan_day_worker import is_plan_next_day_worker_event
 from services.trip_service import TripService
 from services.worker_observability import WorkerTimer, log_worker_outcome
@@ -156,6 +157,11 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
                 return json_response(200, profile_routes.get_profile(event, user_sub))
             if method == "PUT":
                 return json_response(200, profile_routes.put_profile(event, user_sub))
+            raise ApiError(405, f"method {method} not allowed")
+
+        if path == "/events" or path.rstrip("/") == "/events":
+            if method == "POST":
+                return json_response(200, event_routes.post_event(event, user_sub))
             raise ApiError(405, f"method {method} not allowed")
 
         if path == "/trips" or path.rstrip("/") == "/trips":

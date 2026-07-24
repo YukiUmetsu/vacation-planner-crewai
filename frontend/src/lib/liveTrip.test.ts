@@ -4,6 +4,8 @@ import {
   buildConfirmRoute,
   emptyLiveTripState,
   pendingPlanningDayIndex,
+  routeAcceptanceFingerprint,
+  acceptanceBaselineFromRoute,
 } from "./liveTrip";
 import type { TripBundle } from "../types/trip";
 
@@ -97,5 +99,43 @@ describe("pendingPlanningDayIndex", () => {
 
   it("returns null when no claim", () => {
     expect(pendingPlanningDayIndex(sampleBundle.trip, [])).toBeNull();
+  });
+});
+
+describe("routeAcceptanceFingerprint", () => {
+  it("is stable for the same route shape", () => {
+    const a = routeAcceptanceFingerprint(sampleBundle.route!);
+    const b = routeAcceptanceFingerprint({ ...sampleBundle.route! });
+    expect(a).toBe(b);
+  });
+
+  it("changes when cities are edited", () => {
+    const base = routeAcceptanceFingerprint(sampleBundle.route!);
+    const edited = routeAcceptanceFingerprint({
+      ...sampleBundle.route!,
+      cities: [
+        {
+          ...sampleBundle.route!.cities[0],
+          nights: 4,
+        },
+      ],
+      total_nights: 4,
+    });
+    expect(edited).not.toBe(base);
+  });
+});
+
+describe("acceptanceBaselineFromRoute", () => {
+  it("fingerprints proposed routes and ignores confirmed", () => {
+    expect(acceptanceBaselineFromRoute(sampleBundle.route)).toBe(
+      routeAcceptanceFingerprint(sampleBundle.route!),
+    );
+    expect(
+      acceptanceBaselineFromRoute({
+        ...sampleBundle.route!,
+        status: "confirmed",
+      }),
+    ).toBeNull();
+    expect(acceptanceBaselineFromRoute(null)).toBeNull();
   });
 });

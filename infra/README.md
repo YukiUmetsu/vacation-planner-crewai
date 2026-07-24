@@ -86,6 +86,8 @@ Lambda always uses `CREW_MODE=agentcore`. Apply fails if the AgentCore runtime A
 
 `AWS_ACCOUNT_ID` is not sensitive; using it from the shell just avoids committing account-specific values. `TF_VAR_serper_api_key` and `TF_VAR_google_places_api_key` are sensitive and should stay out of `terraform.tfvars`. When `GOOGLE_PLACES_API_KEY` is set on the API Lambda, plan-next-day / suggest-place enrich venues via Google Places API (New) before quality gates; omit the key to keep crew/Serper status only.
 
+API Lambda always gets `PRODUCT_METRICS_HASH_PEPPER` (for non-reversible `user_sub` hashes in product metrics). Leave `product_metrics_hash_pepper` empty to let Terraform generate a stable random pepper in state, or set `TF_VAR_product_metrics_hash_pepper` to inject your own secret.
+
 **Google Places key restrictions:** restrict the key to Places API (New) only, and prefer IP restriction to Lambda egress. `sensitive = true` redacts CLI output only — the value still sits in Terraform state and Lambda env (same as Serper). Move both to Secrets Manager/SSM when hardening beyond this MVP.
 
 ## Least privilege model
