@@ -15,6 +15,8 @@ locals {
   ecr_repository_arn  = local.ecr_repository_name != "" ? "arn:${data.aws_partition.current.partition}:ecr:${local.ecr_image_parts[1]}:${local.ecr_image_parts[0]}:repository/${local.ecr_repository_name}" : ""
 
   agentcore_log_group_arn  = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/bedrock-agentcore/runtimes/*"
+  # Unified traces: AgentCore PutResourcePolicy on this runtime's log groups only.
+  agentcore_runtime_log_group_arn = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/bedrock-agentcore/runtimes/${local.runtime_name}-*"
   agentcore_log_stream_arn = "${local.agentcore_log_group_arn}:log-stream:*"
 
   wire_observability = local.create_runtime && var.observability_enabled
@@ -89,6 +91,19 @@ data "aws_iam_policy_document" "runtime" {
     effect    = "Allow"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
     resources = [local.agentcore_log_stream_arn]
+  }
+
+  # Required for UNIFIED_TRACES_DESTINATION_ENABLED: AgentCore attaches a
+  # resource policy so xray.amazonaws.com can PutLogEvents on this runtime's
+  # log group. See runtime-permissions (execution role) docs.
+  dynamic "statement" {
+    for_each = local.wire_observability ? [1] : []
+    content {
+      sid       = "AgentCoreUnifiedTraceResourcePolicy"
+      effect    = "Allow"
+      actions   = ["logs:PutResourcePolicy"]
+      resources = [local.agentcore_runtime_log_group_arn]
+    }
   }
 
   statement {

@@ -146,6 +146,25 @@ else
   log "AGENT_RUNTIME_ARN unset — UI AgentCore switch returns agent_misconfigured until set"
 fi
 
+# Google Places (photo enrich + /places/photo). Prefer plaintext key; else SM ARN from TF.
+if [[ -z "${GOOGLE_PLACES_API_KEY:-}" && -z "${GOOGLE_PLACES_SECRET_ARN:-}" ]] \
+  && command -v terraform >/dev/null 2>&1; then
+  if places_arn="$(
+    cd "${ROOT}/infra" && terraform output -raw google_places_secret_arn 2>/dev/null
+  )" && [[ -n "${places_arn}" && "${places_arn}" == arn:* ]]; then
+    export GOOGLE_PLACES_SECRET_ARN="${places_arn}"
+    log "loaded GOOGLE_PLACES_SECRET_ARN from terraform output"
+  fi
+fi
+
+if [[ -n "${GOOGLE_PLACES_API_KEY:-}" ]]; then
+  log "GOOGLE_PLACES_API_KEY is set — Places enrich + photo resolve enabled"
+elif [[ -n "${GOOGLE_PLACES_SECRET_ARN:-}" ]]; then
+  log "GOOGLE_PLACES_SECRET_ARN is set — Places key loaded from Secrets Manager at runtime"
+else
+  log "GOOGLE_PLACES unset — place photos will 404 until you export GOOGLE_PLACES_API_KEY or set the SM secret"
+fi
+
 # Wait briefly for the port, then ensure the table exists.
 for _ in $(seq 1 30); do
   if curl -sf -o /dev/null -m 1 "http://127.0.0.1:8000/" 2>/dev/null || \

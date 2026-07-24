@@ -106,7 +106,7 @@ IAM policies are intentionally scoped to the resources created or configured by 
 | Principal | Allowed access |
 | --- | --- |
 | Backend Lambda role | DynamoDB trip table: `GetItem`/`PutItem`/`UpdateItem`/`DeleteItem`/`Query` (+ indexes); metrics table: `GetItem`/`PutItem`/`Query`; log streams; AgentCore invoke; optional ApplyGuardrail; `secretsmanager:GetSecretValue` on Places + product-metrics pepper ARNs. |
-| AgentCore runtime role | ECR pull for configured repo; AgentCore logs; optional X-Ray/CW metrics; Bedrock models from allow-list; `secretsmanager:GetSecretValue` on Serper ARN. |
+| AgentCore runtime role | ECR pull for configured repo; AgentCore logs; `logs:PutResourcePolicy` (unified traces, when GenAI observability is on); optional X-Ray/CW metrics; Bedrock models from allow-list; `secretsmanager:GetSecretValue` on Serper ARN. |
 | CloudFront service principal | Reads objects from only the generated frontend bucket, constrained by the distribution `AWS:SourceArn`. |
 
 ### Bedrock Guardrails
@@ -133,8 +133,8 @@ Everything required for **CloudWatch → GenAI Observability → Bedrock AgentCo
 
 | Layer | What Terraform configures |
 | --- | --- |
-| Account/region (`observability/`) | CloudWatch Logs resource policy (`VacationPlannerTransactionSearchXRay`) for X-Ray → `aws/spans`, `/aws/application-signals/data`, `/aws/bedrock-agentcore/runtimes/*`; `awscc_xray_transaction_search_config` (indexing %, default **1** = free tier). The Logs resource policy is the one-time X-Ray write grant — the runtime role does **not** get `logs:PutResourcePolicy`. |
-| AgentCore runtime | Only when observability is enabled: ADOT env (`AGENT_OBSERVABILITY_ENABLED=true`, distro/configurator, `UNIFIED_TRACES_DESTINATION_ENABLED`, `service.name`, `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT`); IAM: X-Ray put/sampling, `cloudwatch:PutMetricData` (`bedrock-agentcore`); CloudWatch Logs **TRACES → XRAY** delivery (GenAI Agents View) |
+| Account/region (`observability/`) | CloudWatch Logs resource policy (`VacationPlannerTransactionSearchXRay`) for X-Ray → `aws/spans`, `/aws/application-signals/data`, `/aws/bedrock-agentcore/runtimes/*`; `awscc_xray_transaction_search_config` (indexing %, default **1** = free tier). |
+| AgentCore runtime | Only when observability is enabled: ADOT env (`AGENT_OBSERVABILITY_ENABLED=true`, distro/configurator, `UNIFIED_TRACES_DESTINATION_ENABLED`, `service.name`, `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT`); IAM: X-Ray put/sampling, `cloudwatch:PutMetricData` (`bedrock-agentcore`), `logs:PutResourcePolicy` on this runtime’s log groups (unified traces → per-agent log group); CloudWatch Logs **TRACES → XRAY** delivery (GenAI Agents View) |
 | Agent image | Neutral by default (`entrypoint.sh`). ADOT (`opentelemetry-instrument`) runs only when AgentCore sets `AGENT_OBSERVABILITY_ENABLED=true`. |
 
 **Account singleton:** Transaction Search is one config per account+region. Keep `enable_genai_observability = true` in **only one** stack (e.g. `dev`). Other envs should set it `false` (or share this stack’s state).

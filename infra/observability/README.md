@@ -4,8 +4,8 @@ Account/region prerequisites for CloudWatch GenAI Observability.
 
 ## Resources
 
-- `aws_cloudwatch_log_resource_policy.transaction_search` — X-Ray → CloudWatch Logs (`aws/spans`, Application Signals, AgentCore runtime log groups). This is the account-level write grant; the AgentCore execution role does not need `logs:PutResourcePolicy`.
-- `awscc_xray_transaction_search_config.this` — enables Transaction Search + indexing %
+- `aws_cloudwatch_log_resource_policy.transaction_search` — X-Ray → CloudWatch Logs (`aws/spans`, Application Signals, AgentCore runtime log groups). Account-level write grant for Transaction Search.
+- AgentCore execution role (in `../agentcore`) also gets `logs:PutResourcePolicy` on `/aws/bedrock-agentcore/runtimes/<runtime>-*` when observability is on, so unified traces can land in the per-agent log group.- `awscc_xray_transaction_search_config.this` — enables Transaction Search + indexing %
 
 AgentCore runtime (in `../agentcore/main.tf` when observability is on):
 
