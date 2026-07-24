@@ -14,14 +14,43 @@ module "secrets" {
   environment  = var.environment
 }
 
+# Frontend before Cognito so Hosted UI always includes this stack's CloudFront URLs
+# even when callback_urls/logout_urls are left at localhost defaults.
+module "frontend" {
+  source       = "./frontend"
+  project_name = var.project_name
+  environment  = var.environment
+}
+
+locals {
+  cognito_callback_urls = distinct(concat(
+    var.callback_urls,
+    ["${module.frontend.site_url}/callback"],
+  ))
+  cognito_logout_urls = distinct(concat(
+    var.logout_urls,
+    ["${module.frontend.site_url}/"],
+  ))
+}
+
 module "cognito" {
   source              = "./cognito"
   project_name        = var.project_name
   environment         = var.environment
   enable_google_idp   = var.enable_google_idp
   enable_facebook_idp = var.enable_facebook_idp
-  callback_urls       = var.callback_urls
-  logout_urls         = var.logout_urls
+  callback_urls       = local.cognito_callback_urls
+  logout_urls         = local.cognito_logout_urls
+}
+
+# Account/region Transaction Search — required for CloudWatch GenAI Observability.
+# Declared before AgentCore so TRACES→XRAY delivery can depend on it.
+module "observability" {
+  source              = "./observability"
+  project_name        = var.project_name
+  environment         = var.environment
+  enabled             = var.enable_genai_observability
+  indexing_percentage = var.genai_observability_indexing_percentage
 }
 
 module "agentcore" {
@@ -34,15 +63,9 @@ module "agentcore" {
   bedrock_model_arns    = var.agent_allowed_bedrock_model_arns
   serper_secret_arn     = module.secrets.serper_secret_arn
   observability_enabled = var.enable_genai_observability
-}
 
-# Account/region Transaction Search — required for CloudWatch GenAI Observability.
-module "observability" {
-  source              = "./observability"
-  project_name        = var.project_name
-  environment         = var.environment
-  enabled             = var.enable_genai_observability
-  indexing_percentage = var.genai_observability_indexing_percentage
+  # TRACES→XRAY delivery is useless until Transaction Search is ACTIVE.
+  depends_on = [module.observability]
 }
 
 module "guardrails" {
@@ -78,21 +101,21 @@ locals {
 module "api" {
   source = "./api"
 
-  project_name                       = var.project_name
-  environment                        = var.environment
-  dynamodb_table_name                = module.dynamodb.table_name
-  dynamodb_table_arn                 = module.dynamodb.table_arn
-  dynamodb_metrics_table_name        = module.dynamodb.metrics_table_name
-  dynamodb_metrics_table_arn         = module.dynamodb.metrics_table_arn
-  cognito_user_pool_client_id        = module.cognito.user_pool_client_id
-  cognito_issuer                     = module.cognito.issuer
-  agent_runtime_arn                  = module.agentcore.agent_runtime_arn
-  safety_mode                        = var.safety_mode
-  bedrock_guardrail_id               = local.bedrock_guardrail_id
-  bedrock_guardrail_version          = local.bedrock_guardrail_version
-  bedrock_guardrail_arn              = local.bedrock_guardrail_arn
-  google_places_secret_arn           = module.secrets.google_places_secret_arn
-  product_metrics_pepper_secret_arn  = module.secrets.product_metrics_pepper_secret_arn
+  project_name                      = var.project_name
+  environment                       = var.environment
+  dynamodb_table_name               = module.dynamodb.table_name
+  dynamodb_table_arn                = module.dynamodb.table_arn
+  dynamodb_metrics_table_name       = module.dynamodb.metrics_table_name
+  dynamodb_metrics_table_arn        = module.dynamodb.metrics_table_arn
+  cognito_user_pool_client_id       = module.cognito.user_pool_client_id
+  cognito_issuer                    = module.cognito.issuer
+  agent_runtime_arn                 = module.agentcore.agent_runtime_arn
+  safety_mode                       = var.safety_mode
+  bedrock_guardrail_id              = local.bedrock_guardrail_id
+  bedrock_guardrail_version         = local.bedrock_guardrail_version
+  bedrock_guardrail_arn             = local.bedrock_guardrail_arn
+  google_places_secret_arn          = module.secrets.google_places_secret_arn
+  product_metrics_pepper_secret_arn = module.secrets.product_metrics_pepper_secret_arn
   secretsmanager_secret_arns = [
     module.secrets.google_places_secret_arn,
     module.secrets.product_metrics_pepper_secret_arn,
@@ -100,10 +123,4 @@ module "api" {
   metrics_admin_subs = var.metrics_admin_subs
   # Built package (src + pip deps). Run: ../backend/scripts/build_lambda.sh
   backend_source_dir = "${path.root}/../backend/.build/lambda"
-}
-
-module "frontend" {
-  source       = "./frontend"
-  project_name = var.project_name
-  environment  = var.environment
 }

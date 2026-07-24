@@ -29,13 +29,13 @@ variable "enable_facebook_idp" {
 }
 
 variable "callback_urls" {
-  description = "Allowed Cognito Hosted UI callback URLs (frontend)"
+  description = "Extra Cognito Hosted UI callback URLs (localhost defaults). This stack's CloudFront URL is always merged in automatically."
   type        = list(string)
   default     = ["http://localhost:5173/callback"]
 }
 
 variable "logout_urls" {
-  description = "Allowed Cognito Hosted UI logout URLs"
+  description = "Extra Cognito Hosted UI logout URLs (localhost defaults). This stack's CloudFront URL is always merged in automatically."
   type        = list(string)
   default     = ["http://localhost:5173/"]
 }
@@ -53,7 +53,11 @@ variable "enable_genai_observability" {
 }
 
 variable "genai_observability_indexing_percentage" {
-  description = "Percent of spans indexed for Transaction Search (1 is free; raise for denser GenAI dashboards)"
+  description = <<-EOT
+    Percent of spans indexed for Transaction Search / GenAI Observability.
+    1 is free-tier; at low invoke volume the Agents View often shows 0 indexed
+    traces — raise (e.g. 100) while debugging, then lower again if desired.
+  EOT
   type        = number
   default     = 1
 

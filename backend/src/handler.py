@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -48,17 +49,27 @@ def _log_api_error(
     path: str,
     request_id: str,
 ) -> None:
-    """Emit a single CloudWatch-searchable line for every ApiError response."""
+    """Emit CloudWatch-searchable lines for every ApiError response."""
     # Keep operator detail in logs even when the HTTP body is sanitized.
     msg = (
         f"API_ERROR status={exc.status_code} code={exc.code or '-'} "
         f"method={method} path={path} request_id={request_id} "
         f"msg={exc.message!r}"
     )
+    # Second line: compact JSON for Logs Insights (`parse @message`) / metric filters.
+    payload = {
+        "event": "API_ERROR",
+        "status": exc.status_code,
+        "code": exc.code or "-",
+        "method": method,
+        "path": path,
+        "request_id": request_id,
+    }
+    json_line = f"API_ERROR_JSON {json.dumps(payload, ensure_ascii=False)}"
     if exc.status_code >= 500:
-        logger.error(msg)
+        logger.error("%s\n%s", msg, json_line)
     else:
-        logger.warning(msg)
+        logger.warning("%s\n%s", msg, json_line)
 
 
 def _planning_claim_held(
@@ -281,11 +292,26 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         )
         return error_response(exc)
     except Exception:  # noqa: BLE001 — Lambda boundary; do not leak internals
+        rid = _request_id(context)
+        method_s = method if method != "-" else request_method(event)
+        path_s = path if path != "-" else request_path(event)
         logger.exception(
-            "API_ERROR status=500 code=internal_error method=%s path=%s request_id=%s",
-            method if method != "-" else request_method(event),
-            path if path != "-" else request_path(event),
-            _request_id(context),
+            "API_ERROR status=500 code=internal_error method=%s path=%s request_id=%s\n"
+            "API_ERROR_JSON %s",
+            method_s,
+            path_s,
+            rid,
+            json.dumps(
+                {
+                    "event": "API_ERROR",
+                    "status": 500,
+                    "code": "internal_error",
+                    "method": method_s,
+                    "path": path_s,
+                    "request_id": rid,
+                },
+                ensure_ascii=False,
+            ),
         )
         return json_response(
             500,

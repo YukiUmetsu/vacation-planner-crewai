@@ -7,15 +7,13 @@ environment  = "dev"
 enable_google_idp   = true
 enable_facebook_idp = true
 
-# After first CloudFront deploy, add THAT stack's site URL here and re-apply
-# (terraform output frontend_site_url). Do not copy another environment's URL.
+# Hosted UI always includes this stack's CloudFront URL (merged in main.tf).
+# These lists are for extras (localhost, custom domains).
 callback_urls = [
   "http://localhost:5173/callback",
-  "https://YOUR_CLOUDFRONT_DOMAIN.cloudfront.net/callback",
 ]
 logout_urls = [
   "http://localhost:5173/",
-  "https://YOUR_CLOUDFRONT_DOMAIN.cloudfront.net/",
 ]
 
 # AgentCore is required for AWS deploy (API Lambda CREW_MODE=agentcore).
@@ -29,7 +27,8 @@ agent_bedrock_models = ["us.amazon.nova-pro-v1:0"]
 
 # CloudWatch GenAI Observability — account/region singleton (enable in ONE stack per region only).
 enable_genai_observability              = true
-genai_observability_indexing_percentage = 1 # free tier; raise if you want denser indexed spans
+# 1 = free-tier indexing (sparse; GenAI UI often looks empty at low traffic). Use 100 while debugging.
+genai_observability_indexing_percentage = 1
 # If Transaction Search is already enabled in this account/region, import first:
 #   terraform import 'module.observability.awscc_xray_transaction_search_config.this[0]' <ACCOUNT_ID>
 #   terraform import 'module.observability.aws_cloudwatch_log_resource_policy.transaction_search[0]' VacationPlannerTransactionSearchXRay

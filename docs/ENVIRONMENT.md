@@ -159,7 +159,7 @@ Local/dev can still set plaintext `GOOGLE_PLACES_API_KEY`, `PRODUCT_METRICS_HASH
 | `environment` | `TF_VAR_environment` | no | e.g. `dev`. |
 | `enable_google_idp` | | no | List Google on the app client (default `true`). Credentials via SM + sync script. |
 | `enable_facebook_idp` | | no | List Facebook on the app client (default `true`). |
-| `callback_urls` / `logout_urls` | `TF_VAR_callback_urls` (JSON) | no | Include localhost + CloudFront after first deploy. |
+| `callback_urls` / `logout_urls` | `TF_VAR_callback_urls` (JSON) | no | Extras only (default localhost). **CloudFront for this stack is always merged in** from `module.frontend.site_url`. |
 | `enable_agentcore` | | no | Must be `true` for API deploy. |
 | `agent_runtime_container_uri` | `TF_VAR_agent_runtime_container_uri` | no | ECR image URI from `build_push_image.sh`. |
 | `agent_bedrock_models` | | no | Model IDs like `us.amazon.nova-pro-v1:0` (matches crew `llm`). Default in variables.tf. |
@@ -198,7 +198,7 @@ Also run `backend/scripts/build_lambda.sh` before `terraform apply`, then `./scr
 | `AUTH_MODE` | fixed `cognito` |
 | `CREW_MODE` | fixed `agentcore` |
 | `SAFETY_MODE` | `var.safety_mode` |
-| `LOG_LEVEL` | fixed `INFO` (CloudWatch: filter `API_ERROR`) |
+| `LOG_LEVEL` | fixed `INFO` | CloudWatch log group `/aws/lambda/${project}-${env}-api`. Search with filter `API_ERROR` (see backend README). |
 | `BEDROCK_GUARDRAIL_ID` / `BEDROCK_GUARDRAIL_VERSION` | Guardrail outputs / vars |
 | `GOOGLE_PLACES_SECRET_ARN` | secrets module (runtime fetch) |
 | `PRODUCT_METRICS_PEPPER_SECRET_ARN` | secrets module (runtime fetch) |
@@ -221,8 +221,10 @@ Also run `backend/scripts/build_lambda.sh` before `terraform apply`, then `./scr
 ./frontend/scripts/deploy.sh
 # Builds with Cognito + API env from terraform outputs (including
 # VITE_COGNITO_IDENTITY_PROVIDERS), syncs S3, invalidates CloudFront.
-# Ensure CloudFront URLs are in cognito callback_urls / logout_urls before login testing on the CDN.
-# Social buttons appear only after TF_VAR_facebook_* / TF_VAR_google_* are applied (Cognito IdPs).
+# CloudFront callback/logout URLs are merged automatically in infra/main.tf —
+# if CDN login fails with a redirect_mismatch, run terraform apply so Cognito
+# picks up the current frontend_site_url.
+# Social IdPs: seed SM + ./infra/scripts/sync_cognito_idps_from_secrets.sh.
 ```
 
 ---

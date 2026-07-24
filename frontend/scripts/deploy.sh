@@ -9,7 +9,8 @@
 #   INFRA_DIR=...               # override path to infra/
 #   ALLOW_BROKEN_COGNITO_URLS=1 # continue even if CloudFront callback/logout missing from Cognito
 #
-# Cognito must allow the CloudFront callback/logout URLs (script aborts if missing).
+# Cognito must already include this stack's CloudFront URLs (infra/main.tf merges
+# frontend_site_url automatically). If the check fails, terraform apply in infra/.
 
 set -euo pipefail
 
@@ -87,10 +88,11 @@ ok = cb in (callbacks or []) and lo in (logouts or [])
 sys.exit(0 if ok else 1)
 " "${CALLBACKS_JSON}" "${CALLBACK_URL}" "${LOGOUT_URL}"; then
   echo "warning: Cognito app client does not list CloudFront URLs yet." >&2
-  echo "  Add these, then terraform apply:" >&2
-  echo "    callback_urls += [\"${CALLBACK_URL}\"]" >&2
-  echo "    logout_urls   += [\"${LOGOUT_URL}\"]" >&2
-  echo "  Hosted UI login from CloudFront will fail until that is done." >&2
+  echo "  Root Terraform merges frontend_site_url into Cognito automatically." >&2
+  echo "  Run terraform apply in infra/ (current main.tf) so Cognito receives:" >&2
+  echo "    callback: ${CALLBACK_URL}" >&2
+  echo "    logout:   ${LOGOUT_URL}" >&2
+  echo "  Hosted UI login from CloudFront will fail until that apply lands." >&2
   if [[ "${ALLOW_BROKEN_COGNITO_URLS:-0}" == "1" ]]; then
     echo "deploy: ALLOW_BROKEN_COGNITO_URLS=1 — continuing despite Cognito URL mismatch." >&2
   else

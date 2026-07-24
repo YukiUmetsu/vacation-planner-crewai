@@ -9,3 +9,12 @@ output "lambda_function_name" {
 output "lambda_function_arn" {
   value = aws_lambda_function.api.arn
 }
+
+output "lambda_log_group_name" {
+  value = aws_cloudwatch_log_group.lambda.name
+}
+
+output "api_logs_dashboard_name" {
+  description = "CloudWatch ops dashboard: API [ERROR]/[WARNING] log metrics + Lambda/AgentCore built-ins"
+  value       = aws_cloudwatch_dashboard.api_logs.dashboard_name
+}

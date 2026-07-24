@@ -52,6 +52,15 @@ output "api_endpoint" {
   value       = module.api.api_endpoint
 }
 
+output "api_logs_dashboard_name" {
+  description = "CloudWatch ops dashboard (API log ERROR/WARNING + Lambda/AgentCore built-in metrics)"
+  value       = module.api.api_logs_dashboard_name
+}
+
+output "lambda_log_group_name" {
+  value = module.api.lambda_log_group_name
+}
+
 output "frontend_bucket_name" {
   value = module.frontend.bucket_name
 }

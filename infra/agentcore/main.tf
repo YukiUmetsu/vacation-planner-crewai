@@ -206,3 +206,33 @@ resource "aws_bedrockagentcore_agent_runtime" "this" {
     }
   }
 }
+
+# AgentCore TRACES → XRAY delivery (GenAI Observability Agents View).
+# ADOT env alone fills aws/spans; without this delivery, Agents View often shows 0.
+# https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/observability-configure.html
+resource "aws_cloudwatch_log_delivery_source" "agent_traces" {
+  count = local.wire_observability ? 1 : 0
+
+  name         = "${local.name_prefix}-agent-traces"
+  log_type     = "TRACES"
+  resource_arn = aws_bedrockagentcore_agent_runtime.this[0].agent_runtime_arn
+}
+
+resource "aws_cloudwatch_log_delivery_destination" "agent_traces_xray" {
+  count = local.wire_observability ? 1 : 0
+
+  name                      = "${local.name_prefix}-agent-traces-xray"
+  delivery_destination_type = "XRAY"
+}
+
+resource "aws_cloudwatch_log_delivery" "agent_traces" {
+  count = local.wire_observability ? 1 : 0
+
+  delivery_source_name     = aws_cloudwatch_log_delivery_source.agent_traces[0].name
+  delivery_destination_arn = aws_cloudwatch_log_delivery_destination.agent_traces_xray[0].arn
+
+  depends_on = [
+    aws_cloudwatch_log_delivery_source.agent_traces,
+    aws_cloudwatch_log_delivery_destination.agent_traces_xray,
+  ]
+}

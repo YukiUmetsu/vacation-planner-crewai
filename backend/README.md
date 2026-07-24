@@ -115,6 +115,59 @@ These offline tests also run on `git push` via [`.githooks/pre-push`](../.githoo
 
 `plan-next-day` claims the day slot with a conditional `next_day_index` update, then writes the DAY only if absent (conflict → 409 + claim rollback). Duplicate-only crew output returns 422 without saving.
 
+### Finding API errors in CloudWatch (prod)
+
+Log group: **`/aws/lambda/vacation-planner-dev-api`** (replace `dev` with your `environment`).
+
+Do **not** use the vague console “Search all log groups” box — open that log group → **Logs Insights** (last 1–3 hours):
+
+```
+fields @timestamp, @message, @requestId
+| filter @message like /API_ERROR/
+| sort @timestamp desc
+| limit 50
+```
+
+5xx only:
+
+```
+fields @timestamp, @message
+| filter @message like /API_ERROR/ and @message like /status=5/
+| sort @timestamp desc
+| limit 50
+```
+
+DELETE trip failures:
+
+```
+fields @timestamp, @message
+| filter @message like /API_ERROR/ and @message like /method=DELETE/ and @message like /\/trips\//
+| sort @timestamp desc
+| limit 20
+```
+
+CLI equivalent:
+
+```bash
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/vacation-planner-dev-api \
+  --start-time $(($(date +%s)*1000 - 3600000)) \
+  --filter-pattern 'API_ERROR'
+```
+
+Every API error emits `API_ERROR …` plus `API_ERROR_JSON {…}` (status, code, method, path, request_id). Match the browser’s `x-amzn-requestid` / Lambda request id to `@requestId`.
+
+After `terraform apply`, open the free-tier dashboard: CloudWatch → Dashboards → `vacation-planner-dev-api-logs` (or `terraform output api_logs_dashboard_name`).
+
+| Dashboard signal | Meaning |
+| --- | --- |
+| **LambdaErrors** (`[ERROR]`) | Usually **5xx** `API_ERROR` / unhandled exceptions (DynamoDB IAM, worker crash, etc.). |
+| **LambdaWarnings** (`[WARNING]`) | Usually **4xx** ApiErrors, or soft fails (Places enrich, secrets, AgentCore client). |
+| **AWS/Lambda Errors / Throttles** | Platform invoke failures / concurrency limits (not the same as app `[ERROR]` lines). |
+| **AgentCore Invocations / Errors / SystemErrors / UserErrors / Throttles / Latency** | Built-in runtime health (`AWS/Bedrock-AgentCore`). SystemErrors ≈ service-side; UserErrors ≈ bad client input. |
+
+App-level crew failures also log `crew_failed` in `/aws/bedrock-agentcore/runtimes/<runtime_id>-DEFAULT`. Deeper agent traces: CloudWatch GenAI Observability.
+
 ### Places open-status enrich (optional)
 
 After the crew returns places, the BFF can call **Google Places API (New)** Text Search to overwrite `operational_status` / `closed_weekdays` / `open_hours` before `place_quality` filters. Soft behavior:

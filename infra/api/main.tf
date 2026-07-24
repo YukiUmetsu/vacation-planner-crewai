@@ -44,7 +44,7 @@ resource "aws_iam_role_policy" "lambda_app" {
         {
           Sid      = "DynamoDB"
           Effect   = "Allow"
-          Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query"]
+          Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query"]
           Resource = [var.dynamodb_table_arn, "${var.dynamodb_table_arn}/index/*"]
         },
         {
@@ -117,20 +117,20 @@ resource "aws_lambda_function" "api" {
   environment {
     variables = merge(
       {
-        DYNAMODB_TABLE_NAME         = var.dynamodb_table_name
-        DYNAMODB_METRICS_TABLE_NAME = var.dynamodb_metrics_table_name
-        COGNITO_ISSUER              = var.cognito_issuer
-        COGNITO_AUDIENCE            = var.cognito_user_pool_client_id
-        AGENT_RUNTIME_ARN           = var.agent_runtime_arn
-        AUTH_MODE                   = "cognito"
-        CREW_MODE                   = "agentcore"
-        SAFETY_MODE                 = var.safety_mode
-        LOG_LEVEL                   = "INFO"
-        BEDROCK_GUARDRAIL_ID                 = var.bedrock_guardrail_id
-        BEDROCK_GUARDRAIL_VERSION            = var.bedrock_guardrail_version
-        METRICS_ADMIN_SUBS                   = var.metrics_admin_subs
-        GOOGLE_PLACES_SECRET_ARN             = var.google_places_secret_arn
-        PRODUCT_METRICS_PEPPER_SECRET_ARN    = var.product_metrics_pepper_secret_arn
+        DYNAMODB_TABLE_NAME               = var.dynamodb_table_name
+        DYNAMODB_METRICS_TABLE_NAME       = var.dynamodb_metrics_table_name
+        COGNITO_ISSUER                    = var.cognito_issuer
+        COGNITO_AUDIENCE                  = var.cognito_user_pool_client_id
+        AGENT_RUNTIME_ARN                 = var.agent_runtime_arn
+        AUTH_MODE                         = "cognito"
+        CREW_MODE                         = "agentcore"
+        SAFETY_MODE                       = var.safety_mode
+        LOG_LEVEL                         = "INFO"
+        BEDROCK_GUARDRAIL_ID              = var.bedrock_guardrail_id
+        BEDROCK_GUARDRAIL_VERSION         = var.bedrock_guardrail_version
+        METRICS_ADMIN_SUBS                = var.metrics_admin_subs
+        GOOGLE_PLACES_SECRET_ARN          = var.google_places_secret_arn
+        PRODUCT_METRICS_PEPPER_SECRET_ARN = var.product_metrics_pepper_secret_arn
       }
     )
   }
@@ -160,6 +160,7 @@ resource "aws_apigatewayv2_api" "http" {
   protocol_type = "HTTP"
 
   # HTTP API CORS: API Gateway answers OPTIONS when no OPTIONS+JWT route steals the request.
+  # allow_methods must stay in sync with local.api_http_methods (see below).
   cors_configuration {
     allow_headers = [
       "authorization",
@@ -168,7 +169,7 @@ resource "aws_apigatewayv2_api" "http" {
       "x-amz-date",
       "x-api-key",
     ]
-    allow_methods  = ["GET", "POST", "PUT", "OPTIONS"]
+    allow_methods  = concat(local.api_http_methods, ["OPTIONS"])
     allow_origins  = ["*"]
     expose_headers = ["content-type"]
     max_age        = 86400
@@ -195,8 +196,10 @@ resource "aws_apigatewayv2_integration" "lambda" {
 }
 
 # Method-specific routes (not ANY): JWT must not apply to OPTIONS preflight.
+# Keep in sync with SPA (frontend/src/api) and backend Access-Control-Allow-Methods.
+# Regression guard: infra/scripts/validate.sh (SPA ↔ api_http_methods)
 locals {
-  api_http_methods = ["GET", "POST", "PUT"]
+  api_http_methods = ["GET", "POST", "PUT", "DELETE"]
 }
 
 resource "aws_apigatewayv2_route" "proxy" {
