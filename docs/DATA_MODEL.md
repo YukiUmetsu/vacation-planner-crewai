@@ -27,8 +27,8 @@ Cross-day uniqueness still matters, so each place gets a stable `place_key`, and
 | Field | Type | Notes |
 | --- | --- | --- |
 | `place_id` | string | UUID assigned on save |
-| `name` | string | Display name |
-| `address` | string \| null | Street / area |
+| `name` | string | Named POI / venue (not a neighborhood or district) |
+| `address` | string \| null | Street-level address when known (not district-only) |
 | `lat` / `lng` | float \| null | Optional; for maps later |
 | `website_url` | string \| null | Official / booking link |
 | `maps_url` | string \| null | Google Maps (or similar) link |

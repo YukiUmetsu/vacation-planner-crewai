@@ -9,9 +9,11 @@ from vacation_planner_models import (
     CityRoute,
     CityStop,
     DayPlan,
+    DayPlanWithQuality,
     DestinationType,
     Place,
     PlaceCategory,
+    QualityReport,
     Trip,
     make_place_key,
 )
@@ -20,9 +22,11 @@ __all__ = [
     "CityRoute",
     "CityStop",
     "DayPlan",
+    "DayPlanWithQuality",
     "DestinationType",
     "Place",
     "PlaceCategory",
+    "QualityReport",
     "Trip",
     "make_place_key",
 ]

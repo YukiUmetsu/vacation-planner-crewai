@@ -9,6 +9,7 @@ from vacation_planner_models import (
     DayPlan,
     DestinationType,
     Place,
+    PlaceCategory,
     make_place_key,
     normalize_place_text,
 )
@@ -35,9 +36,19 @@ def test_place_keeps_explicit_place_key() -> None:
 
 def _three_places() -> list[Place]:
     return [
-        Place(name="A", address="1"),
-        Place(name="B", address="2"),
-        Place(name="C", address="3"),
+        Place(
+            name="Lunch Spot",
+            address="1",
+            category=PlaceCategory.food,
+            reason_to_visit="Lunch — ramen",
+        ),
+        Place(name="Museum", address="2", category=PlaceCategory.museum),
+        Place(
+            name="Dinner Spot",
+            address="3",
+            category=PlaceCategory.food,
+            reason_to_visit="Dinner — izakaya",
+        ),
     ]
 
 
@@ -56,10 +67,10 @@ def test_day_plan_requires_three_to_six_places() -> None:
             date=date(2026, 8, 1),
             overnight_city="Tokyo",
             places=_three_places() + [
-                Place(name="D", address="4"),
-                Place(name="E", address="5"),
-                Place(name="F", address="6"),
-                Place(name="G", address="7"),
+                Place(name="D", address="4", category=PlaceCategory.park),
+                Place(name="E", address="5", category=PlaceCategory.park),
+                Place(name="F", address="6", category=PlaceCategory.park),
+                Place(name="G", address="7", category=PlaceCategory.park),
             ],
         )
 
@@ -72,6 +83,20 @@ def test_day_plan_assigns_order_when_unset() -> None:
         places=_three_places(),
     )
     assert [p.order_in_day for p in plan.places] == [1, 2, 3]
+
+
+def test_day_plan_requires_two_food_meal_stops() -> None:
+    with pytest.raises(ValidationError, match="lunch and dinner"):
+        DayPlan(
+            day_index=1,
+            date=date(2026, 8, 1),
+            overnight_city="Tokyo",
+            places=[
+                Place(name="A", address="1"),
+                Place(name="B", address="2"),
+                Place(name="C", address="3"),
+            ],
+        )
 
 
 def test_day_plan_requires_overnight_city() -> None:

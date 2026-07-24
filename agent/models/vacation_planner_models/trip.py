@@ -129,6 +129,16 @@ class DayPlan(BaseModel):
                 place.order_in_day = index
         return self
 
+    @model_validator(mode="after")
+    def require_lunch_and_dinner_food_stops(self) -> DayPlan:
+        food = [p for p in self.places if p.category == PlaceCategory.food]
+        if len(food) < 2:
+            raise ValueError(
+                "DayPlan must include lunch and dinner as category=food stops "
+                f"(got {len(food)} food place(s))"
+            )
+        return self
+
 
 class Trip(BaseModel):
     trip_id: str = ""
