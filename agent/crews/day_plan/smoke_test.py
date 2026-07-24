@@ -44,7 +44,7 @@ def _assert_day_plan(plan, *, day_index: int, date_str: str, overnight_city: str
     assert plan.day_index == day_index
     assert plan.date.isoformat() == date_str
     assert plan.overnight_city == overnight_city
-    assert 3 <= len(plan.places) <= 6
+    assert 3 <= len(plan.places) <= 7
     keys = [p.place_key for p in plan.places]
     assert all(keys), "every place must have place_key"
     assert len(keys) == len(set(keys)), "place_key values must be unique within the day"

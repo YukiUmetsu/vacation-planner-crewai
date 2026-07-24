@@ -52,7 +52,7 @@ def _three_places() -> list[Place]:
     ]
 
 
-def test_day_plan_requires_three_to_six_places() -> None:
+def test_day_plan_requires_three_to_seven_places() -> None:
     with pytest.raises(ValidationError):
         DayPlan(
             day_index=1,
@@ -61,6 +61,7 @@ def test_day_plan_requires_three_to_six_places() -> None:
             places=_three_places()[:2],
         )
 
+    # Seven places is the max; eight must fail schema validation.
     with pytest.raises(ValidationError):
         DayPlan(
             day_index=1,
@@ -71,6 +72,7 @@ def test_day_plan_requires_three_to_six_places() -> None:
                 Place(name="E", address="5", category=PlaceCategory.park),
                 Place(name="F", address="6", category=PlaceCategory.park),
                 Place(name="G", address="7", category=PlaceCategory.park),
+                Place(name="H", address="8", category=PlaceCategory.park),
             ],
         )
 

@@ -6,6 +6,7 @@ from datetime import date
 from typing import Any
 
 from db.place_keys import normalize_place_text
+from services.energy import MAX_PLACES_PER_DAY
 from http_utils import ApiError
 from services.dedupe import ensure_place_key
 
@@ -186,57 +187,6 @@ def require_meal_stops(
     )
 
 
-def _protected_meal_indices(
-    places: list[dict[str, Any]],
-    *,
-    include_breakfast: bool = False,
-) -> set[int]:
-    """Indices of food stops that cover required lunch/dinner (/breakfast)."""
-    required = (
-        ["breakfast", "lunch", "dinner"]
-        if include_breakfast
-        else ["lunch", "dinner"]
-    )
-    food_indices = [i for i, place in enumerate(places) if is_food_place(place)]
-    assigned: set[int] = set()
-    remaining = list(required)
-
-    for meal in list(remaining):
-        for index in food_indices:
-            if index in assigned:
-                continue
-            if infer_meal_role(places[index]) == meal:
-                assigned.add(index)
-                remaining.remove(meal)
-                break
-
-    for _meal in list(remaining):
-        for index in food_indices:
-            if index in assigned:
-                continue
-            if infer_meal_role(places[index]) is None:
-                assigned.add(index)
-                remaining.remove(_meal)
-                break
-
-    return assigned
-
-
-def _last_droppable_index(
-    places: list[dict[str, Any]],
-    *,
-    protected: set[int],
-) -> int | None:
-    """Drop non-protected stops first; optional food may be dropped after activities."""
-    for index in range(len(places) - 1, -1, -1):
-        if index not in protected and not is_food_place(places[index]):
-            return index
-    for index in range(len(places) - 1, -1, -1):
-        if index not in protected:
-            return index
-    return None
-
-
 def _reindex_order_in_day(places: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for index, place in enumerate(places, start=1):
         place["order_in_day"] = index
@@ -250,14 +200,16 @@ def filter_quality_places(
     max_comfortable_minutes: int,
     profile_visited_names: set[str] | None = None,
     include_breakfast: bool = False,
-) -> list[dict[str, Any]]:
-    """Drop closed / weekday-closed / profile-visited places, then trim for energy.
+    food_crawl_mode: bool = False,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Drop closed / weekday-closed / profile-visited places.
 
-    Energy trim drops non-required stops first (activities, then optional food)
-    so required lunch/dinner (/breakfast) survive. Raises ApiError if fewer than
-    3 usable places remain, or energy still exceeds after trimming while keeping
-    at least 3 stops.
+    Raises ApiError if fewer than 3 usable places remain. Over-budget energy is
+    a soft ``energy_overload`` warning only — places are not trimmed.
+    ``include_breakfast`` / ``food_crawl_mode`` are accepted for call-site
+    compatibility (meal / balance gates run separately).
     """
+    _ = (include_breakfast, food_crawl_mode)
     visited_names = profile_visited_names or set()
     kept: list[dict[str, Any]] = []
     for place in places:
@@ -278,23 +230,10 @@ def filter_quality_places(
             code="quality_empty",
         )
 
-    while len(kept) > 3 and day_total_minutes(kept) > max_comfortable_minutes:
-        protected = _protected_meal_indices(
-            kept, include_breakfast=include_breakfast
-        )
-        drop_at = _last_droppable_index(kept, protected=protected)
-        if drop_at is None:
-            break
-        kept.pop(drop_at)
-
+    soft_tags: list[str] = []
     if day_total_minutes(kept) > max_comfortable_minutes:
-        raise ApiError(
-            422,
-            f"day plan exceeds energy warning threshold "
-            f"({day_total_minutes(kept)} > {max_comfortable_minutes} minutes)",
-            code="energy_overload",
-        )
-    return _reindex_order_in_day(kept)
+        soft_tags.append("energy_overload")
+    return _reindex_order_in_day(kept), soft_tags
 
 
 def validate_suggested_place(
@@ -305,13 +244,18 @@ def validate_suggested_place(
     max_comfortable_minutes: int,
     already_visited_keys: set[str] | None = None,
     profile_visited_names: set[str] | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[str]]:
     """Validate one Place before appending it to an existing day.
 
-    Raises ApiError on day-full, closed/visited conflicts, or energy overload.
+    Raises ApiError on day-full, closed/visited conflicts. Over-budget energy
+    is a soft warning only (``energy_overload`` tag).
     """
-    if len(existing_places) >= 6:
-        raise ApiError(422, "day already has the maximum of 6 places", code="day_full")
+    if len(existing_places) >= MAX_PLACES_PER_DAY:
+        raise ApiError(
+            422,
+            f"day already has the maximum of {MAX_PLACES_PER_DAY} places",
+            code="day_full",
+        )
 
     enriched = {**place, "place_key": ensure_place_key(place)}
     if not str(enriched.get("name") or "").strip():
@@ -356,13 +300,9 @@ def validate_suggested_place(
     order = len(existing_places) + 1
     enriched["order_in_day"] = order
 
+    soft_tags: list[str] = []
     combined = [*existing_places, enriched]
     total = day_total_minutes(combined)
     if total > max_comfortable_minutes:
-        raise ApiError(
-            422,
-            f"adding place would exceed energy warning threshold "
-            f"({total} > {max_comfortable_minutes} minutes)",
-            code="energy_overload",
-        )
-    return enriched
+        soft_tags.append("energy_overload")
+    return enriched, soft_tags

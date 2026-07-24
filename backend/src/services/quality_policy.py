@@ -12,10 +12,9 @@ HARD_FAILURE_TAGS = frozenset(
         "duplicate_place",
         "wrong_city",
         "closed_place",
-        "too_packed",
-        "energy_overload",
         "excluded_category",
         "missing_meals",
+        "food_only_day",
     }
 )
 SOFT_FAILURE_TAGS = frozenset(
@@ -24,6 +23,9 @@ SOFT_FAILURE_TAGS = frozenset(
         "too_far",
         "weak_reason",
         "ungrounded_place",
+        "weak_day_balance",
+        "too_packed",
+        "energy_overload",
     }
 )
 
@@ -35,7 +37,21 @@ _TAG_TO_CODE: dict[str, str] = {
     "energy_overload": "energy_overload",
     "excluded_category": "excluded_category",
     "missing_meals": "missing_meals",
+    "food_only_day": "food_only_day",
 }
+
+# After BFF closed/visited/meal/balance gates pass, crew reviewer tags for the
+# same issues are stale and must not hard-fail (or burn a wasted "success").
+BFF_RESOLVED_TAGS: frozenset[str] = frozenset(
+    {
+        "closed_place",
+        "duplicate_place",
+        "missing_meals",
+        "food_only_day",
+        "too_packed",
+        "energy_overload",
+    }
+)
 
 
 def normalize_failure_tags(raw: Any) -> list[str]:
@@ -47,6 +63,23 @@ def normalize_failure_tags(raw: Any) -> list[str]:
         if tag and tag not in out:
             out.append(tag)
     return out
+
+
+def scrub_bff_resolved_tags(quality: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Drop crew tags already enforced by BFF deterministic gates."""
+    if not quality:
+        return quality
+    tags = [
+        t
+        for t in normalize_failure_tags(quality.get("failure_tags"))
+        if t not in BFF_RESOLVED_TAGS
+    ]
+    hard, _soft = split_tags(tags)
+    return {
+        **quality,
+        "failure_tags": tags,
+        "passes_relevance": len(hard) == 0,
+    }
 
 
 def split_tags(tags: list[str]) -> tuple[list[str], list[str]]:

@@ -214,7 +214,7 @@ def test_scorer_rejects_malformed_nights_without_raising() -> None:
     assert any("total_nights" in msg for msg in result.failures)
 
 
-def test_scorer_rejects_energy_overload_and_closed_venues() -> None:
+def test_scorer_rejects_closed_venues_not_energy() -> None:
     case = EvalCase(
         id="quality",
         crew="day_plan",
@@ -257,7 +257,7 @@ def test_scorer_rejects_energy_overload_and_closed_venues() -> None:
     assert result.passed is False
     assert any("permanently closed" in msg for msg in result.failures)
     assert any("closed on weekday 0" in msg for msg in result.failures)
-    assert any("exceeds energy warning threshold 270" in msg for msg in result.failures)
+    assert not any("energy warning" in msg for msg in result.failures)
 
 
 def test_example_offline_output_passes_scorer() -> None:
@@ -368,6 +368,8 @@ def test_preference_fixtures_expose_graded_metrics() -> None:
         "day_plan_preference_food",
         "day_plan_preference_exclusion",
         "day_plan_preference_mismatch",
+        "day_plan_balance_food_forward",
+        "day_plan_balance_food_only",
     ):
         assert case_id in cases, f"missing fixture {case_id}"
 
@@ -383,6 +385,60 @@ def test_preference_fixtures_expose_graded_metrics() -> None:
     assert food.passed
     assert food.metrics["preference_relevance_score"] == 1.0
     assert food.metrics["grounding_rate"] == 1.0
+    assert food.metrics["non_food_place_count"] >= 1.0
+    assert food.metrics["food_only_day_rate"] == 0.0
+
+    balanced = run_case(
+        cases["day_plan_balance_food_forward"],
+        json.loads(
+            (fixtures / "day_plan_balance_food_forward.output.json").read_text(
+                encoding="utf-8"
+            )
+        ),
+    )
+    assert balanced.passed
+    assert balanced.metrics["non_food_place_count"] == 1.0
+    assert balanced.metrics["food_only_day_rate"] == 0.0
+
+    food_only_output = {
+        "day_index": 1,
+        "date": "2026-09-02",
+        "overnight_city": "Tokyo",
+        "places": [
+            {
+                "name": "Jiro",
+                "place_key": "jiro|tokyo",
+                "category": "food",
+                "address": "Ginza",
+                "estimated_minutes": 60,
+                "order_in_day": 1,
+            },
+            {
+                "name": "Narisawa",
+                "place_key": "narisawa|tokyo",
+                "category": "food",
+                "address": "Aoyama",
+                "estimated_minutes": 90,
+                "order_in_day": 2,
+            },
+            {
+                "name": "Tsuta",
+                "place_key": "tsuta|tokyo",
+                "category": "food",
+                "address": "Sugamo",
+                "estimated_minutes": 45,
+                "order_in_day": 3,
+            },
+        ],
+    }
+    food_only = run_case(cases["day_plan_balance_food_only"], food_only_output)
+    assert not food_only.passed
+    assert any("non-food" in msg for msg in food_only.failures)
+    metrics_only = collect_day_plan_metrics(
+        food_only_output, cases["day_plan_balance_food_only"]
+    )
+    assert metrics_only["food_only_day_rate"] == 1.0
+    assert metrics_only["non_food_place_count"] == 0.0
 
     mismatch = run_case(
         cases["day_plan_preference_mismatch"],

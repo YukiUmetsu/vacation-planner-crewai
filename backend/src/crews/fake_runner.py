@@ -137,23 +137,29 @@ class FakeCrewRunner:
             }
         )
         order += 1
-        # Non-meal activity between lunch and dinner (realistic day order).
-        spot_name = f"{overnight} Spot D{day_index}"
-        spot_address = f"5 Main St, {overnight}"
-        places.append(
-            {
-                "name": spot_name,
-                "address": spot_address,
-                "category": "other",
-                "reason_to_visit": "Test stop",
-                "details": "Synthetic place for FakeCrewRunner",
-                "estimated_minutes": 60,
-                "order_in_day": order,
-                "has_bathroom": None,
-                "place_key": make_place_key(spot_name, spot_address),
-            }
-        )
-        order += 1
+        try:
+            target = max(3, min(7, int(inputs.get("target_place_count") or 5)))
+        except (TypeError, ValueError):
+            target = 5
+        # Non-meal activities between lunch and dinner (fill toward target).
+        activity_slots = max(1, target - len(places) - 1)  # reserve dinner
+        for i in range(activity_slots):
+            spot_name = f"{overnight} Spot{i + 1} D{day_index}"
+            spot_address = f"{5 + i} Main St, {overnight}"
+            places.append(
+                {
+                    "name": spot_name,
+                    "address": spot_address,
+                    "category": "other",
+                    "reason_to_visit": "Test stop",
+                    "details": "Synthetic place for FakeCrewRunner",
+                    "estimated_minutes": 45,
+                    "order_in_day": order,
+                    "has_bathroom": None,
+                    "place_key": make_place_key(spot_name, spot_address),
+                }
+            )
+            order += 1
         dinner_name = f"{overnight} Dinner D{day_index}"
         dinner_address = f"8 Evening St, {overnight}"
         places.append(
@@ -182,14 +188,18 @@ class FakeCrewRunner:
         overnight = str(inputs.get("overnight_city") or "Tokyo")
         day_index = str(inputs.get("day_index") or "1").strip() or "1"
         order = str(inputs.get("next_order_in_day") or "1").strip() or "1"
+        prefer_non_food = str(inputs.get("prefer_non_food") or "").lower() == "true"
         # Include day/order so repeated suggests do not collide on place_key.
+        # Always non-food so day-balance tripwires stay green in FakeCrewRunner.
         name = f"{overnight} Extra Spot D{day_index}-{order}"
         address = f"9 Side St #{order}, {overnight}"
         place = {
             "name": name,
             "address": address,
             "category": "other",
-            "reason_to_visit": "Extra fake stop",
+            "reason_to_visit": (
+                "Extra non-food stop" if prefer_non_food else "Extra fake stop"
+            ),
             "details": "Synthetic suggest_place",
             "estimated_minutes": 45,
             "has_bathroom": None,

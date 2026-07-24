@@ -17,9 +17,30 @@ from http_utils import ApiError, client_facing_message, public_item
 from models.api import ConfirmCitiesRequest, CreateTripRequest, UpdateTripRequest
 from services.crew_context_budget import inputs_char_len, slim_crew_inputs
 from services.dates import date_for_day_index, parse_iso_date, validate_trip_dates
+from services.day_balance import (
+    day_balance_guidance,
+    day_shape_hint,
+    detect_food_crawl_mode,
+    min_non_food_places_for,
+    prefer_non_food_suggestion,
+    require_day_balance,
+    require_suggested_place_balance,
+)
 from services.dedupe import dedupe_places
-from services.energy import clamp_energy_level, max_minutes_for_energy
+from services.energy import (
+    MAX_PLACES_PER_DAY,
+    clamp_energy_level,
+    max_minutes_for_energy,
+    target_place_count_for_energy,
+)
 from services.route_windows import normalize_route_windows
+from services.plan_day_retry import (
+    MAX_PLAN_DAY_ATTEMPTS,
+    apply_plan_day_retry_inputs,
+    labels_to_ban_after_failure,
+    merge_banned_labels,
+    should_retry_plan_day,
+)
 from services.place_quality import (
     day_total_minutes,
     filter_quality_places,
@@ -28,7 +49,11 @@ from services.place_quality import (
     validate_suggested_place,
 )
 from services.crew_envelope import unwrap_crew_payload
-from services.quality_policy import enforce_hard_quality, merge_quality_reports
+from services.quality_policy import (
+    enforce_hard_quality,
+    merge_quality_reports,
+    scrub_bff_resolved_tags,
+)
 from services.plan_day_worker import (
     enqueue_plan_next_day_worker,
     plan_next_day_async_enabled,
@@ -920,6 +945,7 @@ class TripService:
         )
         energy_level = clamp_energy_level(profile.get("energy_level"))
         max_minutes = max_minutes_for_energy(energy_level)
+        target_places = target_place_count_for_energy(energy_level)
         interests = [str(i) for i in (profile.get("interests") or []) if str(i).strip()]
         include_breakfast = bool(profile.get("suggest_include_breakfast"))
         merged_prefs = _merge_preferences(
@@ -927,15 +953,22 @@ class TripService:
             str(profile.get("preferences") or ""),
             interests,
         )
+        food_crawl_mode = detect_food_crawl_mode(merged_prefs, interests)
+        min_non_food = min_non_food_places_for(food_crawl_mode=food_crawl_mode)
         meal_line = _meal_guidance(include_breakfast=include_breakfast)
+        balance_line = day_balance_guidance(
+            food_crawl_mode=food_crawl_mode,
+            min_non_food_places=min_non_food,
+        )
         # Prepend (not append): slim_crew_inputs truncates preferences from the
-        # end when over budget, so meal rules must stay at the front.
-        if meal_line not in merged_prefs:
-            merged_prefs = (
-                f"{meal_line} | {merged_prefs}".strip(" |")
-                if merged_prefs
-                else meal_line
-            )
+        # end when over budget, so meal + day-balance rules must stay at the front.
+        for line in (meal_line, balance_line):
+            if line not in merged_prefs:
+                merged_prefs = (
+                    f"{line} | {merged_prefs}".strip(" |")
+                    if merged_prefs
+                    else line
+                )
         self.safety.check_text(merged_prefs, source="preferences")
 
         visited = list(trip.get("visited_place_keys") or [])
@@ -953,8 +986,15 @@ class TripService:
             "overnight_city": overnight,
             "preferences": merged_prefs,
             "include_breakfast": "true" if include_breakfast else "false",
+            "food_crawl_mode": "true" if food_crawl_mode else "false",
+            "min_non_food_places": str(min_non_food),
+            "day_shape_hint": day_shape_hint(
+                food_crawl_mode=food_crawl_mode,
+                target_place_count=target_places,
+            ),
             "energy_level": str(energy_level),
             "max_comfortable_minutes": str(max_minutes),
+            "target_place_count": str(target_places),
             "interests": ", ".join(interests),
             "already_visited": ",".join(visited),
             "prior_days_summary": trip.get("prior_days_summary") or "",
@@ -963,76 +1003,142 @@ class TripService:
             ),
         }
         before_chars = inputs_char_len(raw_inputs)
-        inputs = slim_crew_inputs(
+        base_inputs = slim_crew_inputs(
             raw_inputs,
             overnight_city=overnight,
             day_index=next_index,
         )
-        context_was_slimmed = inputs_char_len(inputs) < before_chars
+        context_was_slimmed = inputs_char_len(base_inputs) < before_chars
         if context_was_slimmed:
-            inputs = {**inputs, "__context_was_slimmed": "true"}
-        raw_day = self.runner.plan_day(inputs)
-        day_data, crew_quality, invocation = unwrap_crew_payload(raw_day)
-        if invocation is not None:
-            invocation = {
-                **invocation,
-                "context_was_slimmed": bool(
-                    invocation.get("context_was_slimmed")
-                )
-                or context_was_slimmed,
-            }
-        places = list(day_data.get("places") or [])
-        filtered = dedupe_places(places, visited)
-        if len(filtered) < 1:
-            log_quality_metrics(
-                trip_id=trip_id,
-                day_index=next_index,
-                quality=merge_quality_reports(
-                    crew_quality, {"failure_tags": ["duplicate_place"]}
-                ),
-                invocation=invocation,
-                guardrail_code="dedupe_empty",
-                places_count=0,
-            )
-            raise ApiError(
-                422,
-                "all suggested places were already visited; retry plan-next-day",
-                code="dedupe_empty",
-            )
-        filtered = enrich_places(
-            filtered,
-            overnight_city=overnight,
+            base_inputs = {**base_inputs, "__context_was_slimmed": "true"}
+
+        day_data: dict[str, Any] | None = None
+        crew_quality: Any = None
+        invocation: dict[str, Any] | None = None
+        filtered: list[dict[str, Any]] = []
+        energy_soft_tags: list[str] = []
+        banned: list[str] = []
+        last_quality_error: ApiError | None = None
+        profile_visited_names = profile_visited_name_keys(
+            list(profile.get("visited_places") or [])
         )
-        try:
-            filtered = filter_quality_places(
+
+        for attempt in range(MAX_PLAN_DAY_ATTEMPTS):
+            inputs = apply_plan_day_retry_inputs(
+                base_inputs,
+                attempt=attempt,
+                failure_code=(
+                    str(last_quality_error.code)
+                    if last_quality_error is not None
+                    else None
+                ),
+                banned_places=banned,
+            )
+            raw_day = self.runner.plan_day(inputs)
+            day_data, crew_quality, invocation = unwrap_crew_payload(raw_day)
+            if invocation is not None:
+                invocation = {
+                    **invocation,
+                    "context_was_slimmed": bool(
+                        invocation.get("context_was_slimmed")
+                    )
+                    or context_was_slimmed,
+                    "plan_day_attempt": attempt + 1,
+                }
+            places = list((day_data or {}).get("places") or [])
+            filtered = dedupe_places(places, visited)
+            if len(filtered) < 1:
+                last_quality_error = ApiError(
+                    422,
+                    "all suggested places were already visited",
+                    code="dedupe_empty",
+                )
+                banned = merge_banned_labels(
+                    banned,
+                    labels_to_ban_after_failure(
+                        code="dedupe_empty",
+                        places=places,
+                        plan_date=day_date,
+                        profile_visited_names=profile_visited_names,
+                    ),
+                )
+                if should_retry_plan_day(
+                    code=last_quality_error.code, attempt=attempt
+                ):
+                    continue
+                log_quality_metrics(
+                    trip_id=trip_id,
+                    day_index=next_index,
+                    quality=merge_quality_reports(
+                        crew_quality, {"failure_tags": ["duplicate_place"]}
+                    ),
+                    invocation=invocation,
+                    guardrail_code="dedupe_empty",
+                    places_count=0,
+                )
+                raise last_quality_error
+
+            filtered = enrich_places(
                 filtered,
-                plan_date=day_date,
-                max_comfortable_minutes=max_minutes,
-                profile_visited_names=profile_visited_name_keys(
-                    list(profile.get("visited_places") or [])
-                ),
-                include_breakfast=include_breakfast,
+                overnight_city=overnight,
             )
-            require_meal_stops(filtered, include_breakfast=include_breakfast)
-        except ApiError as exc:
-            tag = {
-                "quality_empty": "closed_place",
-                "energy_overload": "energy_overload",
-                "missing_meals": "missing_meals",
-            }.get(str(exc.code or ""), "")
-            log_quality_metrics(
-                trip_id=trip_id,
-                day_index=next_index,
-                quality=merge_quality_reports(
-                    crew_quality,
-                    {"failure_tags": [tag]} if tag else crew_quality,
-                ),
-                invocation=invocation,
-                guardrail_code=exc.code,
-                places_count=len(filtered) if filtered else 0,
-            )
-            raise
-        merged_quality = merge_quality_reports(crew_quality)
+            try:
+                filtered, energy_soft_tags = filter_quality_places(
+                    filtered,
+                    plan_date=day_date,
+                    max_comfortable_minutes=max_minutes,
+                    profile_visited_names=profile_visited_names,
+                    include_breakfast=include_breakfast,
+                    food_crawl_mode=food_crawl_mode,
+                )
+                require_meal_stops(filtered, include_breakfast=include_breakfast)
+                require_day_balance(
+                    filtered,
+                    food_crawl_mode=food_crawl_mode,
+                    min_non_food_places=min_non_food,
+                )
+                last_quality_error = None
+                break
+            except ApiError as exc:
+                last_quality_error = exc
+                banned = merge_banned_labels(
+                    banned,
+                    labels_to_ban_after_failure(
+                        code=exc.code,
+                        places=filtered,
+                        plan_date=day_date,
+                        profile_visited_names=profile_visited_names,
+                    ),
+                )
+                if should_retry_plan_day(code=exc.code, attempt=attempt):
+                    continue
+                tag = {
+                    "quality_empty": "closed_place",
+                    "missing_meals": "missing_meals",
+                    "food_only_day": "food_only_day",
+                }.get(str(exc.code or ""), "")
+                log_quality_metrics(
+                    trip_id=trip_id,
+                    day_index=next_index,
+                    quality=merge_quality_reports(
+                        crew_quality,
+                        {"failure_tags": [tag]} if tag else crew_quality,
+                    ),
+                    invocation=invocation,
+                    guardrail_code=exc.code,
+                    places_count=len(filtered) if filtered else 0,
+                )
+                raise
+
+        if last_quality_error is not None:
+            raise last_quality_error
+        if day_data is None:
+            raise ApiError(500, "day plan missing after retries", code="internal_error")
+
+        merged_quality = merge_quality_reports(
+            scrub_bff_resolved_tags(crew_quality),
+            {"failure_tags": energy_soft_tags} if energy_soft_tags else None,
+        )
         try:
             enforce_hard_quality(merged_quality)
         except ApiError as exc:
@@ -1242,8 +1348,12 @@ class TripService:
             raise ApiError(404, "day not found", code="not_found")
 
         existing = list(day.get("places") or [])
-        if len(existing) >= 6:
-            raise ApiError(422, "day already has the maximum of 6 places", code="day_full")
+        if len(existing) >= MAX_PLACES_PER_DAY:
+            raise ApiError(
+                422,
+                f"day already has the maximum of {MAX_PLACES_PER_DAY} places",
+                code="day_full",
+            )
 
         start = parse_iso_date(str(trip["start_date"]), field="start_date")
         raw_date = str(day.get("date") or "").strip()
@@ -1264,17 +1374,31 @@ class TripService:
             str(profile.get("preferences") or ""),
             interests,
         )
+        food_crawl_mode = detect_food_crawl_mode(merged_prefs, interests)
+        min_non_food = min_non_food_places_for(food_crawl_mode=food_crawl_mode)
+        prefer_non_food = prefer_non_food_suggestion(
+            existing, food_crawl_mode=food_crawl_mode
+        )
+        balance_line = day_balance_guidance(
+            food_crawl_mode=food_crawl_mode,
+            min_non_food_places=min_non_food,
+        )
+        if prefer_non_food:
+            balance_line = (
+                f"{balance_line} Prefer a non-food Place this round "
+                "(museum, park, shrine, shopping, cultural POI) — the day still "
+                "has no non-food stop."
+            )
+        if balance_line not in merged_prefs:
+            merged_prefs = (
+                f"{balance_line} | {merged_prefs}".strip(" |")
+                if merged_prefs
+                else balance_line
+            )
         self.safety.check_text(merged_prefs, source="preferences")
 
         current_total = day_total_minutes(existing)
         remaining = max_minutes - current_total
-        if remaining < 1:
-            raise ApiError(
-                422,
-                f"day already at or over energy warning threshold "
-                f"({current_total} >= {max_minutes} minutes)",
-                code="energy_overload",
-            )
 
         visited = list(trip.get("visited_place_keys") or [])
         for key in _profile_visited_keys(list(profile.get("visited_places") or [])):
@@ -1301,6 +1425,9 @@ class TripService:
                 "date": day_date.isoformat(),
                 "preferences": merged_prefs,
                 "interests": ", ".join(interests),
+                "food_crawl_mode": "true" if food_crawl_mode else "false",
+                "prefer_non_food": "true" if prefer_non_food else "false",
+                "min_non_food_places": str(min_non_food),
                 "energy_level": str(energy_level),
                 "remaining_minutes": str(remaining),
                 "already_visited": ",".join(visited),
@@ -1339,7 +1466,7 @@ class TripService:
             candidate,
             overnight_city=overnight,
         )
-        validated = validate_suggested_place(
+        validated, energy_soft_tags = validate_suggested_place(
             candidate,
             existing_places=existing,
             plan_date=day_date,
@@ -1349,6 +1476,19 @@ class TripService:
                 list(profile.get("visited_places") or [])
             ),
         )
+        require_suggested_place_balance(
+            validated,
+            existing,
+            food_crawl_mode=food_crawl_mode,
+        )
+        if energy_soft_tags:
+            log_quality_metrics(
+                trip_id=trip_id,
+                day_index=day_index,
+                quality={"passes_relevance": True, "failure_tags": energy_soft_tags},
+                invocation=None,
+                places_count=len(existing) + 1,
+            )
         updated_places = [*existing, validated]
         place_key = str(validated.get("place_key") or "")
         trip_visited = list(trip.get("visited_place_keys") or [])

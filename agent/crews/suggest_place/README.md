@@ -14,4 +14,4 @@ Hard rules in prompts (mirrored by API `validate_suggested_place`):
 - not closed on `{date}` weekday when `closed_weekdays` known
 - `estimated_minutes + travel_minutes_from_previous <= remaining_minutes`
 
-Inputs: `overnight_city`, `date`, `day_index`, prefs/energy, `already_visited`, `current_places_json`, `remaining_minutes`, `next_order_in_day`.
+Inputs: `overnight_city`, `date`, `day_index`, prefs/energy, `already_visited`, `current_places_json`, `remaining_minutes`, `next_order_in_day`, `food_crawl_mode`, `prefer_non_food`, `min_non_food_places`.

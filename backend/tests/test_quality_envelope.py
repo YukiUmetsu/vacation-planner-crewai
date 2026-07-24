@@ -41,8 +41,30 @@ def test_soft_tags_do_not_block() -> None:
     enforce_hard_quality(
         {
             "passes_relevance": True,
-            "failure_tags": ["preference_mismatch", "weak_reason"],
+            "failure_tags": [
+                "preference_mismatch",
+                "weak_reason",
+                "energy_overload",
+                "too_packed",
+            ],
         }
+    )
+
+
+def test_scrub_bff_resolved_tags_drops_stale_crew_hard_tags() -> None:
+    from services.quality_policy import scrub_bff_resolved_tags
+
+    scrubbed = scrub_bff_resolved_tags(
+        {
+            "failure_tags": ["closed_place", "wrong_city", "energy_overload"],
+            "relevance_score": 3,
+        }
+    )
+    assert scrubbed is not None
+    assert scrubbed["failure_tags"] == ["wrong_city"]
+    assert scrubbed["passes_relevance"] is False
+    enforce_hard_quality(
+        scrub_bff_resolved_tags({"failure_tags": ["closed_place", "missing_meals"]})
     )
 
 

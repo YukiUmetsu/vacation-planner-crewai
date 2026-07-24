@@ -153,6 +153,12 @@ def test_plan_next_day_includes_breakfast_when_profile_asks(
     assert isinstance(runner, FakeCrewRunner)
     assert runner.last_plan_day_inputs is not None
     assert runner.last_plan_day_inputs.get("include_breakfast") == "true"
+    assert runner.last_plan_day_inputs.get("food_crawl_mode") == "false"
+    assert runner.last_plan_day_inputs.get("min_non_food_places") == "1"
+    assert runner.last_plan_day_inputs.get("target_place_count") == "5"
+    prefs = str(runner.last_plan_day_inputs.get("preferences") or "")
+    assert "food_crawl_mode=false" in prefs
+    assert "Day balance:" in prefs
 
 
 def test_persist_planned_day_rolls_back_cursor_on_put_failure(

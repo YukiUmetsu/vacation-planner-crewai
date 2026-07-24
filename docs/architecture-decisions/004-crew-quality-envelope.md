@@ -16,9 +16,10 @@ invocation metadata without stuffing scores into persisted Dynamo DAY items.
 2. Persisted Dynamo items remain domain-only (`DayPlan` / route / place).
 3. Reviewer emits `DayPlanWithQuality` (`day_plan` + `QualityReport`).
 4. **Hard** failure tags block the plan (`duplicate_place`, `wrong_city`,
-   `closed_place`, `too_packed` / `energy_overload`, `excluded_category`,
-   `missing_meals`). **Soft** tags (`preference_mismatch`, `too_far`,
-   `weak_reason`, `ungrounded_place`) are logged only.
+   `closed_place`, `excluded_category`, `missing_meals`, `food_only_day`).
+   **Soft** tags (`preference_mismatch`, `too_far`, `weak_reason`,
+   `ungrounded_place`, `weak_day_balance`, `too_packed`, `energy_overload`)
+   are logged only and do not block persistence (no energy auto-trim).
 5. BFF merges crew quality with deterministic gate outcomes and emits
    `QUALITY_METRIC` / `PRODUCT_METRIC` log lines for CloudWatch.
 6. Offline evals expose graded metric rates; LLM-as-judge is a later swap-in

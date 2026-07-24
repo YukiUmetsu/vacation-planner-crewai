@@ -22,6 +22,8 @@ class FailureTag(str, Enum):
     ungrounded_place = "ungrounded_place"
     missing_meals = "missing_meals"
     energy_overload = "energy_overload"
+    food_only_day = "food_only_day"
+    weak_day_balance = "weak_day_balance"
 
 
 # Objective tags: BFF may block / fail the plan when present.
@@ -30,10 +32,9 @@ HARD_FAILURE_TAGS: frozenset[FailureTag] = frozenset(
         FailureTag.duplicate_place,
         FailureTag.wrong_city,
         FailureTag.closed_place,
-        FailureTag.too_packed,
-        FailureTag.energy_overload,
         FailureTag.excluded_category,
         FailureTag.missing_meals,
+        FailureTag.food_only_day,
     }
 )
 
@@ -43,6 +44,9 @@ SOFT_FAILURE_TAGS: frozenset[FailureTag] = frozenset(
         FailureTag.too_far,
         FailureTag.weak_reason,
         FailureTag.ungrounded_place,
+        FailureTag.weak_day_balance,
+        FailureTag.too_packed,
+        FailureTag.energy_overload,
     }
 )
 

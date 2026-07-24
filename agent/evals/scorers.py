@@ -115,6 +115,12 @@ def _as_lower_token_list(value: Any) -> list[str]:
     return [token.lower() for token in _as_key_list(value)]
 
 
+def _truthy_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes"}
+
+
 def score_day_plan(output: dict[str, Any], case: EvalCase) -> list[str]:
     """Return failure messages for a ``day_plan`` crew output."""
     failures: list[str] = []
@@ -134,14 +140,6 @@ def score_day_plan(output: dict[str, Any], case: EvalCase) -> list[str]:
     want_city = case.inputs.get("overnight_city")
     if want_city and overnight != want_city:
         failures.append(f"overnight_city {overnight!r} != {want_city!r}")
-
-    max_minutes = _resolve_max_minutes(case)
-    if max_minutes is not None:
-        total = _day_total_minutes(places)
-        if total > max_minutes:
-            failures.append(
-                f"day total {total} minutes exceeds energy warning threshold {max_minutes}"
-            )
 
     plan_date = _parse_plan_date(case)
     weekday = plan_date.weekday() if plan_date else None
@@ -186,6 +184,32 @@ def score_day_plan(output: dict[str, Any], case: EvalCase) -> list[str]:
             f"day plan must include lunch and dinner food stops "
             f"(got {food_count} category=food place(s))"
         )
+
+    food_crawl = _truthy_flag(
+        case.inputs.get("food_crawl_mode")
+        if case.inputs.get("food_crawl_mode") is not None
+        else case.expected.get("food_crawl_mode")
+    )
+    min_non_food = case.expected.get("min_non_food_places")
+    if min_non_food is None:
+        min_non_food = 0 if food_crawl else 1
+    if (
+        len(places) >= 3
+        and isinstance(min_non_food, int)
+        and min_non_food > 0
+        and not food_crawl
+    ):
+        non_food = sum(
+            1
+            for place in places
+            if isinstance(place, dict)
+            and str(place.get("category") or "").strip().lower() != "food"
+        )
+        if non_food < min_non_food:
+            failures.append(
+                f"day plan needs at least {min_non_food} non-food place(s) "
+                f"(got {non_food}; food_crawl_mode=false)"
+            )
 
     already = _as_key_list(case.inputs.get("already_visited"))
     if already:
@@ -305,27 +329,42 @@ def score_suggest_place(output: dict[str, Any], case: EvalCase) -> list[str]:
     if isinstance(forbidden, list) and key and key in {str(k) for k in forbidden}:
         failures.append(f"place is in forbidden_place_keys: {key}")
 
-    # Energy: place alone must fit remaining_minutes (or derived remaining).
-    remaining_raw = case.inputs.get("remaining_minutes")
-    remaining, rem_err = _parse_nonneg_int(remaining_raw, label="remaining_minutes")
-    if rem_err:
-        failures.append(rem_err)
-    elif remaining is not None:
-        place_mins = _day_total_minutes([place])
-        if place_mins > remaining:
-            failures.append(
-                f"place total {place_mins} minutes exceeds remaining_minutes {remaining}"
-            )
+    food_crawl = _truthy_flag(case.inputs.get("food_crawl_mode"))
+    prefer_non_food = _truthy_flag(case.inputs.get("prefer_non_food"))
+    if not prefer_non_food and not food_crawl and existing:
+        non_food_existing = sum(
+            1
+            for p in existing
+            if isinstance(p, dict)
+            and str(p.get("category") or "").strip().lower() != "food"
+        )
+        prefer_non_food = non_food_existing == 0
+    if prefer_non_food and str(place.get("category") or "").strip().lower() == "food":
+        failures.append(
+            "suggested place must be non-food when the day still has no non-food stop"
+        )
 
-    # Optional: place + existing day must stay under energy cap.
-    if existing:
-        max_minutes = _resolve_max_minutes(case)
-        if max_minutes is not None:
-            combined = [p for p in existing if isinstance(p, dict)] + [place]
-            total = _day_total_minutes(combined)
-            if total > max_minutes:
+    # Product BFF treats energy as soft; offline eval still fails so regressions show up.
+    remaining_raw = case.inputs.get("remaining_minutes")
+    if remaining_raw is not None and remaining_raw != "":
+        remaining, err = _parse_nonneg_int(
+            remaining_raw, label="remaining_minutes"
+        )
+        if err:
+            failures.append(err)
+        elif remaining is not None:
+            est, _ = _parse_nonneg_int(
+                place.get("estimated_minutes"), label="estimated_minutes"
+            )
+            travel, _ = _parse_nonneg_int(
+                place.get("travel_minutes_from_previous"),
+                label="travel_minutes_from_previous",
+            )
+            need = (est or 0) + (travel or 0)
+            if need > remaining:
                 failures.append(
-                    f"day total with suggestion {total} exceeds energy threshold {max_minutes}"
+                    f"suggested place needs {need} minutes "
+                    f"(exceeds remaining_minutes {remaining})"
                 )
 
     return failures
@@ -389,6 +428,14 @@ def collect_day_plan_metrics(
         1.0 if max_minutes is not None and total > max_minutes else 0.0
     )
 
+    non_food = sum(
+        1
+        for place in places
+        if isinstance(place, dict)
+        and str(place.get("category") or "").strip().lower() != "food"
+    )
+    food_only_day = 1.0 if len(places) >= 3 and non_food == 0 else 0.0
+
     return {
         "preference_relevance_score": preference_relevance_score,
         "explicit_exclusion_violation_rate": float(
@@ -398,6 +445,8 @@ def collect_day_plan_metrics(
         "closed_place_rate": closed / n,
         "energy_overage_rate": energy_overage,
         "grounding_rate": grounded / n,
+        "non_food_place_count": float(non_food),
+        "food_only_day_rate": food_only_day,
     }
 
 

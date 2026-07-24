@@ -9,11 +9,11 @@ Plans **one day** at a time. Final task output is structured `DayPlan` from the
 | --- | --- |
 | `day_plan_researcher` | Serper research for places in `overnight_city` |
 | `day_plan_planner` | Draft `DayPlan` |
-| `day_plan_reviewer` | No tools — revise draft using the research brief only (swap dubious/closed stops; keep 3–6) |
+| `day_plan_reviewer` | No tools — revise draft using the research brief only (swap dubious/closed stops; keep 3–7) |
 
-Traveler context inputs: `preferences`, `interests`, `energy_level`, `max_comfortable_minutes`, `already_visited`.
+Traveler context inputs: `preferences`, `interests`, `energy_level`, `max_comfortable_minutes`, `target_place_count`, `already_visited`, `food_crawl_mode`, `min_non_food_places`, `day_shape_hint`.
 
-The API also applies hard post-crew filters for permanently closed / weekday-closed places and energy load (`place_quality`).
+The API also applies hard post-crew filters for permanently closed / weekday-closed places, energy load, meal stops, and day balance (`place_quality` / `day_balance`). Place-count target is soft (prompt); schema hard range stays 3–7.
 
 ## Setup
 

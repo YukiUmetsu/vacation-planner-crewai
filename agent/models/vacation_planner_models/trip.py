@@ -50,6 +50,10 @@ class Place(BaseModel):
     # ISO weekday ints: Monday=0 … Sunday=6 (datetime.date.weekday())
     closed_weekdays: list[int] = Field(default_factory=list)
     open_hours: Optional[str] = None
+    cost: Optional[str] = None
+    photo_url: Optional[str] = None
+    # Google Places photo resource name for refreshing short-lived CDN URLs.
+    places_photo_name: Optional[str] = None
     travel_minutes_from_previous: Optional[int] = Field(default=None, ge=0)
 
     @field_validator("closed_weekdays", mode="before")
@@ -120,7 +124,7 @@ class DayPlan(BaseModel):
     theme: str = ""
     summary: str = ""
     overnight_city: str = Field(min_length=1)
-    places: list[Place] = Field(min_length=3, max_length=6)
+    places: list[Place] = Field(min_length=3, max_length=7)
 
     @model_validator(mode="after")
     def assign_order_if_unset(self) -> DayPlan:

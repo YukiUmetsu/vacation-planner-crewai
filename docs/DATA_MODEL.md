@@ -26,7 +26,7 @@ Cross-day uniqueness still matters, so each place gets a stable `place_key`, and
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `place_id` | string | UUID assigned on save |
+| `place_id` | string \| null | Google Places place ID when known (e.g. `ChIJ…`); not an internal UUID. Stable dedupe uses `place_key`. |
 | `name` | string | Named POI / venue (not a neighborhood or district) |
 | `address` | string \| null | Street-level address when known (not district-only) |
 | `lat` / `lng` | float \| null | Optional; for maps later |
@@ -80,7 +80,7 @@ In DynamoDB this is stored as one `ROUTE` item on the trip.
 | `theme` | string | e.g. "Arrival & Left Bank" |
 | `summary` | string | Short day narrative |
 | `overnight_city` | string | Must match a confirmed route city when route exists |
-| `places` | Place[] | Typically 3–6 stops |
+| `places` | Place[] | Typically 3–7 stops |
 
 ## Trip (API aggregate)
 
@@ -232,7 +232,7 @@ USER#abc-123  TRIP#01HXYZ...#DAY#02    → day 2 in Tokyo
 Dedupe is a product rule (“don’t send me to the same shrine on day 1 and day 4”) enforced in the BFF, not only in the LLM prompt:
 
 1. Crew input includes `already_visited` (from `visited_place_keys` on the TRIP item).
-2. After the model returns a `DayPlan`, drop places whose `place_key` already exists; retry once if fewer than 3 places remain.
+2. After the model returns a `DayPlan`, drop places whose `place_key` already exists or fail closed/visited quality gates; on `quality_empty` / `dedupe_empty` / meal / food-only failures, **retry up to 3 times** with edited crew inputs (ban prior place names, then broaden neighborhoods / bump `target_place_count`) before surfacing 422 to the client.
 3. Append new keys to `visited_place_keys` on the TRIP item.
 
 Storing keys on the trip keeps the next planning call O(1) for the denylist instead of re-deriving keys from every prior day’s `places[]` (though we can still do that as a consistency check).

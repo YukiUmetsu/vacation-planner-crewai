@@ -32,11 +32,12 @@ def test_drops_permanently_closed_and_weekday_closed() -> None:
         _open("Park C"),
         _open("Park D"),
     ]
-    kept = filter_quality_places(
+    kept, soft = filter_quality_places(
         places,
         plan_date=MONDAY,
         max_comfortable_minutes=510,
     )
+    assert soft == []
     assert [p["name"] for p in kept] == ["Park A", "Park B", "Park C", "Park D"]
 
 
@@ -68,82 +69,34 @@ def test_drops_profile_visited_by_name() -> None:
         _open("Park B"),
         _open("Park C"),
     ]
-    kept = filter_quality_places(
+    kept, soft = filter_quality_places(
         places,
         plan_date=MONDAY,
         max_comfortable_minutes=510,
         profile_visited_names={"senso-ji"},
     )
+    assert soft == []
     assert [p["name"] for p in kept] == ["Park A", "Park B", "Park C"]
 
 
-def test_trims_for_energy_or_rejects() -> None:
+def test_energy_overload_warns_without_trimming() -> None:
     places = [_open(f"Stop {i}", minutes=100) for i in range(5)]
-    # 500 minutes total; cap 270 → trim to 3 stops of 300 still over → reject.
-    with pytest.raises(ApiError) as exc:
-        filter_quality_places(
-            places,
-            plan_date=MONDAY,
-            max_comfortable_minutes=270,
-        )
-    assert exc.value.code == "energy_overload"
-
-    # Cap 310 → trim trailing until 3×100 = 300 ≤ 310.
-    kept = filter_quality_places(
+    kept, soft = filter_quality_places(
         places,
+        plan_date=MONDAY,
+        max_comfortable_minutes=270,
+    )
+    assert len(kept) == 5
+    assert soft == ["energy_overload"]
+    assert sum(int(p["estimated_minutes"]) for p in kept) == 500
+
+    under, soft_under = filter_quality_places(
+        places[:3],
         plan_date=MONDAY,
         max_comfortable_minutes=310,
     )
-    assert len(kept) == 3
-    assert sum(int(p["estimated_minutes"]) for p in kept) == 300
-
-
-def test_energy_trim_preserves_food_meal_stops() -> None:
-    places = [
-        _open("Lunch", minutes=60, category="food", reason_to_visit="Lunch — ramen"),
-        _open("Museum", minutes=120, category="museum"),
-        _open("Park", minutes=120, category="park"),
-        _open("Shop", minutes=120, category="shopping"),
-        _open("Dinner", minutes=60, category="food", reason_to_visit="Dinner — sushi"),
-    ]
-    # 480 minutes; cap 250 → must drop non-food, keep both meals + one activity.
-    kept = filter_quality_places(
-        places,
-        plan_date=MONDAY,
-        max_comfortable_minutes=250,
-    )
-    names = [p["name"] for p in kept]
-    assert "Lunch" in names
-    assert "Dinner" in names
-    assert len(kept) == 3
-    assert sum(int(p["estimated_minutes"]) for p in kept) == 240
-
-
-def test_energy_trim_can_drop_optional_food_snack() -> None:
-    places = [
-        _open("Lunch", minutes=80, category="food", reason_to_visit="Lunch —"),
-        _open("Snack", minutes=80, category="food"),  # optional unlabeled
-        _open("Cafe", minutes=80, category="food"),  # optional unlabeled
-        _open("Museum", minutes=80, category="museum"),
-        _open("Dinner", minutes=80, category="food", reason_to_visit="Dinner —"),
-    ]
-    # 400 minutes; cap 250 → drop museum then an optional food; keep lunch+dinner +1.
-    kept = filter_quality_places(
-        places,
-        plan_date=MONDAY,
-        max_comfortable_minutes=250,
-    )
-    names = [p["name"] for p in kept]
-    assert "Lunch" in names
-    assert "Dinner" in names
-    assert "Museum" not in names
-    assert len(kept) == 3
-    assert sum(int(p["estimated_minutes"]) for p in kept) == 240
-    # At least one optional food was dropped.
-    assert ("Snack" in names) != ("Cafe" in names) or (
-        "Snack" not in names and "Cafe" not in names
-    )
-    assert sum(1 for n in ("Snack", "Cafe") if n in names) <= 1
+    assert soft_under == []
+    assert len(under) == 3
 
 
 def test_require_meal_stops_lunch_and_dinner() -> None:
@@ -217,23 +170,23 @@ def test_require_meal_stops_lunch_and_dinner() -> None:
     )
 
 
-def test_energy_trim_reindexes_order_in_day() -> None:
+def test_filter_reindexes_order_in_day() -> None:
     places = [
-        _open("Lunch", minutes=60, category="food", reason_to_visit="Lunch —", order_in_day=1),
+        _open("Lunch", minutes=60, category="food", reason_to_visit="Lunch —", order_in_day=9),
         _open("Museum", minutes=120, category="museum", order_in_day=2),
-        _open("Park", minutes=120, category="park", order_in_day=3),
-        _open("Dinner", minutes=60, category="food", reason_to_visit="Dinner —", order_in_day=4),
+        _open("Dinner", minutes=60, category="food", reason_to_visit="Dinner —", order_in_day=1),
     ]
-    kept = filter_quality_places(
+    kept, soft = filter_quality_places(
         places,
         plan_date=MONDAY,
-        max_comfortable_minutes=250,
+        max_comfortable_minutes=510,
     )
+    assert soft == []
     assert [p["name"] for p in kept] == ["Lunch", "Museum", "Dinner"]
     assert [p["order_in_day"] for p in kept] == [1, 2, 3]
 
 
-def test_validate_suggested_place_rejects_closed_and_overload() -> None:
+def test_validate_suggested_place_rejects_closed_and_warns_overload() -> None:
     from services.place_quality import validate_suggested_place
 
     existing = [_open("A"), _open("B"), _open("C")]
@@ -246,21 +199,22 @@ def test_validate_suggested_place_rejects_closed_and_overload() -> None:
         )
     assert closed.value.code == "place_closed"
 
-    with pytest.raises(ApiError) as energy:
-        validate_suggested_place(
-            _open("Long", minutes=400),
-            existing_places=existing,
-            plan_date=MONDAY,
-            max_comfortable_minutes=270,
-        )
-    assert energy.value.code == "energy_overload"
+    place, soft = validate_suggested_place(
+        _open("Long", minutes=400),
+        existing_places=existing,
+        plan_date=MONDAY,
+        max_comfortable_minutes=270,
+    )
+    assert place["name"] == "Long"
+    assert soft == ["energy_overload"]
 
-    ok = validate_suggested_place(
+    ok, soft_ok = validate_suggested_place(
         _open("Extra", minutes=30),
         existing_places=existing,
         plan_date=MONDAY,
         max_comfortable_minutes=510,
     )
+    assert soft_ok == []
     assert ok["order_in_day"] == 4
     assert ok["place_key"]
 

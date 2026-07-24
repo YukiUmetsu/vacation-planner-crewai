@@ -1,0 +1,36 @@
+{
+  "day_index": 1,
+  "date": "2026-09-02",
+  "theme": "Ramen, temple, sushi",
+  "summary": "Food-forward day that still includes a non-food stop",
+  "overnight_city": "Tokyo",
+  "places": [
+    {
+      "name": "Nakiryu Ramen",
+      "place_key": "nakiryu|tokyo",
+      "category": "food",
+      "address": "2-24-7 Sendagi, Bunkyo City, Tokyo",
+      "reason_to_visit": "Lunch — spicy tsukemen ramen",
+      "estimated_minutes": 60,
+      "order_in_day": 1
+    },
+    {
+      "name": "Senso-ji Temple",
+      "place_key": "senso-ji|tokyo",
+      "category": "other",
+      "address": "2-3-1 Asakusa, Taito City, Tokyo",
+      "reason_to_visit": "Historic temple gate and grounds",
+      "estimated_minutes": 90,
+      "order_in_day": 2
+    },
+    {
+      "name": "Sukiyabashi Jiro",
+      "place_key": "jiro|tokyo",
+      "category": "food",
+      "address": "4-2-15 Ginza, Chuo City, Tokyo",
+      "reason_to_visit": "Dinner — classic Edomae sushi",
+      "estimated_minutes": 75,
+      "order_in_day": 3
+    }
+  ]
+}

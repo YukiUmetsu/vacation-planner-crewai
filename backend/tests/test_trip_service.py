@@ -8,6 +8,7 @@ import pytest
 
 from crews.fake_runner import FakeCrewRunner
 from db import repository as repo
+from db.place_keys import make_place_key
 from http_utils import ApiError
 from services.safety import NoopSafetyGate
 from services.trip_service import TripService
@@ -127,6 +128,10 @@ def test_suggest_place_appends_to_day(service: TripService) -> None:
     planned = service.plan_next_day(USER, trip_id)
     before = len(planned["day"]["places"])
     assert before >= 3
+    # Leave room for two suggests under the 7-stop cap.
+    while before > 5:
+        service.remove_place(USER, trip_id, 1, before - 2)
+        before = before - 1
 
     suggested = service.suggest_place(USER, trip_id, 1)
     assert suggested["place"]["name"]
@@ -242,13 +247,13 @@ def test_suggest_place_rejects_when_day_full(
 ) -> None:
     from crews.fake_runner import FakeCrewRunner
 
-    class SixPlaceRunner(FakeCrewRunner):
+    class FullDayRunner(FakeCrewRunner):
         def plan_day(self, inputs: dict[str, Any]) -> dict[str, Any]:
             base = super().plan_day(inputs)
             overnight = str(inputs.get("overnight_city") or "Tokyo")
             day_index = int(inputs.get("day_index") or 1)
             places = list(base["places"])
-            while len(places) < 6:
+            while len(places) < 7:
                 i = len(places) + 1
                 name = f"{overnight} Spot {i} D{day_index}"
                 address = f"{i} Main St, {overnight}"
@@ -268,7 +273,7 @@ def test_suggest_place_rejects_when_day_full(
             return {**base, "places": places}
 
     service = TripService(
-        table=dynamodb_table, runner=SixPlaceRunner(), safety=NoopSafetyGate()
+        table=dynamodb_table, runner=FullDayRunner(), safety=NoopSafetyGate()
     )
     trip_id = _create_country(service)
     proposed = service.propose_cities(USER, trip_id)
@@ -644,3 +649,75 @@ def test_delete_trip_removes_route_and_days(service: TripService, dynamodb_table
     with pytest.raises(ApiError) as exc:
         service.get_trip(USER, trip_id)
     assert exc.value.status_code == 404
+
+
+class _ClosedThenOkRunner:
+    """First plan_day returns only closed venues; later attempts succeed."""
+
+    def __init__(self) -> None:
+        self.inner = FakeCrewRunner()
+        self.plan_calls = 0
+        self.plan_inputs: list[dict[str, Any]] = []
+
+    def propose_cities(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        return self.inner.propose_cities(inputs)
+
+    def suggest_place(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        return self.inner.suggest_place(inputs)
+
+    def plan_day(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        self.plan_calls += 1
+        self.plan_inputs.append(dict(inputs))
+        if self.plan_calls == 1:
+            overnight = str(inputs.get("overnight_city") or "Tokyo")
+            date_str = str(inputs.get("date") or "2026-09-01")
+            closed = []
+            for i, name in enumerate(
+                ["Shuttered A", "Shuttered B", "Shuttered C"], start=1
+            ):
+                address = f"{i} Closed St, {overnight}"
+                if i == 1:
+                    reason = "Lunch — x"
+                elif i == 3:
+                    reason = "Dinner — y"
+                else:
+                    reason = "Stop"
+                closed.append(
+                    {
+                        "name": name,
+                        "address": address,
+                        "category": "food" if i != 2 else "other",
+                        "reason_to_visit": reason,
+                        "details": "closed fixture",
+                        "estimated_minutes": 60,
+                        "order_in_day": i,
+                        "operational_status": "closed",
+                        "place_key": make_place_key(name, address),
+                    }
+                )
+            return {
+                "day_index": int(inputs.get("day_index") or 1),
+                "date": date_str,
+                "overnight_city": overnight,
+                "theme": "Closed day",
+                "places": closed,
+            }
+        return self.inner.plan_day(inputs)
+
+
+def test_plan_next_day_retries_after_quality_empty(dynamodb_table: Any) -> None:
+    runner = _ClosedThenOkRunner()
+    service = TripService(
+        table=dynamodb_table,
+        runner=runner,  # type: ignore[arg-type]
+        safety=NoopSafetyGate(),
+    )
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+
+    planned = service.plan_next_day(USER, trip_id)
+    assert planned["day"]["day_index"] == 1
+    assert runner.plan_calls == 2
+    retry_prefs = str(runner.plan_inputs[1].get("preferences") or "")
+    assert "RETRY (quality_empty)" in retry_prefs
+    assert "Shuttered A" in retry_prefs

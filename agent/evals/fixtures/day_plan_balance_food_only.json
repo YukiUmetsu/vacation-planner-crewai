@@ -1,0 +1,21 @@
+{
+  "id": "day_plan_balance_food_only",
+  "crew": "day_plan",
+  "inputs": {
+    "overnight_city": "Tokyo",
+    "day_index": 1,
+    "date": "2026-09-02",
+    "preferences": "ramen, sushi",
+    "interests": "ramen, sushi",
+    "food_crawl_mode": false,
+    "already_visited": [],
+    "energy_level": 3
+  },
+  "expected": {
+    "min_places": 3,
+    "max_places": 6,
+    "min_non_food_places": 1,
+    "food_crawl_mode": false,
+    "forbidden_place_keys": []
+  }
+}
