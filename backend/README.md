@@ -114,6 +114,16 @@ uv sync --group dev
 uv run pytest
 ```
 
+**Services package migration (before and after):** same command both times —
+
+```bash
+cd backend
+./scripts/run_migration_suite.sh
+# or: uv run pytest -m migration -q
+```
+
+That suite locks legacy `services.*` import paths, TripService public methods, façade smokes (city/country/list/delete), plus the existing trip / plan-day / places / quality domain tests. Run full `uv run pytest` before merging.
+
 These offline tests also run on `git push` via [`.githooks/pre-push`](../.githooks/pre-push). Install once:
 
 ```bash

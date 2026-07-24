@@ -2,7 +2,8 @@
 # One-command local stack: DynamoDB Local + API :8787 + Vite :5173 (live mode).
 #
 # Usage (from anywhere):
-#   /Users/yukiumetsu/Documents/projects/udemy/travel-plan/vacation_planner/scripts/dev.sh
+# Prefer invoking from the repo root:
+#   ./scripts/dev.sh
 #   # or from repo root:
 #   ./scripts/dev.sh
 #

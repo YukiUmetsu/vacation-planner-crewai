@@ -1,17 +1,48 @@
-# Vacation Planner
+# AI Vacation Planner
 
-Multi-agent travel planner built with **CrewAI**, **Amazon Bedrock (Nova)**, and **Serper**. Dated trip mode: origin → destination, start/end dates (up to **14 days**), city routing for countries, then **one day at a time**, persisted in a **DynamoDB single-table**.
+Plan real multi-day trips with multi-agent AI — city routing, day-by-day itineraries, and production guardrails — without a blank-page LLM chat.
 
-<!-- Live demo: TBD -->
+**[Live Demo](https://d3t3uxn4yyxw2h.cloudfront.net)** · Demo Video (coming soon) · [Architecture](#architecture) · [Evaluation](./agent/evals/README.md)
+
+<!-- Add a product screenshot or short GIF under docs/ when available:
+![App preview](./docs/preview.gif)
+-->
+
+## Engineering highlights
+
+- **Multi-agent planning with deterministic post-generation validation** — CrewAI + Bedrock Nova propose days; the BFF enforces meals, balance, closed places, and energy caps before persist
+- **Idempotent asynchronous AgentCore orchestration** — claim → 202 → Event worker → poll; recovers stuck planning without double-writing days ([ADR 001](./docs/architecture-decisions/001-async-plan-next-day-polling.md))
+- **Offline and online AI evaluation** — fixture scorers, preference judge, and product/quality metrics in DynamoDB
+- **Secure AWS serverless stack (Terraform)** — Cognito Hosted UI, HTTP API + Lambda, DynamoDB single-table, AgentCore, Bedrock Guardrails, S3/CloudFront
+- **Cost-aware day-by-day generation** — plan one day at a time (max 14), Nova models, ~$0 idle
+
+### What I designed end-to-end
+
+Product flow (create → cities → days), data model and DynamoDB keys, async planning contract, Places enrich + photo cache, quality/retry policy, Terraform modules, and the React wizard SPA.
+
+### Production problems solved
+
+- Long crew runs that would time out API Gateway → async claim + client poll
+- LLM days that skip meals or stack food-only stops → balance checks + plan-day retry
+- Expiring Google photo CDNs / missing landmark photos → owned-trip photo proxy, durable Wikimedia cache, Wikipedia fallback
+- Secrets in Terraform state → Secrets Manager ARNs + sync scripts
+
+### Measurable signals
+
+- CI: backend pytest (moto), frontend Vitest + production build, agent eval harness smoke
+- Offline evals: `agent/evals` fixtures + scorers (see [Evaluation](./agent/evals/README.md))
+- Ops: CloudWatch API logs dashboard + AgentCore / GenAI observability hooks
+
+---
 
 ## Features
 
 - Plan a trip from origin to destination with start and end dates (up to 14 days)
 - Pick a city or a country; for a country, review and adjust which cities to visit before day-by-day planning
 - Generate one day’s itinerary at a time, with places, timing, and overnight city
-- See practical place details (maps link, category, visit reason, bathroom availability when known)
+- See practical place details (maps, hours, cost, why suggested, watch-outs)
 - Avoid repeating the same places across days
-- Sign in with Google and save trips to revisit later
+- Sign in with Google (and other Cognito IdPs) and save trips to revisit later
 - Browse a full trip timeline after days are planned
 
 ## Repository layout
@@ -64,6 +95,8 @@ flowchart TB
 
 **MVP / deploy planning:** `CREW_MODE=fake` / `local` keep sync **200**. Deployed AgentCore: async claim → **202** → poll `GET /trips/{id}` ([ADR 001](./docs/architecture-decisions/001-async-plan-next-day-polling.md) — includes pros/cons of sync vs Event self-invoke vs SQS vs push). Runtime only (no Memory/Gateway/Browser). See [docs/architecture-decisions](./docs/architecture-decisions/).
 
+API contract: [`backend/openapi.yaml`](./backend/openapi.yaml).
+
 ### Planning sequence (city route, then days)
 
 ```mermaid
@@ -106,7 +139,7 @@ sequenceDiagram
 
 Fake/local `plan-next-day` stays sync **200** (no Event worker). Async `propose-cities` is deferred — see [ADR 001](./docs/architecture-decisions/001-async-plan-next-day-polling.md).
 
-**City detection (MVP):** user selects `destination_type` (`city` \| `country` \| `region`). City destinations skip propose-cities.
+**City detection (MVP):** user selects `destination_type` (`city` \| `country` \| `region`). City destinations skip propose-cities and get a **synthetic confirmed** `ROUTE` on create so day planning always has an overnight city.
 
 ## Data model
 
@@ -153,10 +186,9 @@ In Phoenix, select project **`vacation_planner`** → **Traces**.
 Live UI + API + DynamoDB Local (Docker Desktop must be running):
 
 ```bash
-/Users/yukiumetsu/Documents/projects/udemy/travel-plan/vacation_planner/scripts/dev.sh
+# from repo root
+./scripts/dev.sh
 ```
-
-Or from the repo root: `./scripts/dev.sh`
 
 Opens **http://127.0.0.1:5173** (`VITE_USE_DEMO_DATA=false`, `AUTH_MODE=dev`, `CREW_MODE=fake`). Ctrl+C stops the API and Vite; DynamoDB stays up until you `docker compose -f backend/docker-compose.yml down`.
 

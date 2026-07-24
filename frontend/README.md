@@ -27,13 +27,13 @@ Open http://localhost:5173
 **Easiest:** from the repo root, one command starts DynamoDB + API + this SPA:
 
 ```bash
-/Users/yukiumetsu/Documents/projects/udemy/travel-plan/vacation_planner/scripts/dev.sh
+./scripts/dev.sh
 ```
 
 Or manually — Terminal 1 (API + DynamoDB):
 
 ```bash
-cd /Users/yukiumetsu/Documents/projects/udemy/travel-plan/vacation_planner/backend
+cd backend
 docker compose up -d
 export AUTH_MODE=dev CREW_MODE=fake SAFETY_MODE=off
 uv run python scripts/local_api.py
@@ -42,7 +42,7 @@ uv run python scripts/local_api.py
 Terminal 2 — SPA (live mode, no Cognito env vars):
 
 ```bash
-cd /Users/yukiumetsu/Documents/projects/udemy/travel-plan/vacation_planner/frontend
+cd frontend
 VITE_USE_DEMO_DATA=false npm run dev
 ```
 
@@ -72,11 +72,16 @@ Mockups (approved): [`docs/mockups/`](./docs/mockups/)
 
 Theme: ocean teal + sand, Newsreader + DM Sans (`src/index.css`). Energy load caps: see [`docs/PLANNING_QUALITY.md`](../docs/PLANNING_QUALITY.md).
 
-## Status vs still to wire
+## Current limitations
 
-**Done:** Tailwind theme, wizard shell, demo App (cities/days/profile), create + propose/confirm/plan-next-day live mutations (`VITE_USE_DEMO_DATA=false`), profile `localStorage`, city day-range helpers, place remove-by-index, Vitest coverage for API/create/remove/a11y, Cognito PKCE Hosted UI (landing + provider pick + live auth gate).
+- Trip list: `listTrips()` exists on the API client, but the UI does not yet offer a trip picker / resume flow
+- Social login buttons only appear when Facebook/Google IdPs are enabled via Terraform secrets and the SPA is redeployed with that provider list
 
-**Still to wire (you):** Trip list UI can call `listTrips()` when you add a picker. Enable Facebook/Google via Terraform secrets so landing social buttons appear after redeploy.
+## Roadmap / planned improvements
+
+- Trip list / resume picker on the landing and wizard entry
+- Richer profile sync (server-backed prefs beyond local cache where still client-only)
+- Demo and live parity for add/remove place where product rules allow
 
 ## Layout
 

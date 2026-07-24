@@ -45,9 +45,9 @@ Cross-day uniqueness still matters, so each place gets a stable `place_key`, and
 
 If the user picks a country (or similar broad destination), we first decide which cities to visit and how many nights in each. That plan is a `CityRoute`: an ordered list of `CityStop`s. The user confirms it before we generate any day-by-day itineraries.
 
-If the destination is already a single city, there is no route (`city_route` is null).
+If the destination is already a **single city**, the API still persists a **synthetic confirmed** `ROUTE` (one stop for that city covering the full date window) so day planning always has a confirmed overnight city. Propose-cities is skipped; the Cities step may be a pass-through.
 
-In DynamoDB this is stored as one `ROUTE` item on the trip.
+In DynamoDB this is stored as one `ROUTE` item on the trip (city and multi-city trips alike).
 
 ### CityStop
 
@@ -98,7 +98,7 @@ In DynamoDB this is stored as one `ROUTE` item on the trip.
 | `planning_started_at` | string \| null | ISO timestamp for stale-claim reclaim (~6 min) |
 | `planning_error` | string \| null | Last async planning failure message |
 | `preferences` | string | Budget, pace, interests |
-| `city_route` | CityRoute \| null | Set after propose/confirm; null for single-city trips |
+| `city_route` | CityRoute \| null | Always present after create for city destinations (synthetic confirmed route). For country/region: set after propose/confirm; null only before the first route write |
 | `visited_place_keys` | string[] | Keys already used (dedupe) |
 | `prior_days_summary` | string | Compact context for the next crew call |
 | `days` | DayPlan[] | Assembled from DAY items on read |
@@ -199,7 +199,7 @@ gsi1pk/sk:   TRIP#{trip_id}  /  USER#{sub}
   prior_days_summary, created_at, updated_at, expires_at?
 ```
 
-**City route** (`entity_type = ROUTE`) — one per trip when multi-city
+**City route** (`entity_type = ROUTE`) — one per trip (synthetic confirmed for single-city; proposed/confirmed for country/region)
 
 ```text
 pk / sk:     USER#{sub}  /  TRIP#{trip_id}#ROUTE
