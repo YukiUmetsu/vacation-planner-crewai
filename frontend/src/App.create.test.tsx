@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -419,6 +419,109 @@ describe("App live create flow", () => {
       expect(
         screen.queryByRole("button", { name: /^Japan/i }),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  it("unlocks top nav steps as the trip progresses", async () => {
+    const user = userEvent.setup();
+    const proposedBundle: TripBundle = {
+      trip: { ...createdTrip, status: "awaiting_city_confirm" },
+      route: proposedRoute,
+      days: [],
+    };
+    const confirmedBundle: TripBundle = {
+      trip: { ...createdTrip, status: "routing_confirmed" },
+      route: { ...proposedRoute, status: "confirmed" },
+      days: [],
+    };
+
+    vi.mocked(createTrip).mockResolvedValue({
+      trip: createdTrip,
+      route: null,
+    });
+    vi.mocked(getTrip).mockResolvedValue(proposedBundle);
+    vi.mocked(proposeCities).mockResolvedValue({
+      trip: proposedBundle.trip,
+      route: proposedRoute,
+    });
+    vi.mocked(confirmCities).mockResolvedValue({
+      trip: confirmedBundle.trip,
+      route: confirmedBundle.route!,
+    });
+    vi.mocked(planNextDay).mockResolvedValue({
+      status: 200,
+      trip: {
+        ...createdTrip,
+        status: "planning",
+        next_day_index: 2,
+      },
+      day: {
+        day_index: 1,
+        date: "2026-08-01",
+        theme: "Arrival",
+        overnight_city: "Tokyo",
+        places: [{ name: "Senso-ji", place_key: "senso-ji" }],
+      },
+    });
+
+    renderLiveApp();
+
+    const stepNav = () => screen.getByRole("navigation", { name: "Trip steps" });
+    const detailsNav = () =>
+      within(stepNav()).getByRole("button", { name: /Details/i });
+    const citiesNav = () =>
+      within(stepNav()).getByRole("button", { name: /Cities/i });
+    const daysNav = () =>
+      within(stepNav()).getByRole("button", { name: /Days/i });
+
+    expect(detailsNav()).toBeEnabled();
+    expect(citiesNav()).toBeDisabled();
+    expect(daysNav()).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Create trip" }));
+    await waitFor(() => {
+      expect(screen.getByText("Tokyo")).toBeInTheDocument();
+    });
+
+    expect(detailsNav()).toBeEnabled();
+    expect(citiesNav()).toBeEnabled();
+    expect(daysNav()).toBeDisabled();
+
+    await user.click(detailsNav());
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: /Edit trip details/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(citiesNav());
+    await waitFor(() => {
+      expect(screen.getByText("Tokyo")).toBeInTheDocument();
+    });
+
+    vi.mocked(getTrip).mockResolvedValue(confirmedBundle);
+
+    await user.click(screen.getByRole("button", { name: /Confirm route/i }));
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: /Plan your days/i }),
+      ).toBeInTheDocument();
+    });
+
+    expect(daysNav()).toBeEnabled();
+
+    await user.click(detailsNav());
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: /Edit trip details/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(daysNav());
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: /Plan your days/i }),
+      ).toBeInTheDocument();
     });
   });
 });

@@ -1,12 +1,15 @@
 import { AuthBar } from "../auth/AuthBar";
+import type { WizardStep } from "../lib/wizardNavigation";
 
-export type WizardStep = "details" | "cities" | "days";
+export type { WizardStep };
 
 type Props = {
   step: WizardStep;
   children: React.ReactNode;
-  /** When set, step labels are clickable (handy for demo navigation). */
+  /** When set, step labels are clickable (when enabled). */
   onStepChange?: (step: WizardStep) => void;
+  /** Which steps may be activated; defaults to all when omitted. */
+  isStepEnabled?: (step: WizardStep) => boolean;
   demoBadge?: boolean;
   onOpenProfile?: () => void;
 };
@@ -21,10 +24,13 @@ export function WizardLayout({
   step,
   children,
   onStepChange,
+  isStepEnabled,
   demoBadge = false,
   onOpenProfile,
 }: Props) {
   const activeIndex = STEPS.findIndex((s) => s.id === step);
+  const enabled = (id: WizardStep) =>
+    isStepEnabled ? isStepEnabled(id) : true;
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-6xl flex-col px-4 py-8 sm:px-8 sm:py-10">
@@ -42,7 +48,9 @@ export function WizardLayout({
           </div>
           <p className="mt-1 text-sm text-ink-muted">
             Plan calmly — details, cities, then days.
-            {onStepChange ? " Click a previous step to go back." : null}
+            {onStepChange
+              ? " Use the step links to move between unlocked steps."
+              : null}
           </p>
         </div>
         <div className="flex flex-col items-stretch gap-3 sm:items-end">
@@ -62,6 +70,7 @@ export function WizardLayout({
             {STEPS.map((s, i) => {
               const done = i < activeIndex;
               const active = s.id === step;
+              const canGo = Boolean(onStepChange) && enabled(s.id);
               const inner = (
                 <>
                   <span
@@ -100,8 +109,17 @@ export function WizardLayout({
                   {onStepChange ? (
                     <button
                       type="button"
-                      onClick={() => onStepChange(s.id)}
-                      className={`flex items-center gap-2 rounded-lg px-1 py-0.5 transition hover:opacity-80 ${
+                      onClick={() => {
+                        if (canGo) onStepChange(s.id);
+                      }}
+                      disabled={!canGo}
+                      aria-current={active ? "step" : undefined}
+                      aria-disabled={!canGo}
+                      className={`flex items-center gap-2 rounded-lg px-1 py-0.5 transition ${
+                        canGo
+                          ? "hover:opacity-80"
+                          : "cursor-not-allowed opacity-45"
+                      } ${
                         active
                           ? "text-teal-deep"
                           : done

@@ -679,6 +679,7 @@ export function useTripWizard(demoMode: boolean) {
     demoRoute,
     demoDays,
     liveTrip: demoMode ? null : live.trip,
+    liveRoute: demoMode ? null : live.routeMeta,
     hydrating,
     actionError,
     feasibilityMessage,

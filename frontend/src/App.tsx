@@ -9,6 +9,10 @@ import { DaysPanel } from "./components/days/DaysPanel";
 import { useTripWizard } from "./hooks/useTripWizard";
 import { overnightCityForDay } from "./lib/cityRoute";
 import {
+  canNavigateToStep,
+  isRouteReadyForDays,
+} from "./lib/wizardNavigation";
+import {
   ensureIdToken,
   isCognitoConfigured,
   isSignedIn,
@@ -57,15 +61,29 @@ function TripApp({ demoMode }: { demoMode: boolean }) {
 
   const wizard = useTripWizard(demoMode);
 
+  const navCtx = {
+    demoMode,
+    hasTrip: Boolean(wizard.tripId),
+    routeReady: isRouteReadyForDays({
+      trip: wizard.liveTrip,
+      route: wizard.liveRoute,
+    }),
+    hasDays: wizard.days.length > 0,
+  };
+
+  function isStepEnabled(step: WizardStep): boolean {
+    return canNavigateToStep(step, navCtx);
+  }
+
   function handleWizardStepChange(next: WizardStep) {
-    // Live mode: only allow going back to earlier steps (not skipping ahead).
-    const order = ["details", "cities", "days"] as const;
-    const cur = order.indexOf(wizard.step);
-    const tgt = order.indexOf(next);
-    if (tgt < 0 || tgt > cur) return;
+    if (!canNavigateToStep(next, navCtx)) return;
+    if (demoMode) {
+      wizard.setStep(next);
+      return;
+    }
     if (next === "details") wizard.goToDetails();
     else if (next === "cities") void wizard.goToCities();
-    else wizard.setStep(next);
+    else void wizard.goToDays();
   }
 
   if (wizard.screen === "profile") {
@@ -82,7 +100,8 @@ function TripApp({ demoMode }: { demoMode: boolean }) {
   return (
     <WizardLayout
       step={wizard.step}
-      onStepChange={demoMode ? wizard.setStep : handleWizardStepChange}
+      onStepChange={handleWizardStepChange}
+      isStepEnabled={isStepEnabled}
       demoBadge={demoMode}
       onOpenProfile={() => wizard.setScreen("profile")}
     >
@@ -137,6 +156,7 @@ function TripApp({ demoMode }: { demoMode: boolean }) {
         <DaysPanel
           days={wizard.days}
           dayCount={wizard.dayCount}
+          tripId={wizard.tripId}
           destination={wizard.destination}
           planningCity={
             overnightCityForDay(
