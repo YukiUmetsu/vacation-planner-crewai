@@ -65,18 +65,22 @@ variable "backend_source_dir" {
   type        = string
 }
 
-variable "google_places_api_key" {
-  description = "Optional Google Places API (New) key for open-status enrichment (BFF)"
+variable "google_places_secret_arn" {
+  description = "Secrets Manager ARN for Google Places API key (Lambda reads at runtime)"
   type        = string
   default     = ""
-  sensitive   = true
 }
 
-variable "product_metrics_hash_pepper" {
-  description = "Optional override for PRODUCT_METRICS_HASH_PEPPER on the API Lambda. When empty, a Terraform-managed random pepper is used."
+variable "product_metrics_pepper_secret_arn" {
+  description = "Secrets Manager ARN for product metrics hash pepper (Lambda reads at runtime)"
   type        = string
   default     = ""
-  sensitive   = true
+}
+
+variable "secretsmanager_secret_arns" {
+  description = "ARNs Lambda may GetSecretValue on"
+  type        = list(string)
+  default     = []
 }
 
 variable "metrics_admin_subs" {

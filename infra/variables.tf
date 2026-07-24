@@ -16,32 +16,16 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
-variable "google_client_id" {
-  description = "Google OAuth client ID for Cognito Hosted UI (leave empty to skip Google IdP)"
-  type        = string
-  default     = ""
-  sensitive   = true
+variable "enable_google_idp" {
+  description = "List Google on the Cognito app client. Seed credentials into SM and run sync_cognito_idps_from_secrets.sh."
+  type        = bool
+  default     = true
 }
 
-variable "google_client_secret" {
-  description = "Google OAuth client secret for Cognito Hosted UI"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "facebook_app_id" {
-  description = "Facebook Login App ID for Cognito Hosted UI (leave empty to skip Facebook IdP)"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "facebook_app_secret" {
-  description = "Facebook Login App Secret for Cognito Hosted UI"
-  type        = string
-  default     = ""
-  sensitive   = true
+variable "enable_facebook_idp" {
+  description = "List Facebook on the Cognito app client. Seed credentials into SM and run sync_cognito_idps_from_secrets.sh."
+  type        = bool
+  default     = true
 }
 
 variable "callback_urls" {
@@ -98,27 +82,6 @@ variable "agent_allowed_bedrock_model_arns" {
   description = "Optional full Bedrock ARNs; when set, overrides agent_bedrock_models expansion"
   type        = list(string)
   default     = []
-}
-
-variable "serper_api_key" {
-  description = "Optional Serper key stored in Secrets Manager and passed to AgentCore env"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "google_places_api_key" {
-  description = "Optional Google Places API (New) key for BFF open-status enrichment on plan-next-day / suggest-place"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "product_metrics_hash_pepper" {
-  description = "Optional override for API Lambda PRODUCT_METRICS_HASH_PEPPER (user_sub hashing). Empty → Terraform generates a stable random pepper."
-  type        = string
-  default     = ""
-  sensitive   = true
 }
 
 variable "metrics_admin_subs" {

@@ -53,13 +53,52 @@ def _load_dotenv_once() -> None:
         load_dotenv(env_path, override=True)
     except ImportError:
         if not env_path.is_file():
-            return
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+            pass
+        else:
+            for line in env_path.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+    _ensure_serper_from_secrets()
+
+
+def _ensure_serper_from_secrets() -> None:
+    """If SERPER_API_KEY unset, load from SERPER_SECRET_ARN (AgentCore / AWS)."""
+    if os.getenv("SERPER_API_KEY", "").strip():
+        return
+    secret_id = os.getenv("SERPER_SECRET_ARN", "").strip()
+    if not secret_id:
+        return
+    try:
+        import boto3
+    except ImportError:
+        return
+    try:
+        raw = (
+            boto3.client("secretsmanager")
+            .get_secret_value(SecretId=secret_id)
+            .get("SecretString")
+            or ""
+        )
+    except Exception:
+        return
+    if not isinstance(raw, str) or not raw.strip():
+        return
+    value = raw.strip()
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        os.environ["SERPER_API_KEY"] = value
+        return
+    if isinstance(parsed, dict):
+        for key in ("api_key", "SERPER_API_KEY", "key", "value", "secret"):
+            cand = parsed.get(key)
+            if isinstance(cand, str) and cand.strip():
+                os.environ["SERPER_API_KEY"] = cand.strip()
+                return
+    os.environ["SERPER_API_KEY"] = value
 
 
 def _ensure_import_paths(crew_dir: Path) -> None:

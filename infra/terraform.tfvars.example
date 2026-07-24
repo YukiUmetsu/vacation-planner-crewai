@@ -2,12 +2,10 @@ aws_region   = "us-east-1"
 project_name = "vacation-planner"
 environment  = "dev"
 
-# Cognito Hosted UI social IdPs (optional — leave empty for Cognito email/password only)
-google_client_id     = ""
-google_client_secret = ""
-facebook_app_id      = ""
-facebook_app_secret  = ""
-# Prefer TF_VAR_google_client_* / TF_VAR_facebook_app_* env vars over committing secrets.
+# Social IdPs: credentials live in Secrets Manager (not TF_VAR / state).
+# Seed then sync: ./scripts/sync_cognito_idps_from_secrets.sh
+enable_google_idp   = true
+enable_facebook_idp = true
 
 # After first CloudFront deploy, add THAT stack's site URL here and re-apply
 # (terraform output frontend_site_url). Do not copy another environment's URL.
@@ -26,9 +24,7 @@ agent_runtime_container_uri = "" # prefer TF_VAR_… from build_push_image.sh
 # Same IDs as crew llm after "bedrock/" — Terraform expands to IAM ARNs.
 agent_bedrock_models = ["us.amazon.nova-pro-v1:0"]
 # agent_allowed_bedrock_model_arns = []  # optional full-ARN override (rarely needed)
-# serper_api_key                 = ""  # prefer TF_VAR_serper_api_key env var
-# google_places_api_key          = ""  # prefer TF_VAR_google_places_api_key (BFF open-status enrich)
-# product_metrics_hash_pepper    = ""  # optional; empty → Terraform random_password for PRODUCT_METRICS_HASH_PEPPER
+# Seed Serper / Places via: aws secretsmanager put-secret-value
 # metrics_admin_subs             = ""  # your Cognito sub(s), comma-separated — required for /metrics dashboard
 
 # CloudWatch GenAI Observability — account/region singleton (enable in ONE stack per region only).

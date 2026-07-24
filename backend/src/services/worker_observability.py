@@ -188,9 +188,12 @@ def log_quality_metrics(
 
 def stable_user_sub_hash(user_sub: str) -> str:
     """Stable, non-reversible user id for product metrics (not Python hash())."""
-    pepper = (
-        os.getenv("PRODUCT_METRICS_HASH_PEPPER", "").strip()
-        or "vacation-planner-product-metrics-v1"
+    from services.secrets import resolve_secret
+
+    pepper = resolve_secret(
+        plain_env="PRODUCT_METRICS_HASH_PEPPER",
+        arn_env="PRODUCT_METRICS_PEPPER_SECRET_ARN",
+        fallback="vacation-planner-product-metrics-v1",
     )
     digest = hashlib.sha256(f"{pepper}:{user_sub}".encode("utf-8")).hexdigest()
     return digest[:16]

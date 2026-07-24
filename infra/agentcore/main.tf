@@ -137,6 +137,16 @@ data "aws_iam_policy_document" "runtime" {
       resources = [local.ecr_repository_arn]
     }
   }
+
+  dynamic "statement" {
+    for_each = var.serper_secret_arn != "" ? [1] : []
+    content {
+      sid       = "SerperSecretRead"
+      effect    = "Allow"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [var.serper_secret_arn]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "runtime" {
@@ -177,8 +187,8 @@ resource "aws_bedrockagentcore_agent_runtime" "this" {
       UNIFIED_TRACES_DESTINATION_ENABLED                 = "true"
       CREWAI_DISABLE_TELEMETRY                           = "true"
     } : {},
-    var.serper_api_key != "" ? {
-      SERPER_API_KEY = var.serper_api_key
+    var.serper_secret_arn != "" ? {
+      SERPER_SECRET_ARN = var.serper_secret_arn
     } : {}
   )
 

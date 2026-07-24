@@ -1,7 +1,7 @@
 locals {
-  enable_google   = var.google_client_id != "" && var.google_client_secret != ""
-  enable_facebook = var.facebook_app_id != "" && var.facebook_app_secret != ""
   name_prefix     = "${var.project_name}-${var.environment}"
+  enable_google   = var.enable_google_idp
+  enable_facebook = var.enable_facebook_idp
   identity_providers = concat(
     ["COGNITO"],
     local.enable_google ? ["Google"] : [],
@@ -43,69 +43,22 @@ resource "aws_cognito_user_pool" "this" {
   }
 }
 
-resource "aws_cognito_identity_provider" "google" {
-  count = local.enable_google ? 1 : 0
+# Social IdP credentials live in Secrets Manager and are applied by
+# infra/scripts/sync_cognito_idps_from_secrets.sh (Cognito has no client_secret_wo yet).
+# These removed blocks drop IdP resources from Terraform state without destroying AWS IdPs.
+removed {
+  from = aws_cognito_identity_provider.google
 
-  user_pool_id  = aws_cognito_user_pool.this.id
-  provider_name = "Google"
-  provider_type = "Google"
-
-  provider_details = {
-    client_id                     = var.google_client_id
-    client_secret                 = var.google_client_secret
-    authorize_scopes              = "openid email profile"
-    attributes_url_add_attributes = "true"
-  }
-
-  attribute_mapping = {
-    email    = "email"
-    username = "sub"
-  }
-
-  # AWS injects authorize_url / token_url / oidc_issuer / etc. after create.
-  # Ignoring them avoids perpetual plan noise (-> null).
   lifecycle {
-    ignore_changes = [
-      provider_details["attributes_url"],
-      provider_details["attributes_url_add_attributes"],
-      provider_details["authorize_url"],
-      provider_details["oidc_issuer"],
-      provider_details["token_request_method"],
-      provider_details["token_url"],
-    ]
+    destroy = false
   }
 }
 
-resource "aws_cognito_identity_provider" "facebook" {
-  count = local.enable_facebook ? 1 : 0
-
-  user_pool_id  = aws_cognito_user_pool.this.id
-  provider_name = "Facebook"
-  provider_type = "Facebook"
-
-  # Scopes must match AWS Facebook format (comma+space). email is required by our user pool.
-  provider_details = {
-    api_version      = "v21.0"
-    authorize_scopes = "public_profile, email"
-    client_id        = var.facebook_app_id
-    client_secret    = var.facebook_app_secret
-  }
-
-  attribute_mapping = {
-    email              = "email"
-    name               = "name"
-    preferred_username = "id"
-    username           = "id"
-  }
+removed {
+  from = aws_cognito_identity_provider.facebook
 
   lifecycle {
-    ignore_changes = [
-      provider_details["attributes_url"],
-      provider_details["attributes_url_add_attributes"],
-      provider_details["authorize_url"],
-      provider_details["token_request_method"],
-      provider_details["token_url"],
-    ]
+    destroy = false
   }
 }
 
@@ -124,11 +77,6 @@ resource "aws_cognito_user_pool_client" "web" {
   explicit_auth_flows = [
     "ALLOW_REFRESH_TOKEN_AUTH",
     "ALLOW_USER_SRP_AUTH",
-  ]
-
-  depends_on = [
-    aws_cognito_identity_provider.google,
-    aws_cognito_identity_provider.facebook,
   ]
 }
 

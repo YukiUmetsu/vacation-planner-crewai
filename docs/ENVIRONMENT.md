@@ -65,8 +65,10 @@ Demo-only UI (no API): leave `VITE_USE_DEMO_DATA` unset and `npm run dev`.
 | `AGENT_ROOT` | unset | `<repo>/agent` | Root for `CREW_MODE=local`. |
 | `AGENT_CREWS_ROOT` | unset | derived | Override crews path for local runner. |
 | `AGENT_RUNTIME_ARN` | unset | unset | Required for `CREW_MODE=agentcore`. |
-| `GOOGLE_PLACES_API_KEY` | optional | unset | BFF Places enrich before `place_quality`. |
-| `PRODUCT_METRICS_HASH_PEPPER` | optional | code fallback (local only) | Pepper for `user_sub` hashes in product metrics. Prod sets via Terraform. |
+| `GOOGLE_PLACES_API_KEY` | optional | unset | Local plaintext override. |
+| `GOOGLE_PLACES_SECRET_ARN` | optional | unset | Prod: SM ARN; BFF Places enrich before `place_quality`. |
+| `PRODUCT_METRICS_HASH_PEPPER` | optional | code fallback (local only) | Local plaintext override. |
+| `PRODUCT_METRICS_PEPPER_SECRET_ARN` | optional | unset | Prod: SM ARN for `user_sub` hashes. |
 | `BACKEND_GIT_SHA` | optional | unset | Attached to `QUALITY_METRIC` logs when set (deploy/CI). |
 | `PLACES_ENRICH` | `on` | `on` | `off` disables enrich even if key set. |
 | `CREW_INPUT_MAX_CHARS` | optional | `16000` | Soft crew-input char budget. |
@@ -97,7 +99,8 @@ Copy [`agent/.env.example`](../agent/.env.example) → `agent/.env` (gitignored)
 
 | Variable | Typical local | Meaning |
 | --- | --- | --- |
-| `SERPER_API_KEY` | required for real search | SerperDevTool. |
+| `SERPER_API_KEY` | required for real search (local) | SerperDevTool. |
+| `SERPER_SECRET_ARN` | AgentCore | Runtime loads key into `SERPER_API_KEY` if unset. |
 | `AWS_REGION` | e.g. `us-east-1` | Bedrock region. |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / profile | your AWS creds | Bedrock invoke. |
 | `MODEL` / crew LLM ids | in crew JSONC | Often `bedrock/us.amazon.nova-pro-v1:0` (see agent crews). |
@@ -112,9 +115,40 @@ Copy [`agent/.env.example`](../agent/.env.example) → `agent/.env` (gitignored)
 ### How to set values
 
 1. **Non-secrets:** `infra/terraform.tfvars` (from [`terraform.tfvars.example`](../infra/terraform.tfvars.example)).
-2. **Secrets / account-specific:** shell `export TF_VAR_<name>=...` (preferred so they never hit git).
+2. **Secrets:** AWS Secrets Manager (not `TF_VAR_*`, not Terraform state). Terraform creates secret *shells*; you `put-secret-value`, then sync Cognito IdPs.
+3. **Account-specific non-secret:** e.g. `TF_VAR_agent_runtime_container_uri`.
 
-Terraform automatically reads `TF_VAR_<variable_name>` for each root module variable.
+Requires Terraform **>= 1.11** (ephemeral / `secret_string_wo` for product-metrics pepper bootstrap).
+
+### Secrets Manager (no secrets in Terraform state)
+
+| Secret name | Shape | Consumer |
+| --- | --- | --- |
+| `${project}-${env}/cognito/google` | JSON `{client_id, client_secret}` | Cognito Google IdP via [`infra/scripts/sync_cognito_idps_from_secrets.sh`](../infra/scripts/sync_cognito_idps_from_secrets.sh) |
+| `${project}-${env}/cognito/facebook` | JSON `{app_id, app_secret}` | Cognito Facebook IdP via same script |
+| `${project}-${env}/serper` | plain string (or JSON with `api_key`) | AgentCore runtime (`SERPER_SECRET_ARN`) |
+| `${project}-${env}/google-places` | plain string | API Lambda (`GOOGLE_PLACES_SECRET_ARN`) |
+| `${project}-${env}/product-metrics-pepper` | plain string | API Lambda (`PRODUCT_METRICS_PEPPER_SECRET_ARN`); TF bootstraps via ephemeral + `secret_string_wo` |
+
+```bash
+# After first apply creates the shells:
+aws secretsmanager put-secret-value \
+  --secret-id vacation-planner-dev/cognito/google \
+  --secret-string '{"client_id":"...","client_secret":"..."}'
+aws secretsmanager put-secret-value \
+  --secret-id vacation-planner-dev/cognito/facebook \
+  --secret-string '{"app_id":"...","app_secret":"..."}'
+aws secretsmanager put-secret-value \
+  --secret-id vacation-planner-dev/serper \
+  --secret-string 'YOUR_SERPER_KEY'
+aws secretsmanager put-secret-value \
+  --secret-id vacation-planner-dev/google-places \
+  --secret-string 'YOUR_PLACES_KEY'
+
+cd infra && ./scripts/sync_cognito_idps_from_secrets.sh
+```
+
+Local/dev can still set plaintext `GOOGLE_PLACES_API_KEY`, `PRODUCT_METRICS_HASH_PEPPER`, or `SERPER_API_KEY` (preferred over SM when set).
 
 ### Root module variables (`infra/variables.tf`)
 
@@ -123,18 +157,13 @@ Terraform automatically reads `TF_VAR_<variable_name>` for each root module vari
 | `aws_region` | `TF_VAR_aws_region` | no | Default `us-east-1`. |
 | `project_name` | `TF_VAR_project_name` | no | Default `vacation-planner`. |
 | `environment` | `TF_VAR_environment` | no | e.g. `dev`. |
-| `google_client_id` | `TF_VAR_google_client_id` | no | Cognito Google IdP (optional). |
-| `google_client_secret` | `TF_VAR_google_client_secret` | **yes** | Prefer env, not tfvars. |
-| `facebook_app_id` | `TF_VAR_facebook_app_id` | no | Cognito Facebook IdP (optional). |
-| `facebook_app_secret` | `TF_VAR_facebook_app_secret` | **yes** | Prefer env, not tfvars. |
+| `enable_google_idp` | | no | List Google on the app client (default `true`). Credentials via SM + sync script. |
+| `enable_facebook_idp` | | no | List Facebook on the app client (default `true`). |
 | `callback_urls` / `logout_urls` | `TF_VAR_callback_urls` (JSON) | no | Include localhost + CloudFront after first deploy. |
 | `enable_agentcore` | | no | Must be `true` for API deploy. |
 | `agent_runtime_container_uri` | `TF_VAR_agent_runtime_container_uri` | no | ECR image URI from `build_push_image.sh`. |
 | `agent_bedrock_models` | | no | Model IDs like `us.amazon.nova-pro-v1:0` (matches crew `llm`). Default in variables.tf. |
 | `agent_allowed_bedrock_model_arns` | `TF_VAR_agent_allowed_bedrock_model_arns` | no | Optional full-ARN override; usually leave empty. |
-| `serper_api_key` | `TF_VAR_serper_api_key` | **yes** | → AgentCore `SERPER_API_KEY`. |
-| `google_places_api_key` | `TF_VAR_google_places_api_key` | **yes** | Optional → API Lambda `GOOGLE_PLACES_API_KEY`. |
-| `product_metrics_hash_pepper` | `TF_VAR_product_metrics_hash_pepper` | **yes** | Optional override → API Lambda `PRODUCT_METRICS_HASH_PEPPER`. Empty → Terraform `random_password`. |
 | `metrics_admin_subs` | `TF_VAR_metrics_admin_subs` | no | Comma-separated Cognito subs → `METRICS_ADMIN_SUBS` for `/admin/metrics` + `/metrics` SPA. Empty → 403 for all. |
 | `enable_genai_observability` | | no | Account/region Transaction Search singleton. |
 | `genai_observability_indexing_percentage` | | no | e.g. `1` free tier. |
@@ -151,15 +180,10 @@ export AWS_REGION="${AWS_REGION:-us-east-1}"
 # (tag = auto-bumped pyproject version, e.g. .../vacation-planner-agent:0.1.2).
 # Avoid :latest — Terraform/AgentCore need a new tag string to roll forward.
 export TF_VAR_agent_runtime_container_uri="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/vacation-planner-agent:0.1.2"
-export TF_VAR_serper_api_key="..."
-export TF_VAR_google_places_api_key="..."   # optional
-# export TF_VAR_google_client_secret="..."  # if using Google Hosted UI
-# export TF_VAR_facebook_app_id="..."       # if using Facebook Hosted UI
-# export TF_VAR_facebook_app_secret="..."
 ```
 
 Bedrock IAM uses `agent_bedrock_models` in `terraform.tfvars` (default `us.amazon.nova-pro-v1:0`, matching crew `llm` ids). No ARN list or Python export needed.
-Also run `backend/scripts/build_lambda.sh` before `terraform apply`.
+Also run `backend/scripts/build_lambda.sh` before `terraform apply`, then `./scripts/sync_cognito_idps_from_secrets.sh` after secrets are seeded.
 
 ### Runtime env Terraform injects (do not set these by hand in AWS console)
 
@@ -176,8 +200,8 @@ Also run `backend/scripts/build_lambda.sh` before `terraform apply`.
 | `SAFETY_MODE` | `var.safety_mode` |
 | `LOG_LEVEL` | fixed `INFO` (CloudWatch: filter `API_ERROR`) |
 | `BEDROCK_GUARDRAIL_ID` / `BEDROCK_GUARDRAIL_VERSION` | Guardrail outputs / vars |
-| `GOOGLE_PLACES_API_KEY` | optional `var.google_places_api_key` |
-| `PRODUCT_METRICS_HASH_PEPPER` | `var.product_metrics_hash_pepper` or Terraform-managed `random_password` |
+| `GOOGLE_PLACES_SECRET_ARN` | secrets module (runtime fetch) |
+| `PRODUCT_METRICS_PEPPER_SECRET_ARN` | secrets module (runtime fetch) |
 | `METRICS_ADMIN_SUBS` | `var.metrics_admin_subs` |
 | `AWS_LAMBDA_FUNCTION_NAME` | AWS runtime (async plan-next-day worker) |
 
@@ -186,7 +210,7 @@ Also run `backend/scripts/build_lambda.sh` before `terraform apply`.
 | Env | Source |
 | --- | --- |
 | `AWS_REGION` | provider region |
-| `SERPER_API_KEY` | `var.serper_api_key` |
+| `SERPER_SECRET_ARN` | secrets module (runtime fetch → `SERPER_API_KEY`) |
 | `AGENT_OBSERVABILITY_ENABLED` + `OTEL_*` | when GenAI observability enabled |
 
 ---

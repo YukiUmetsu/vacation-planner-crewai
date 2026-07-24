@@ -4,8 +4,9 @@ Provisions the AWS stack for Vacation Planner:
 
 | Module | Resources |
 | --- | --- |
-| `dynamodb/` | Single-table `${project}-${env}-table` (`pk`/`sk`, GSI1, TTL on `expires_at`) |
-| `cognito/` | User pool, app client, Hosted UI domain; optional Google / Facebook IdPs |
+| `dynamodb/` | Single-table `${project}-${env}-table` (`pk`/`sk`, GSI1, TTL on `expires_at`) + metrics table |
+| `secrets/` | Secrets Manager shells (values via CLI / ephemeral pepper write-only) |
+| `cognito/` | User pool, app client, Hosted UI; social IdPs synced from SM (not TF state) |
 | `api/` | Lambda (from `backend/.build/lambda` — run `backend/scripts/build_lambda.sh` first) + HTTP API + Cognito JWT authorizer |
 | `frontend/` | S3 + CloudFront (OAC) for the SPA |
 | `agentcore/` | Bedrock AgentCore runtime (required for API deploy; needs ECR image) |
@@ -13,14 +14,14 @@ Provisions the AWS stack for Vacation Planner:
 
 Schema details: [`docs/DATA_MODEL.md`](../docs/DATA_MODEL.md).
 
-**Environment / `TF_VAR_*` reference:** [`docs/ENVIRONMENT.md`](../docs/ENVIRONMENT.md).
+**Environment / secrets reference:** [`docs/ENVIRONMENT.md`](../docs/ENVIRONMENT.md).
 
 ## Prerequisites
 
-- Terraform `>= 1.5`
+- Terraform `>= 1.11` (ephemeral + `secret_string_wo`)
 - AWS credentials with permission to create the resources above
 - AWS provider `>= 6.17` (AgentCore resources)
-- Optional: Google and/or Facebook OAuth apps for Hosted UI social login
+- Optional: Google and/or Facebook OAuth apps for Hosted UI social login (credentials in Secrets Manager)
 - ECR image of the agent for AgentCore
 
 ## Quick start
@@ -31,15 +32,20 @@ Schema details: [`docs/DATA_MODEL.md`](../docs/DATA_MODEL.md).
 
 cd infra   # if not already here
 cp terraform.tfvars.example terraform.tfvars
-# edit terraform.tfvars (and/or export TF_VAR_google_client_secret, TF_VAR_serper_api_key)
+# edit terraform.tfvars (callback URLs, agent_runtime_container_uri via TF_VAR)
 
 terraform init
 terraform plan
 terraform apply
+
+# 2) Seed Secrets Manager (once / on rotate), then sync Cognito IdPs
+#    see docs/ENVIRONMENT.md for put-secret-value examples
+./scripts/sync_cognito_idps_from_secrets.sh
 ```
 
 The API Lambda package is **`backend/.build/lambda`**, not raw `backend/src`. Skipping the build step makes `terraform plan` fail or ship a broken zip (missing pydantic, etc.).
 
+**Secrets stay out of Terraform state:** OAuth / Serper / Places are never set as `TF_VAR_*` for routine applies. Cognito IdP `client_secret` is applied by the sync script (AWS provider has no `client_secret_wo` yet). Lambda and AgentCore receive **secret ARNs** only and call `GetSecretValue` at runtime.
 Useful outputs after apply:
 
 - `api_endpoint` → frontend `VITE_API_URL`
@@ -67,8 +73,7 @@ export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output te
 # Use the tag printed by ../agent/scripts/build_push_image.sh
 # (auto-bumped version, e.g. .../vacation-planner-agent:0.1.2), not :latest.
 export TF_VAR_agent_runtime_container_uri="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/vacation-planner-agent:0.1.2"
-export TF_VAR_serper_api_key="REPLACE_WITH_SERPER_API_KEY"
-export TF_VAR_google_places_api_key="REPLACE_WITH_GOOGLE_PLACES_API_KEY"  # optional; BFF open-status enrich
+# Serper / Places: put-secret-value into vacation-planner-dev/serper and …/google-places
 ```
 
 In `terraform.tfvars`:
@@ -84,20 +89,19 @@ Cross-region inference profiles (`us.*`, …) also get an intentional `bedrock:*
 
 Lambda always uses `CREW_MODE=agentcore`. Apply fails if the AgentCore runtime ARN is empty.
 
-`AWS_ACCOUNT_ID` is not sensitive; using it from the shell just avoids committing account-specific values. `TF_VAR_serper_api_key` and `TF_VAR_google_places_api_key` are sensitive and should stay out of `terraform.tfvars`. When `GOOGLE_PLACES_API_KEY` is set on the API Lambda, plan-next-day / suggest-place enrich venues via Google Places API (New) before quality gates; omit the key to keep crew/Serper status only.
+`AWS_ACCOUNT_ID` is not sensitive; using it from the shell just avoids committing account-specific values. Seed Serper/Places into Secrets Manager (see ENVIRONMENT.md); Lambda/AgentCore read via secret ARNs at runtime.
 
-API Lambda always gets `PRODUCT_METRICS_HASH_PEPPER` (for non-reversible `user_sub` hashes in product metrics). Leave `product_metrics_hash_pepper` empty to let Terraform generate a stable random pepper in state, or set `TF_VAR_product_metrics_hash_pepper` to inject your own secret.
+Product-metrics pepper is bootstrapped into Secrets Manager with ephemeral `random_password` + `secret_string_wo` (value not stored in Terraform state). To preserve an old pepper after migration, `put-secret-value` that string into `${project}-${env}/product-metrics-pepper` and set `bootstrap_product_metrics_pepper = false` on the secrets module if needed.
 
-**Google Places key restrictions:** restrict the key to Places API (New) only, and prefer IP restriction to Lambda egress. `sensitive = true` redacts CLI output only — the value still sits in Terraform state and Lambda env (same as Serper). Move both to Secrets Manager/SSM when hardening beyond this MVP.
-
+**Google Places key restrictions:** restrict the key to Places API (New) only, and prefer IP restriction to Lambda egress.
 ## Least privilege model
 
 IAM policies are intentionally scoped to the resources created or configured by this stack:
 
 | Principal | Allowed access |
 | --- | --- |
-| Backend Lambda role | `GetItem`, `PutItem`, `UpdateItem`, and `Query` on this stack's DynamoDB table and its indexes; log-stream writes only to its own `/aws/lambda/${project}-${env}-api` log group; invoke on the configured AgentCore runtime ARN; `bedrock:ApplyGuardrail` only when `safety_mode` is `bedrock`/`guardrails` and a Guardrail ARN is set. |
-| AgentCore runtime role | Pulls only the configured ECR repository image; gets an ECR auth token (AWS requires `Resource = "*"`); writes only to AgentCore runtime log groups under `/aws/bedrock-agentcore/runtimes/*`; when GenAI observability is enabled: X-Ray put/sampling + `cloudwatch:PutMetricData` in namespace `bedrock-agentcore`; invokes only models from `agent_bedrock_models` (or `agent_allowed_bedrock_model_arns` override). |
+| Backend Lambda role | DynamoDB trip + metrics tables; log streams; AgentCore invoke; optional ApplyGuardrail; `secretsmanager:GetSecretValue` on Places + product-metrics pepper ARNs. |
+| AgentCore runtime role | ECR pull for configured repo; AgentCore logs; optional X-Ray/CW metrics; Bedrock models from allow-list; `secretsmanager:GetSecretValue` on Serper ARN. |
 | CloudFront service principal | Reads objects from only the generated frontend bucket, constrained by the distribution `AWS:SourceArn`. |
 
 ### Bedrock Guardrails
@@ -158,8 +162,7 @@ infra/
 
 - Trip API routes are implemented in `backend/src`. Redeploy after `./scripts/build_lambda.sh` so the zip picks up code changes.
 - Lambda `CREW_MODE` is always **`agentcore`** in AWS. Apply fails without a runtime ARN (`enable_agentcore=true` + ECR image + model ARNs). Local work uses `CREW_MODE=fake` outside Terraform.
-- Google IdP is skipped when `google_client_id` / `google_client_secret` are empty.
-- Facebook IdP is skipped when `facebook_app_id` / `facebook_app_secret` are empty.
+- Google / Facebook IdPs are listed when `enable_google_idp` / `enable_facebook_idp` are true; credentials are synced from Secrets Manager (`./scripts/sync_cognito_idps_from_secrets.sh`), not Terraform.
 - After apply, `terraform output cognito_identity_providers` lists enabled IdPs for `VITE_COGNITO_IDENTITY_PROVIDERS` (set automatically by `frontend/scripts/deploy.sh`).
 - **Facebook `attributes required: [email]`:** Cognito requires email. In Meta Developer Console → App → **App Review → Permissions and features**, grant **Advanced Access** for `email` (and `public_profile`). Use a Facebook account that has a primary email and accept the email permission on the consent screen. Then `terraform apply` so Cognito IdP scopes are `public_profile, email`.
 - Do not commit `terraform.tfvars`, `.terraform/`, or `*.tfstate*`.

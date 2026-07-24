@@ -6,28 +6,16 @@ variable "environment" {
   type = string
 }
 
-variable "google_client_id" {
-  type      = string
-  sensitive = true
+variable "enable_google_idp" {
+  description = "List Google on the app client. Credentials are synced from Secrets Manager via sync_cognito_idps_from_secrets.sh."
+  type        = bool
+  default     = true
 }
 
-variable "google_client_secret" {
-  type      = string
-  sensitive = true
-}
-
-variable "facebook_app_id" {
-  type        = string
-  sensitive   = true
-  description = "Facebook Login App ID (empty skips Facebook IdP)"
-  default     = ""
-}
-
-variable "facebook_app_secret" {
-  type        = string
-  sensitive   = true
-  description = "Facebook Login App Secret (empty skips Facebook IdP)"
-  default     = ""
+variable "enable_facebook_idp" {
+  description = "List Facebook on the app client. Credentials are synced from Secrets Manager via sync_cognito_idps_from_secrets.sh."
+  type        = bool
+  default     = true
 }
 
 variable "callback_urls" {

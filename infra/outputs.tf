@@ -27,6 +27,26 @@ output "cognito_identity_providers" {
   value       = module.cognito.identity_providers
 }
 
+output "cognito_google_secret_name" {
+  value = module.secrets.cognito_google_secret_name
+}
+
+output "cognito_facebook_secret_name" {
+  value = module.secrets.cognito_facebook_secret_name
+}
+
+output "serper_secret_arn" {
+  value = module.secrets.serper_secret_arn
+}
+
+output "google_places_secret_arn" {
+  value = module.secrets.google_places_secret_arn
+}
+
+output "product_metrics_pepper_secret_arn" {
+  value = module.secrets.product_metrics_pepper_secret_arn
+}
+
 output "api_endpoint" {
   description = "HTTP API base URL for the frontend"
   value       = module.api.api_endpoint

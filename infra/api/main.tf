@@ -1,24 +1,17 @@
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
-resource "random_password" "product_metrics_hash_pepper" {
-  count   = var.product_metrics_hash_pepper == "" ? 1 : 0
-  length  = 48
-  special = false
-
-  lifecycle {
-    # Keep hashes stable across applies once generated.
-    ignore_changes = [length, special, lower, upper, numeric, min_lower, min_upper, min_numeric, min_special, override_special]
-  }
-}
-
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
-  product_metrics_hash_pepper = (
-    var.product_metrics_hash_pepper != ""
-    ? var.product_metrics_hash_pepper
-    : random_password.product_metrics_hash_pepper[0].result
-  )
+}
+
+# Former plaintext pepper in state — drop without destroying (no AWS resource).
+removed {
+  from = random_password.product_metrics_hash_pepper
+
+  lifecycle {
+    destroy = false
+  }
 }
 
 data "archive_file" "backend" {
@@ -76,6 +69,14 @@ resource "aws_iam_role_policy" "lambda_app" {
           Resource = "arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:${aws_cloudwatch_log_group.lambda.name}:*"
         }
       ],
+      length(var.secretsmanager_secret_arns) > 0 ? [
+        {
+          Sid      = "SecretsManagerRead"
+          Effect   = "Allow"
+          Action   = ["secretsmanager:GetSecretValue"]
+          Resource = var.secretsmanager_secret_arns
+        }
+      ] : [],
       var.agent_runtime_arn != "" ? [
         {
           Sid      = "AgentCoreInvoke"
@@ -125,14 +126,12 @@ resource "aws_lambda_function" "api" {
         CREW_MODE                   = "agentcore"
         SAFETY_MODE                 = var.safety_mode
         LOG_LEVEL                   = "INFO"
-        BEDROCK_GUARDRAIL_ID        = var.bedrock_guardrail_id
-        BEDROCK_GUARDRAIL_VERSION   = var.bedrock_guardrail_version
-        PRODUCT_METRICS_HASH_PEPPER = local.product_metrics_hash_pepper
-        METRICS_ADMIN_SUBS          = var.metrics_admin_subs
-      },
-      var.google_places_api_key != "" ? {
-        GOOGLE_PLACES_API_KEY = var.google_places_api_key
-      } : {}
+        BEDROCK_GUARDRAIL_ID                 = var.bedrock_guardrail_id
+        BEDROCK_GUARDRAIL_VERSION            = var.bedrock_guardrail_version
+        METRICS_ADMIN_SUBS                   = var.metrics_admin_subs
+        GOOGLE_PLACES_SECRET_ARN             = var.google_places_secret_arn
+        PRODUCT_METRICS_PEPPER_SECRET_ARN    = var.product_metrics_pepper_secret_arn
+      }
     )
   }
 

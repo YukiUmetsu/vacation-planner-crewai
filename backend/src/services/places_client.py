@@ -120,7 +120,12 @@ class GooglePlacesClient:
 
 
 def places_api_key_from_env() -> str:
-    return os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
+    from services.secrets import resolve_secret
+
+    return resolve_secret(
+        plain_env="GOOGLE_PLACES_API_KEY",
+        arn_env="GOOGLE_PLACES_SECRET_ARN",
+    )
 
 
 def places_enrich_enabled() -> bool:

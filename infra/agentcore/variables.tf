@@ -50,10 +50,10 @@ variable "bedrock_model_arns" {
   }
 }
 
-variable "serper_api_key" {
-  type      = string
-  default   = ""
-  sensitive = true
+variable "serper_secret_arn" {
+  description = "Secrets Manager ARN for Serper API key (runtime fetch; not injected as plaintext env)"
+  type        = string
+  default     = ""
 }
 
 variable "observability_enabled" {

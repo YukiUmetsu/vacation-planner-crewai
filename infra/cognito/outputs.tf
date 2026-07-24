@@ -24,8 +24,7 @@ output "issuer" {
 
 output "identity_providers" {
   description = "Cognito app-client supported IdPs (COGNITO plus optional Google/Facebook)"
-  # Provider names are not secrets; enable flags are derived from sensitive vars.
-  value = nonsensitive(local.identity_providers)
+  value       = local.identity_providers
 }
 
 data "aws_region" "current" {}

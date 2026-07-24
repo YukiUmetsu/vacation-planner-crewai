@@ -8,16 +8,20 @@ module "dynamodb" {
   metrics_table_name = "${local.name_prefix}-metrics"
 }
 
+module "secrets" {
+  source       = "./secrets"
+  project_name = var.project_name
+  environment  = var.environment
+}
+
 module "cognito" {
-  source               = "./cognito"
-  project_name         = var.project_name
-  environment          = var.environment
-  google_client_id     = var.google_client_id
-  google_client_secret = var.google_client_secret
-  facebook_app_id      = var.facebook_app_id
-  facebook_app_secret  = var.facebook_app_secret
-  callback_urls        = var.callback_urls
-  logout_urls          = var.logout_urls
+  source              = "./cognito"
+  project_name        = var.project_name
+  environment         = var.environment
+  enable_google_idp   = var.enable_google_idp
+  enable_facebook_idp = var.enable_facebook_idp
+  callback_urls       = var.callback_urls
+  logout_urls         = var.logout_urls
 }
 
 module "agentcore" {
@@ -28,7 +32,7 @@ module "agentcore" {
   container_uri         = var.agent_runtime_container_uri
   bedrock_models        = var.agent_bedrock_models
   bedrock_model_arns    = var.agent_allowed_bedrock_model_arns
-  serper_api_key        = var.serper_api_key
+  serper_secret_arn     = module.secrets.serper_secret_arn
   observability_enabled = var.enable_genai_observability
 }
 
@@ -74,22 +78,26 @@ locals {
 module "api" {
   source = "./api"
 
-  project_name                = var.project_name
-  environment                 = var.environment
-  dynamodb_table_name         = module.dynamodb.table_name
-  dynamodb_table_arn          = module.dynamodb.table_arn
-  dynamodb_metrics_table_name = module.dynamodb.metrics_table_name
-  dynamodb_metrics_table_arn  = module.dynamodb.metrics_table_arn
-  cognito_user_pool_client_id = module.cognito.user_pool_client_id
-  cognito_issuer              = module.cognito.issuer
-  agent_runtime_arn           = module.agentcore.agent_runtime_arn
-  safety_mode                 = var.safety_mode
-  bedrock_guardrail_id        = local.bedrock_guardrail_id
-  bedrock_guardrail_version   = local.bedrock_guardrail_version
-  bedrock_guardrail_arn       = local.bedrock_guardrail_arn
-  google_places_api_key       = var.google_places_api_key
-  product_metrics_hash_pepper = var.product_metrics_hash_pepper
-  metrics_admin_subs          = var.metrics_admin_subs
+  project_name                       = var.project_name
+  environment                        = var.environment
+  dynamodb_table_name                = module.dynamodb.table_name
+  dynamodb_table_arn                 = module.dynamodb.table_arn
+  dynamodb_metrics_table_name        = module.dynamodb.metrics_table_name
+  dynamodb_metrics_table_arn         = module.dynamodb.metrics_table_arn
+  cognito_user_pool_client_id        = module.cognito.user_pool_client_id
+  cognito_issuer                     = module.cognito.issuer
+  agent_runtime_arn                  = module.agentcore.agent_runtime_arn
+  safety_mode                        = var.safety_mode
+  bedrock_guardrail_id               = local.bedrock_guardrail_id
+  bedrock_guardrail_version          = local.bedrock_guardrail_version
+  bedrock_guardrail_arn              = local.bedrock_guardrail_arn
+  google_places_secret_arn           = module.secrets.google_places_secret_arn
+  product_metrics_pepper_secret_arn  = module.secrets.product_metrics_pepper_secret_arn
+  secretsmanager_secret_arns = [
+    module.secrets.google_places_secret_arn,
+    module.secrets.product_metrics_pepper_secret_arn,
+  ]
+  metrics_admin_subs = var.metrics_admin_subs
   # Built package (src + pip deps). Run: ../backend/scripts/build_lambda.sh
   backend_source_dir = "${path.root}/../backend/.build/lambda"
 }
