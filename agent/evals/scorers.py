@@ -110,6 +110,11 @@ def _as_key_list(value: Any) -> list[str]:
     return []
 
 
+def _as_lower_token_list(value: Any) -> list[str]:
+    """Normalize list or comma-separated string into lowercased tokens."""
+    return [token.lower() for token in _as_key_list(value)]
+
+
 def score_day_plan(output: dict[str, Any], case: EvalCase) -> list[str]:
     """Return failure messages for a ``day_plan`` crew output."""
     failures: list[str] = []
@@ -354,15 +359,19 @@ def collect_day_plan_metrics(
 
     interests = [
         str(i).strip().lower()
-        for i in (case.expected.get("interests") or case.inputs.get("interests") or [])
+        for i in (case.expected.get("interests") or [])
         if str(i).strip()
     ]
-    if isinstance(case.inputs.get("interests"), str):
-        interests = [
-            p.strip().lower()
-            for p in str(case.inputs.get("interests") or "").split(",")
-            if p.strip()
-        ]
+    if not interests:
+        raw_interests = case.inputs.get("interests")
+        if isinstance(raw_interests, str):
+            interests = [
+                p.strip().lower() for p in raw_interests.split(",") if p.strip()
+            ]
+        elif isinstance(raw_interests, list):
+            interests = [
+                str(i).strip().lower() for i in raw_interests if str(i).strip()
+            ]
     preference_hits = 0
     if interests:
         blob = " ".join(
@@ -376,6 +385,22 @@ def collect_day_plan_metrics(
     else:
         preference_relevance_score = 1.0
 
+    excluded_categories = _as_lower_token_list(
+        case.expected.get("excluded_categories")
+    )
+    if not excluded_categories:
+        excluded_categories = _as_lower_token_list(
+            case.inputs.get("excluded_categories")
+        )
+    category_exclusion_hits = 0
+    if excluded_categories:
+        for place in places:
+            if not isinstance(place, dict):
+                continue
+            cat = str(place.get("category") or "").strip().lower()
+            if cat and cat in excluded_categories:
+                category_exclusion_hits += 1
+
     max_minutes = _resolve_max_minutes(case)
     total = _day_total_minutes([p for p in places if isinstance(p, dict)])
     energy_overage = (
@@ -384,7 +409,9 @@ def collect_day_plan_metrics(
 
     return {
         "preference_relevance_score": float(preference_relevance_score),
-        "explicit_exclusion_violation_rate": float(exclusion_hits > 0),
+        "explicit_exclusion_violation_rate": float(
+            exclusion_hits > 0 or category_exclusion_hits > 0
+        ),
         "duplicate_rate": float(dup > 0),
         "closed_place_rate": closed / n,
         "energy_overage_rate": energy_overage,

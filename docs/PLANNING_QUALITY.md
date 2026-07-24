@@ -81,6 +81,70 @@ Example: energy **3** → warn after **510** min. Day with **540** min → cauti
 
 ---
 
+## Quality layers (MVP)
+
+| Layer | What it does | Blocks persist? |
+| --- | --- | --- |
+| **1. Deterministic BFF** | Dedupe, Places enrich, closed/weekday, energy, meal stops (`place_quality` / `require_meal_stops`) | Yes (existing `ApiError` codes) |
+| **2. Reviewer `QualityReport`** | Scores + `failure_tags` on CrewEnvelope; soft preference fit | Hard tags only (see table below) |
+| **3. Offline / online metrics** | Eval `metrics` aggregates; `QUALITY_METRIC` / `PRODUCT_METRIC` logs | No (observe only) |
+
+Persisted Dynamo DAY items stay **domain-only** — quality/invocation are never written. See [ADR 004](./architecture-decisions/004-crew-quality-envelope.md).
+
+### Hard vs soft failure tags
+
+| Tag | Class | MVP behavior |
+| --- | --- | --- |
+| `duplicate_place`, `wrong_city`, `closed_place`, `too_packed`, `energy_overload`, `excluded_category`, `missing_meals` | **Hard** | Fail / regenerate; log `QUALITY_METRIC` |
+| `preference_mismatch`, `too_far`, `weak_reason`, `ungrounded_place` | **Soft** | Log only; still persist if hard gates pass |
+
+### Metric catalog
+
+**Runtime (`QUALITY_METRIC` JSON line)** — dimensions/fields: `trip_id`, `day_index`, `passes_relevance`, `relevance_score`, `constraint_score`, `failure_tags`, `guardrail_code`, `places_count`, plus invocation `crew_name`, `prompt_version`, `prompt_hash`, `model_id`, `git_sha`, `input_context_chars`, `context_was_slimmed`, `output_schema_version`.
+
+Useful rates (derive in Logs Insights): empty/dedupe/closed/energy/meals/safety/context-truncation from `guardrail_code` + tag counts.
+
+**Offline evals (`EvalResult.metrics`)** — per case then mean via `aggregate_metrics`:
+
+| Key | Meaning |
+| --- | --- |
+| `schema_valid` / `schema_valid_rate` | Binary scorer pass |
+| `hard_constraint_pass` / `_rate` | Same as schema for MVP |
+| `preference_relevance_score` | Interest/keyword overlap (0–1) |
+| `explicit_exclusion_violation_rate` | `already_visited` or `excluded_categories` hit |
+| `duplicate_rate`, `closed_place_rate`, `energy_overage_rate`, `grounding_rate` | Structural rates |
+| `latency_ms`, `cost` | Reserved (live / Bedrock usage later) |
+
+Preference fixtures: `day_plan_preference_food`, `day_plan_preference_exclusion`, `day_plan_preference_mismatch`.
+
+**Phase 2.1 — LLM-as-judge:** same metric keys; swap the scorer backend for `preference_relevance_score` only (documented hook; not implemented).
+
+**Online product (`PRODUCT_METRIC` via `POST /events`)** — allowlisted names: `proposal_accepted`, `proposal_accepted_without_edit`, `manual_edit`, `time_to_accept` (payload `ms`), `plan_regenerated`, `place_deleted`, `suggestion_accepted`, `place_reordered` (reserved until reorder UX). No PII; `user_sub_hash` is peppered SHA-256.
+
+### CloudWatch Logs Insights (examples)
+
+```
+fields @timestamp, trip_id, day_index, failure_tags, guardrail_code, prompt_version
+| filter @message like /QUALITY_METRIC/
+| sort @timestamp desc
+| limit 50
+```
+
+```
+fields @timestamp, event_name, trip_id, payload.ms
+| filter @message like /PRODUCT_METRIC/
+| filter event_name = "proposal_accepted" or event_name = "proposal_accepted_without_edit"
+| stats count() by event_name
+```
+
+```
+fields @timestamp, event_name, payload.ms
+| filter @message like /PRODUCT_METRIC/ and event_name = "time_to_accept"
+| stats avg(payload.ms), pct(payload.ms, 50), pct(payload.ms, 90) by bin(1d)
+```
+
+---
+
 ## Roadmap (quality)
 
 1. [x] Persist profile (prefs, energy, interests) in DynamoDB; inject into `plan-next-day`.
@@ -88,4 +152,5 @@ Example: energy **3** → warn after **510** min. Day with **540** min → cauti
 3. [x] Suggest one more place: `suggest_place` crew + `POST /trips/{id}/days/{n}/suggest-place` with `validate_suggested_place` + offline scorer.
 4. [x] Venue open status via Places API when Serper is not enough (BFF enrich with Google Places API New before `place_quality`; tool-assisted discovery remains soft).
 5. [x] Runtime QualityReport envelope (hard block / soft log) + invocation metadata + POST /events (ADR 004).
-6. [ ] Offline graded metric dashboards + LLM-as-judge scorer backend (same metric keys).
+6. [x] Offline graded metrics + preference fixtures (heuristic `preference_relevance_score`).
+7. [ ] Offline graded metric dashboards + LLM-as-judge scorer backend (same metric keys).

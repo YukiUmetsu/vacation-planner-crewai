@@ -47,6 +47,8 @@ export type Route = {
     rationale?: string;
     total_nights: number;
     status: "proposed" | "confirmed" | string;
+    /** ISO timestamp from API ROUTE item; used for time_to_accept after hydrate. */
+    updated_at?: string;
 }
 
 export type PlaceWatchOut = {

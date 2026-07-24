@@ -1,0 +1,44 @@
+{
+  "day_index": 2,
+  "date": "2026-09-03",
+  "theme": "Quiet parks day",
+  "summary": "Respects excluded nightlife category and already_visited",
+  "overnight_city": "Tokyo",
+  "places": [
+    {
+      "name": "Shinjuku Gyoen",
+      "place_key": "shinjuku-gyoen|tokyo",
+      "category": "park",
+      "address": "11 Naito-machi, Shinjuku City, Tokyo",
+      "reason_to_visit": "Large park with lawns and gardens",
+      "estimated_minutes": 120,
+      "order_in_day": 1
+    },
+    {
+      "name": "Tsurutontan Shinjuku",
+      "place_key": "tsurutontan|tokyo",
+      "category": "food",
+      "address": "2-2-1 Kabukicho, Shinjuku City, Tokyo",
+      "reason_to_visit": "Lunch — udon bowls",
+      "estimated_minutes": 50,
+      "order_in_day": 2
+    },
+    {
+      "name": "Meiji Jingu Outer Garden",
+      "place_key": "meiji-outer-garden|tokyo",
+      "category": "park",
+      "address": "1-1 Kasumigaokamachi, Shinjuku City, Tokyo",
+      "estimated_minutes": 60,
+      "order_in_day": 3
+    },
+    {
+      "name": "Gonpachi Nishi-Azabu",
+      "place_key": "gonpachi|tokyo",
+      "category": "food",
+      "address": "1-13-11 Nishi-Azabu, Minato City, Tokyo",
+      "reason_to_visit": "Dinner — izakaya classics",
+      "estimated_minutes": 75,
+      "order_in_day": 4
+    }
+  ]
+}

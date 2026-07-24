@@ -39,6 +39,20 @@ export function acceptanceBaselineFromRoute(
   return routeAcceptanceFingerprint(route);
 }
 
+/** Epoch ms when the current proposal became available (prefer route.updated_at). */
+export function proposalShownAtMs(
+  route: Route | null | undefined,
+  fallbackMs: number = Date.now(),
+): number | null {
+  if (acceptanceBaselineFromRoute(route) == null) return null;
+  const raw = route?.updated_at?.trim();
+  if (raw) {
+    const parsed = Date.parse(raw);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallbackMs;
+}
+
 export type LiveTripState = {
   trip: Trip | null;
   cities: CityStop[];
@@ -124,6 +138,8 @@ export function useLiveTripActions({
   const hydrateEpochRef = useRef(0);
   /** Fingerprint of last successful propose — used for acceptance-without-edit. */
   const lastProposedFingerprintRef = useRef<string | null>(null);
+  /** ms timestamp when proposal baseline was set (propose or hydrate). */
+  const proposalShownAtRef = useRef<number | null>(null);
 
   const proposeMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -150,6 +166,7 @@ export function useLiveTripActions({
       lastProposedFingerprintRef.current = acceptanceBaselineFromRoute(
         result.data.route,
       );
+      proposalShownAtRef.current = proposalShownAtMs(result.data.route);
       onApplied((prev) => {
         if (prev.trip?.trip_id && prev.trip.trip_id !== result.id) return prev;
         return applyTripBundle({
@@ -172,6 +189,7 @@ export function useLiveTripActions({
       const withoutEdit =
         lastProposedFingerprintRef.current != null &&
         lastProposedFingerprintRef.current === fingerprint;
+      const shownAt = proposalShownAtRef.current;
       void trackProductEvent("proposal_accepted", {
         tripId: id,
         payload: { source: "confirm_cities" },
@@ -181,8 +199,23 @@ export function useLiveTripActions({
           tripId: id,
           payload: { source: "confirm_cities" },
         });
+      } else if (lastProposedFingerprintRef.current != null) {
+        void trackProductEvent("manual_edit", {
+          tripId: id,
+          payload: { source: "confirm_cities" },
+        });
+      }
+      if (shownAt != null) {
+        void trackProductEvent("time_to_accept", {
+          tripId: id,
+          payload: {
+            source: "confirm_cities",
+            ms: Math.max(0, Date.now() - shownAt),
+          },
+        });
       }
       lastProposedFingerprintRef.current = null;
+      proposalShownAtRef.current = null;
       onApplied((prev) => {
         if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
         return applyTripBundle({
@@ -355,6 +388,7 @@ export function useLiveTripActions({
     lastProposedFingerprintRef.current = acceptanceBaselineFromRoute(
       bundle.route,
     );
+    proposalShownAtRef.current = proposalShownAtMs(bundle.route);
     const resume = pendingPlanningDayIndex(bundle.trip, bundle.days);
     if (resume != null && !planDayMutation.isPending) {
       planDayMutation.mutate({ id, resumeDayIndex: resume });
@@ -374,6 +408,7 @@ export function useLiveTripActions({
     planEpochRef.current += 1;
     hydrateEpochRef.current += 1;
     lastProposedFingerprintRef.current = null;
+    proposalShownAtRef.current = null;
     proposeMutation.reset();
     confirmMutation.reset();
     planDayMutation.reset();

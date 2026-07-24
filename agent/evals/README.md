@@ -9,9 +9,10 @@ Traveler energy hour caps (for future scorers): [`docs/PLANNING_QUALITY.md`](../
 | Path | Purpose |
 | --- | --- |
 | `case.py` / `harness.py` | Load fixtures + run cases (done) |
-| `scorers.py` | Place/city count, keys, dedupe, nights, energy/closed, `suggest_place` |
+| `scorers.py` | Place/city count, keys, dedupe, nights, energy/closed, `suggest_place`, graded day_plan metrics |
 | `fixtures/*.json` | Case inputs + expected hints (`day_plan_*`, `suggest_place_*`, …) |
-| `test_harness.py` | Smoke tests for loading / scorers / producer errors |
+| `fixtures/*preference*` | Interest / exclusion cases for non-vacuous `preference_relevance_score` |
+| `test_harness.py` | Smoke tests for loading / scorers / producer errors / metric aggregates |
 
 ## Fixture shape
 
@@ -20,9 +21,17 @@ Traveler energy hour caps (for future scorers): [`docs/PLANNING_QUALITY.md`](../
   "id": "day_plan_tokyo_day1",
   "crew": "day_plan",
   "inputs": { "overnight_city": "Tokyo", "day_index": 1, "already_visited": [] },
-  "expected": { "min_places": 3, "max_places": 6, "forbidden_place_keys": [] }
+  "expected": {
+    "min_places": 3,
+    "max_places": 6,
+    "forbidden_place_keys": [],
+    "interests": ["ramen"],
+    "excluded_categories": ["nightlife"]
+  }
 }
 ```
+
+`EvalResult.metrics` holds graded rates (see [`docs/PLANNING_QUALITY.md`](../../docs/PLANNING_QUALITY.md) metric catalog). **Phase 2.1:** LLM-as-judge may replace the heuristic for `preference_relevance_score` only — keep the same keys.
 
 Files starting with `_` are ignored.
 

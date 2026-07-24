@@ -30,8 +30,8 @@ _PAYLOAD_KEYS: dict[str, frozenset[str]] = {
     "place_deleted": frozenset({"place_index"}),
     "place_reordered": frozenset({"from_index", "to_index"}),
     "suggestion_accepted": frozenset({"source"}),
-    "manual_edit": frozenset({"field"}),
-    "time_to_accept": frozenset({"ms"}),
+    "manual_edit": frozenset({"field", "source"}),
+    "time_to_accept": frozenset({"ms", "source"}),
 }
 
 _MAX_PAYLOAD_VALUE_CHARS = 64

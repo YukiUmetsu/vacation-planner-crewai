@@ -339,6 +339,104 @@ def test_fixture_files_are_valid_json() -> None:
         assert isinstance(data, dict)
 
 
+def test_preference_fixtures_expose_graded_metrics() -> None:
+    from evals.harness import aggregate_metrics, unwrap_eval_output
+    from evals.scorers import collect_day_plan_metrics
+
+    cases = {c.id: c for c in load_cases()}
+    for case_id in (
+        "day_plan_preference_food",
+        "day_plan_preference_exclusion",
+        "day_plan_preference_mismatch",
+    ):
+        assert case_id in cases, f"missing fixture {case_id}"
+
+    fixtures = Path(__file__).resolve().parent / "fixtures"
+    food = run_case(
+        cases["day_plan_preference_food"],
+        json.loads(
+            (fixtures / "day_plan_preference_food.output.json").read_text(
+                encoding="utf-8"
+            )
+        ),
+    )
+    assert food.passed
+    assert food.metrics["preference_relevance_score"] == 1.0
+    assert food.metrics["grounding_rate"] == 1.0
+
+    mismatch = run_case(
+        cases["day_plan_preference_mismatch"],
+        json.loads(
+            (fixtures / "day_plan_preference_mismatch.output.json").read_text(
+                encoding="utf-8"
+            )
+        ),
+    )
+    assert mismatch.passed
+    assert float(mismatch.metrics["preference_relevance_score"]) < 0.5
+
+    exclusion = cases["day_plan_preference_exclusion"]
+    domain = unwrap_eval_output(
+        json.loads(
+            (fixtures / "day_plan_preference_exclusion.output.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+    metrics = collect_day_plan_metrics(domain, exclusion)
+    assert metrics["explicit_exclusion_violation_rate"] == 0.0
+    assert metrics["preference_relevance_score"] == 1.0
+
+    violated = collect_day_plan_metrics(
+        {
+            **domain,
+            "places": domain["places"]
+            + [
+                {
+                    "name": "Club Example",
+                    "place_key": "club|tokyo",
+                    "category": "nightlife",
+                    "estimated_minutes": 60,
+                    "order_in_day": 5,
+                }
+            ],
+        },
+        exclusion,
+    )
+    assert violated["explicit_exclusion_violation_rate"] == 1.0
+
+    csv_case = EvalCase(
+        id="exclusion_csv",
+        crew="day_plan",
+        inputs={
+            "overnight_city": "Tokyo",
+            "excluded_categories": "nightlife, shopping",
+        },
+        expected={"min_places": 1},
+        source_path=Path("exclusion_csv.json"),
+    )
+    csv_metrics = collect_day_plan_metrics(
+        {
+            "overnight_city": "Tokyo",
+            "places": [
+                {
+                    "name": "Club Example",
+                    "place_key": "club|tokyo",
+                    "category": "nightlife",
+                    "estimated_minutes": 60,
+                    "order_in_day": 1,
+                }
+            ],
+        },
+        csv_case,
+    )
+    assert csv_metrics["explicit_exclusion_violation_rate"] == 1.0
+
+    agg = aggregate_metrics([food, mismatch])
+    assert "preference_relevance_score" in agg
+    assert "schema_valid_rate" in agg
+
+
 def test_load_cases_rejects_bad_crew(tmp_path: Path) -> None:
     bad = tmp_path / "bad.json"
     bad.write_text(

@@ -1,0 +1,43 @@
+{
+  "day_index": 1,
+  "date": "2026-09-04",
+  "theme": "Shopping-heavy day (soft preference miss)",
+  "summary": "Valid schema but weak interest overlap for museum/art prefs",
+  "overnight_city": "Tokyo",
+  "places": [
+    {
+      "name": "Shibuya Scramble Crossing",
+      "place_key": "shibuya-scramble|tokyo",
+      "category": "other",
+      "address": "2-24 Shibuya, Shibuya City, Tokyo",
+      "estimated_minutes": 30,
+      "order_in_day": 1
+    },
+    {
+      "name": "Ichiran Shibuya",
+      "place_key": "ichiran-shibuya|tokyo",
+      "category": "food",
+      "address": "1-22-7 Jinnan, Shibuya City, Tokyo",
+      "reason_to_visit": "Lunch — tonkotsu ramen",
+      "estimated_minutes": 45,
+      "order_in_day": 2
+    },
+    {
+      "name": "Tokyu Plaza Omotesando Harajuku",
+      "place_key": "tokyu-plaza|tokyo",
+      "category": "other",
+      "address": "4-30-3 Jingumae, Shibuya City, Tokyo",
+      "estimated_minutes": 60,
+      "order_in_day": 3
+    },
+    {
+      "name": "Afuri Harajuku",
+      "place_key": "afuri-harajuku|tokyo",
+      "category": "food",
+      "address": "1-1-7 Jingumae, Shibuya City, Tokyo",
+      "reason_to_visit": "Dinner — yuzu ramen",
+      "estimated_minutes": 50,
+      "order_in_day": 4
+    }
+  ]
+}

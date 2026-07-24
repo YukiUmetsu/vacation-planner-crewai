@@ -1,0 +1,21 @@
+{
+  "id": "day_plan_preference_exclusion",
+  "crew": "day_plan",
+  "inputs": {
+    "overnight_city": "Tokyo",
+    "day_index": 2,
+    "date": "2026-09-03",
+    "preferences": "parks, quiet walks",
+    "interests": "park",
+    "excluded_categories": ["nightlife"],
+    "already_visited": ["senso-ji|tokyo"],
+    "energy_level": 2
+  },
+  "expected": {
+    "min_places": 3,
+    "max_places": 6,
+    "forbidden_place_keys": ["senso-ji|tokyo"],
+    "interests": ["park"],
+    "excluded_categories": ["nightlife"]
+  }
+}

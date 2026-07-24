@@ -61,6 +61,7 @@ function proposedBundle(id: string): TripBundle {
     total_nights: 3,
     rationale: "Food first",
     status: "proposed",
+    updated_at: "2026-07-20T12:00:00.000Z",
   };
   return {
     trip: {
@@ -258,6 +259,22 @@ describe("useLiveTripActions hydrateFromApi", () => {
           payload: { source: "confirm_cities" },
         },
       );
+      expect(trackProductEventMock).toHaveBeenCalledWith(
+        "time_to_accept",
+        expect.objectContaining({
+          tripId: "trip-resume",
+          payload: expect.objectContaining({
+            source: "confirm_cities",
+            ms: expect.any(Number),
+          }),
+        }),
+      );
     });
+    const tta = trackProductEventMock.mock.calls.find(
+      (call) => call[0] === "time_to_accept",
+    );
+    const ms = (tta?.[1] as { payload: { ms: number } }).payload.ms;
+    // Hydrate uses route.updated_at (2026-07-20), not page-load "now".
+    expect(ms).toBeGreaterThan(24 * 60 * 60 * 1000);
   });
 });

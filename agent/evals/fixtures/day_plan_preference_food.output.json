@@ -1,0 +1,44 @@
+{
+  "day_index": 1,
+  "date": "2026-09-02",
+  "theme": "Temples and ramen",
+  "summary": "Preference-aligned golden for offline metrics",
+  "overnight_city": "Tokyo",
+  "places": [
+    {
+      "name": "Senso-ji Temple",
+      "place_key": "senso-ji|tokyo",
+      "category": "other",
+      "address": "2-3-1 Asakusa, Taito City, Tokyo",
+      "reason_to_visit": "Historic temple gate and grounds",
+      "estimated_minutes": 90,
+      "order_in_day": 1
+    },
+    {
+      "name": "Nakiryu Ramen",
+      "place_key": "nakiryu|tokyo",
+      "category": "food",
+      "address": "2-24-7 Sendagi, Bunkyo City, Tokyo",
+      "reason_to_visit": "Lunch — spicy tsukemen ramen",
+      "estimated_minutes": 60,
+      "order_in_day": 2
+    },
+    {
+      "name": "Yanaka Ginza",
+      "place_key": "yanaka-ginza|tokyo",
+      "category": "other",
+      "address": "3 Yanaka, Taito City, Tokyo",
+      "estimated_minutes": 45,
+      "order_in_day": 3
+    },
+    {
+      "name": "Afuri Ramen Ebisu",
+      "place_key": "afuri-ebisu|tokyo",
+      "category": "food",
+      "address": "1-1-7 Ebisu, Shibuya City, Tokyo",
+      "reason_to_visit": "Dinner — yuzu shio ramen",
+      "estimated_minutes": 60,
+      "order_in_day": 4
+    }
+  ]
+}

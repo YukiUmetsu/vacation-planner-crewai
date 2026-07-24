@@ -6,6 +6,7 @@ import {
   pendingPlanningDayIndex,
   routeAcceptanceFingerprint,
   acceptanceBaselineFromRoute,
+  proposalShownAtMs,
 } from "./liveTrip";
 import type { TripBundle } from "../types/trip";
 
@@ -137,5 +138,23 @@ describe("acceptanceBaselineFromRoute", () => {
       }),
     ).toBeNull();
     expect(acceptanceBaselineFromRoute(null)).toBeNull();
+  });
+});
+
+describe("proposalShownAtMs", () => {
+  it("prefers route.updated_at over fallback for proposed routes", () => {
+    const ms = proposalShownAtMs(
+      {
+        ...sampleBundle.route!,
+        updated_at: "2026-07-20T12:00:00.000Z",
+      },
+      Date.parse("2026-07-23T00:00:00.000Z"),
+    );
+    expect(ms).toBe(Date.parse("2026-07-20T12:00:00.000Z"));
+  });
+
+  it("falls back when updated_at is missing", () => {
+    const fallback = Date.parse("2026-07-23T00:00:00.000Z");
+    expect(proposalShownAtMs(sampleBundle.route, fallback)).toBe(fallback);
   });
 });
