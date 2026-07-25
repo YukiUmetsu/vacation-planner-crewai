@@ -71,3 +71,26 @@ def consume_genai_action(
             f"GenAI usage limit reached ({exc.window}). Try again later.",
             code="genai_quota_exceeded",
         ) from exc
+
+
+def refund_genai_action(
+    *,
+    user_sub: str,
+    profile: dict[str, Any] | None = None,
+    email: str | None = None,
+    table: DynamoDBTable | None = None,
+    now: datetime | None = None,
+) -> None:
+    """Best-effort undo of consume_genai_action (enqueue/claim failure paths)."""
+    if not genai_quota_enabled():
+        return
+    if is_admin(profile=profile, user_sub=user_sub, email=email):
+        return
+    from crews.runner import crew_mode
+
+    if crew_mode() == "fake":
+        return
+
+    from db.repository import usage as usage_repo
+
+    usage_repo.refund_genai_windows(user_sub=user_sub, now=now, table=table)

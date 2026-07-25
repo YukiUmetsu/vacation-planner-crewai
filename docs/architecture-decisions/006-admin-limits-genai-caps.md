@@ -92,13 +92,21 @@ Clients must **not** be allowed to set `role` / `plan` via `PUT /profile`
    Concrete default values live in Terraform / `docs/ENVIRONMENT.md`, not this ADR.
 
 3. **No hard lifetime GenAI cap** in MVP.
-4. **One action** = one logical user GenAI operation that would invoke a crew:
+4. **One action** = one logical user GenAI feature attempt that is about to
+   invoke a crew (not merely a Guardrails-only preference check):
    - `POST /trips/{id}/propose-cities`
-   - `POST /trips/{id}/plan-next-day` — count **once** at successful claim /
-     enqueue (or sync entry), **not** in the Event worker, **not** per quality retry
+   - `POST /trips/{id}/plan-next-day` — count **once** (see timing below),
+     **not** in the Event worker, **not** per quality retry
    - `POST /trips/{id}/days/{n}/suggest-place`
-5. **Do not count:** `CREW_MODE=fake`, Places enrich, Guardrails-only pref
-   checks, photo proxy, CRUD, metrics reads.
+5. **Charge timing (MVP product rule):**
+   - **Sync paths** (`propose-cities`, `suggest-place`, sync `plan-next-day`):
+     run cheap pre-crew gates first (status / day_full / safety text). **Do not
+     increment** if safety rejects — those attempts never reach a crew.
+   - **Async `plan-next-day`:** increment after a successful planning **claim**
+     and before enqueue (fail-closed before AgentCore). Worker-side safety /
+     crew failure still counts — the action was already committed to the queue.
+   - **Do not count:** `CREW_MODE=fake`, Places enrich, standalone
+     Guardrails-only pref checks, photo proxy, CRUD, metrics reads.
 6. **Admin** (`role=admin`) skips check and increment.
 7. Persist counters on the **same** trip DynamoDB table:
 
@@ -128,7 +136,10 @@ Clients must **not** be allowed to set `role` / `plan` via `PUT /profile`
 8. Enforce with atomic `UpdateItem` `ADD count :1` and condition
    `attribute_not_exists(count) OR count < :cap`. On failure → **`429`** /
    code **`genai_quota_exceeded`** (include which window: `hour` | `day`).
-9. Hook before GenAI work starts (fail closed before AgentCore spend).
+   Hour then day: if the day write fails for any reason, compensate the hour
+   `ADD` (best-effort) so windows stay paired.
+9. Hook after pre-crew rejection gates on sync paths; on async plan-next-day,
+   hook after claim / before enqueue (fail closed before AgentCore spend).
 
 ### 5. Package / code shape
 

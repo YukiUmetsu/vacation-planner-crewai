@@ -198,6 +198,7 @@ def _run_plan_day_and_persist(
     runner: CrewRunner,
     safety: SafetyGate,
     rollback_status: str = "planning",
+    email: str | None = None,
 ) -> dict[str, Any]:
     day_count = int(trip["day_count"])
     start = parse_iso_date(str(trip["start_date"]), field="start_date")
@@ -206,7 +207,9 @@ def _run_plan_day_and_persist(
 
     safety.check_text(str(trip.get("preferences") or ""), source="preferences")
 
-    profile = ProfileService(table=table, safety=safety).get_profile(user_sub)
+    profile = ProfileService(table=table, safety=safety).get_profile(
+        user_sub, email=email
+    )
     energy_level = clamp_energy_level(profile.get("energy_level"))
     max_minutes = max_minutes_for_energy(energy_level)
     target_places = target_place_count_for_energy(energy_level)
@@ -234,6 +237,14 @@ def _run_plan_day_and_persist(
                 else line
             )
     safety.check_text(merged_prefs, source="preferences")
+
+    # Sync path only: charge after pre-crew safety. Async already charged at claim.
+    if not async_claimed:
+        from limits.genai import consume_genai_action
+
+        consume_genai_action(
+            user_sub=user_sub, profile=profile, email=email, table=table
+        )
 
     visited = list(trip.get("visited_place_keys") or [])
     for key in _profile_visited_keys(list(profile.get("visited_places") or [])):
@@ -620,9 +631,6 @@ def plan_next_day_sync(
     safety: SafetyGate,
     email: str | None = None,
 ) -> dict[str, Any]:
-    from limits.genai import consume_genai_action
-    from user_profile.service import ProfileService
-
     trip, route, days = _load_owned_bundle(user_sub=user_sub, trip_id=trip_id, table=table)
     status = trip.get("status")
     if status not in {"routing_confirmed", "planning", "failed"}:
@@ -633,13 +641,6 @@ def plan_next_day_sync(
     if trip["destination_type"] != "city":
         if not route or route.get("status") != "confirmed":
             raise ApiError(409, "confirmed city route required", code="route_required")
-
-    profile = ProfileService(table=table, safety=safety).get_profile(
-        user_sub, email=email
-    )
-    consume_genai_action(
-        user_sub=user_sub, profile=profile, email=email, table=table
-    )
 
     next_index = resolve_plan_day_index(trip=trip, days=days)
     stored_next = int(trip.get("next_day_index") or 1)
@@ -662,6 +663,7 @@ def plan_next_day_sync(
         runner=runner,
         safety=safety,
         rollback_status=str(status),
+        email=email,
     )
 
 
@@ -688,6 +690,8 @@ def start_plan_next_day(
             raise ApiError(409, "confirmed city route required", code="route_required")
 
     # Finish an in-flight claim before filling gaps (orphan DAY after worker Put).
+    # If we clear a stale claim for day N, do not charge GenAI again for the same N.
+    stale_reclaim_day: int | None = None
     claimed_raw = trip.get("planning_day_index")
     if claimed_raw is not None:
         try:
@@ -709,6 +713,7 @@ def start_plan_next_day(
             if repo.clear_stale_planning_claim(
                 user_sub=user_sub, trip_id=trip_id, table=table
             ):
+                stale_reclaim_day = claimed_i
                 trip = _require_trip(user_sub=user_sub, trip_id=trip_id, table=table)
             else:
                 raise ApiError(
@@ -740,15 +745,13 @@ def start_plan_next_day(
     if recovered is not None:
         return recovered
 
-    from limits.genai import consume_genai_action
+    from limits.genai import consume_genai_action, refund_genai_action
     from user_profile.service import ProfileService
 
     profile = ProfileService(table=table, safety=safety).get_profile(
         user_sub, email=email
     )
-    consume_genai_action(
-        user_sub=user_sub, profile=profile, email=email, table=table
-    )
+    charge_genai = stale_reclaim_day != next_index
 
     try:
         claimed = repo.claim_planning_in_progress(
@@ -771,10 +774,55 @@ def start_plan_next_day(
             return recovered
         raise ApiError(409, str(exc), code="conflict") from exc
 
+    if charge_genai:
+        try:
+            consume_genai_action(
+                user_sub=user_sub, profile=profile, email=email, table=table
+            )
+        except ApiError:
+            repo.fail_planning_in_progress(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                planned_day_index=next_index,
+                error_message=client_facing_message(
+                    status_code=429,
+                    code="genai_quota_exceeded",
+                    detail="GenAI usage limit reached",
+                ),
+                table=table,
+            )
+            raise
+        except Exception as exc:
+            # Dynamo/client failures must not leave planning_day_index stuck.
+            repo.fail_planning_in_progress(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                planned_day_index=next_index,
+                error_message=client_facing_message(
+                    status_code=500,
+                    code="internal_error",
+                    detail=f"usage counter failed: {type(exc).__name__}",
+                ),
+                table=table,
+            )
+            raise ApiError(
+                500,
+                client_facing_message(
+                    status_code=500,
+                    code="internal_error",
+                    detail="failed to record GenAI usage",
+                ),
+                code="internal_error",
+            ) from exc
+
     enqueue = enqueue_plan_day or enqueue_plan_next_day_worker
     try:
         enqueue(user_sub, trip_id, next_index)
     except Exception as exc:
+        if charge_genai:
+            refund_genai_action(
+                user_sub=user_sub, profile=profile, email=email, table=table
+            )
         repo.fail_planning_in_progress(
             user_sub=user_sub,
             trip_id=trip_id,

@@ -163,12 +163,12 @@ def propose_cities(
     profile = ProfileService(table=table, safety=safety).get_profile(
         user_sub, email=email
     )
+    # Pre-crew gates first: safety rejection must not consume GenAI quota.
+    safety.check_text(str(trip.get("preferences") or ""), source="preferences")
+    safety.check_text(str(trip.get("destination") or ""), source="destination")
     consume_genai_action(
         user_sub=user_sub, profile=profile, email=email, table=table
     )
-
-    safety.check_text(str(trip.get("preferences") or ""), source="preferences")
-    safety.check_text(str(trip.get("destination") or ""), source="destination")
 
     inputs = {
         "origin": trip["origin"],

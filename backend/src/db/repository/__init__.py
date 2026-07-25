@@ -42,7 +42,11 @@ from db.repository.planning import (
     rollback_next_day_slot,
 )
 from db.repository.profile import get_profile, promote_profile_admin, put_profile
-from db.repository.usage import QuotaExceeded, try_consume_genai_windows
+from db.repository.usage import (
+    QuotaExceeded,
+    refund_genai_windows,
+    try_consume_genai_windows,
+)
 from db.repository.metrics import (
     get_eval_run,
     list_eval_runs,
@@ -107,6 +111,7 @@ __all__ = [
     "promote_profile_admin",
     "QuotaExceeded",
     "try_consume_genai_windows",
+    "refund_genai_windows",
     "put_eval_run",
     "put_eval_case",
     "list_eval_runs",

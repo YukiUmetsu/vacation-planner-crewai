@@ -98,18 +98,28 @@ def list_trip_meta_for_user(
     user_sub: str,
     table: DynamoDBTable | None = None,
 ) -> list[DynamoItem]:
-    """List TRIP meta rows only (exclude ROUTE/DAY)."""
+    """List TRIP meta rows only (exclude ROUTE/DAY). Paginated."""
     tbl = resolve_table(table)
-    response = tbl.query(
-        KeyConditionExpression="pk = :pk AND begins_with(sk, :prefix)",
-        ExpressionAttributeValues={
-            ":pk": keys.user_pk(user_sub),
-            ":prefix": "TRIP#",
-            ":etype": "TRIP",
-        },
-        FilterExpression="entity_type = :etype",
-    )
-    return list(response.get("Items") or [])
+    items: list[DynamoItem] = []
+    start_key: dict[str, Any] | None = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "KeyConditionExpression": "pk = :pk AND begins_with(sk, :prefix)",
+            "ExpressionAttributeValues": {
+                ":pk": keys.user_pk(user_sub),
+                ":prefix": "TRIP#",
+                ":etype": "TRIP",
+            },
+            "FilterExpression": "entity_type = :etype",
+        }
+        if start_key:
+            kwargs["ExclusiveStartKey"] = start_key
+        response = tbl.query(**kwargs)
+        items.extend(list(response.get("Items") or []))
+        start_key = response.get("LastEvaluatedKey")
+        if not start_key:
+            break
+    return items
 
 
 def get_trip_bundle(

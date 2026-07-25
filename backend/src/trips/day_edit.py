@@ -107,9 +107,6 @@ def suggest_place(
     profile = ProfileService(table=table, safety=safety).get_profile(
         user_sub, email=email
     )
-    consume_genai_action(
-        user_sub=user_sub, profile=profile, email=email, table=table
-    )
 
     start = parse_iso_date(str(trip["start_date"]), field="start_date")
     raw_date = str(day.get("date") or "").strip()
@@ -148,7 +145,11 @@ def suggest_place(
             if merged_prefs
             else balance_line
         )
+    # Pre-crew gate: safety rejection must not consume GenAI quota.
     safety.check_text(merged_prefs, source="preferences")
+    consume_genai_action(
+        user_sub=user_sub, profile=profile, email=email, table=table
+    )
 
     current_total = day_total_minutes(existing)
     remaining = max_minutes - current_total

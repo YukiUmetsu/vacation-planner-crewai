@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from crews.fake_runner import FakeCrewRunner
+from db import keys
 from db import repository as repo
 from http_utils import ApiError
 from safety.gate import NoopSafetyGate
@@ -91,6 +92,126 @@ def test_stale_planning_claim_can_be_reclaimed(
     # Second start should clear stale claim and succeed.
     started = service.start_plan_next_day(USER, trip_id)
     assert started["planning_day_index"] == 1
+
+
+def test_stale_reclaim_does_not_double_charge_genai(
+    dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After a charged claim goes stale, reclaiming the same day must not consume again."""
+    monkeypatch.setenv("PLAN_NEXT_DAY_ASYNC", "on")
+    monkeypatch.setenv("CREW_MODE", "local")  # quotas apply (runner still fake)
+    monkeypatch.setenv("GENAI_QUOTA", "on")
+    monkeypatch.setenv("GENAI_CAP_HOUR", "20")
+    monkeypatch.setenv("GENAI_CAP_DAY", "100")
+    monkeypatch.delenv("ADMIN_EMAILS", raising=False)
+    monkeypatch.delenv("METRICS_ADMIN_SUBS", raising=False)
+
+    service = TripService(
+        table=dynamodb_table,
+        runner=FakeCrewRunner(),
+        safety=NoopSafetyGate(),
+        enqueue_plan_day=lambda *_a: None,
+    )
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+
+    hour_sk = keys.usage_genai_hour_sk(
+        datetime.now(timezone.utc).strftime("%Y%m%d%H")
+    )
+
+    def _hour_count() -> int:
+        item = dynamodb_table.get_item(
+            Key={"pk": keys.user_pk(USER), "sk": hour_sk}
+        ).get("Item")
+        return int(item["count"]) if item else 0
+
+    before = _hour_count()  # propose-cities already consumed once
+    service.start_plan_next_day(USER, trip_id)
+    assert _hour_count() == before + 1
+
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    repo.update_trip(
+        user_sub=USER,
+        trip_id=trip_id,
+        updates={"planning_started_at": stale},
+        table=dynamodb_table,
+    )
+    service.start_plan_next_day(USER, trip_id)
+    assert _hour_count() == before + 1
+
+
+def test_enqueue_failure_refunds_genai(
+    dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PLAN_NEXT_DAY_ASYNC", "on")
+    monkeypatch.setenv("CREW_MODE", "local")
+    monkeypatch.setenv("GENAI_QUOTA", "on")
+    monkeypatch.setenv("GENAI_CAP_HOUR", "20")
+    monkeypatch.setenv("GENAI_CAP_DAY", "100")
+    monkeypatch.delenv("ADMIN_EMAILS", raising=False)
+    monkeypatch.delenv("METRICS_ADMIN_SUBS", raising=False)
+
+    def _boom(*_a: Any) -> None:
+        raise RuntimeError("sqs down")
+
+    service = TripService(
+        table=dynamodb_table,
+        runner=FakeCrewRunner(),
+        safety=NoopSafetyGate(),
+        enqueue_plan_day=_boom,
+    )
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+
+    hour_sk = keys.usage_genai_hour_sk(
+        datetime.now(timezone.utc).strftime("%Y%m%d%H")
+    )
+    before_item = dynamodb_table.get_item(
+        Key={"pk": keys.user_pk(USER), "sk": hour_sk}
+    ).get("Item")
+    before = int(before_item["count"]) if before_item else 0
+
+    with pytest.raises(ApiError) as exc:
+        service.start_plan_next_day(USER, trip_id)
+    assert exc.value.code == "enqueue_failed"
+
+    hour = dynamodb_table.get_item(
+        Key={"pk": keys.user_pk(USER), "sk": hour_sk}
+    ).get("Item")
+    assert hour is not None
+    assert int(hour["count"]) == before
+
+
+def test_consume_runtime_error_clears_planning_claim(
+    dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PLAN_NEXT_DAY_ASYNC", "on")
+    monkeypatch.setenv("CREW_MODE", "local")
+    monkeypatch.setenv("GENAI_QUOTA", "on")
+    monkeypatch.delenv("ADMIN_EMAILS", raising=False)
+    monkeypatch.delenv("METRICS_ADMIN_SUBS", raising=False)
+
+    service = TripService(
+        table=dynamodb_table,
+        runner=FakeCrewRunner(),
+        safety=NoopSafetyGate(),
+        enqueue_plan_day=lambda *_a: None,
+    )
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+
+    def _boom(**_kwargs: Any) -> None:
+        raise RuntimeError("dynamo blip")
+
+    monkeypatch.setattr("limits.genai.consume_genai_action", _boom)
+
+    with pytest.raises(ApiError) as exc:
+        service.start_plan_next_day(USER, trip_id)
+    assert exc.value.code == "internal_error"
+
+    trip = repo.get_trip_meta(user_sub=USER, trip_id=trip_id, table=dynamodb_table)
+    assert trip is not None
+    assert trip.get("planning_day_index") is None
 
 
 def test_execute_recovers_when_day_written_but_claim_not_cleared(
