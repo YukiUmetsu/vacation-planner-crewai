@@ -199,7 +199,9 @@ paths:
     post:
       tags: [trips]
       summary: Create a trip
-      description: City destinations may auto-confirm a synthetic route.
+      description: |
+        City destinations may auto-confirm a synthetic route.
+        Free-plan users are capped (`free_trip_limit`); admins are unlimited.
       operationId: createTrip
       requestBody:
         required: true
@@ -214,6 +216,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TripBundle"
+        "403":
+          description: Free-plan trip cap (`free_trip_limit`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           $ref: "#/components/responses/Error"
 
@@ -278,6 +286,7 @@ paths:
     post:
       tags: [trips]
       summary: Propose a city route via crew
+      description: Counts as one GenAI action toward hour/day caps (`genai_quota_exceeded`).
       operationId: proposeCities
       responses:
         "200":
@@ -286,6 +295,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TripBundle"
+        "429":
+          description: GenAI hour/day cap (`genai_quota_exceeded`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           $ref: "#/components/responses/Error"
 
@@ -322,6 +337,7 @@ paths:
         Sync mode returns 200 with `{ day, trip }`.
         Async mode (AgentCore / `PLAN_NEXT_DAY_ASYNC`) returns 202 with
         `{ trip, planning_day_index }` while a worker runs.
+        Counts as one GenAI action at successful claim/enqueue (not in the worker).
       operationId: planNextDay
       responses:
         "200":
@@ -348,6 +364,12 @@ paths:
                     $ref: "#/components/schemas/Trip"
                   planning_day_index:
                     type: integer
+        "429":
+          description: GenAI hour/day cap (`genai_quota_exceeded`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           $ref: "#/components/responses/Error"
 
@@ -358,6 +380,7 @@ paths:
     post:
       tags: [trips]
       summary: Suggest an additional place for a day
+      description: Counts as one GenAI action toward hour/day caps (`genai_quota_exceeded`).
       operationId: suggestPlace
       responses:
         "200":
@@ -367,6 +390,12 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+        "429":
+          description: GenAI hour/day cap (`genai_quota_exceeded`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         default:
           $ref: "#/components/responses/Error"
 
@@ -566,7 +595,9 @@ components:
           type: string
         code:
           type: string
-          description: Machine-readable code (e.g. photo_not_found, not_found)
+          description: |
+            Machine-readable code (e.g. photo_not_found, not_found,
+            free_trip_limit, genai_quota_exceeded)
 
     DestinationType:
       type: string
@@ -657,6 +688,9 @@ components:
 
     UpdateProfileRequest:
       type: object
+      description: |
+        Client-writable profile fields. `role` and `plan` are ignored if sent
+        (server-managed; see Profile).
       properties:
         display_name:
           type: string
@@ -703,6 +737,14 @@ components:
             $ref: "#/components/schemas/VisitedPlaceIn"
         suggest_include_breakfast:
           type: boolean
+        role:
+          type: string
+          enum: [user, admin]
+          description: Server-managed; bootstrap via ADMIN_EMAILS / METRICS_ADMIN_SUBS
+        plan:
+          type: string
+          enum: [free]
+          description: Server-managed plan tier (paid plans later)
 
     ProductEventRequest:
       type: object

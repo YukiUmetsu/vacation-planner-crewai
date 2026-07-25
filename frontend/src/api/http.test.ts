@@ -156,6 +156,49 @@ describe("apiFetch", () => {
     } satisfies Partial<ApiError>);
   });
 
+  it("maps free_trip_limit to friendly copy", async () => {
+    vi.stubEnv("DEV", true);
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: "Free plan trip limit reached",
+          code: "free_trip_limit",
+        }),
+        { status: 403 },
+      ),
+    );
+
+    await expect(apiFetch("/trips", { method: "POST" })).rejects.toMatchObject({
+      name: "ApiError",
+      status: 403,
+      message:
+        "Free plan includes one trip. Delete it or upgrade to create another.",
+      code: "free_trip_limit",
+    } satisfies Partial<ApiError>);
+  });
+
+  it("maps genai_quota_exceeded to friendly copy", async () => {
+    vi.stubEnv("DEV", true);
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: "GenAI usage limit reached (hour)",
+          code: "genai_quota_exceeded",
+        }),
+        { status: 429 },
+      ),
+    );
+
+    await expect(apiFetch("/trips/x/plan-next-day")).rejects.toMatchObject({
+      name: "ApiError",
+      status: 429,
+      message: "You've reached the planning usage limit. Try again later.",
+      code: "genai_quota_exceeded",
+    } satisfies Partial<ApiError>);
+  });
+
   it("hides 5xx body detail from ApiError message", async () => {
     vi.stubEnv("DEV", true);
     const fetchMock = vi.mocked(fetch);

@@ -15,6 +15,28 @@ export class ApiError extends Error {
   }
 }
 
+/** User-facing copy for known API error codes (prefer over raw server text). */
+const API_ERROR_MESSAGES: Record<string, string> = {
+  free_trip_limit:
+    "Free plan includes one trip. Delete it or upgrade to create another.",
+  genai_quota_exceeded:
+    "You've reached the planning usage limit. Try again later.",
+};
+
+export function messageForApiError(
+  status: number,
+  code: string | undefined,
+  fallback: string,
+): string {
+  if (code && API_ERROR_MESSAGES[code]) {
+    return API_ERROR_MESSAGES[code];
+  }
+  if (status >= 500) {
+    return "Something went wrong. Please try again.";
+  }
+  return fallback;
+}
+
 /** Base URL for API calls. Prefer VITE_API_URL in prod; default `/api` for Vite proxy. */
 export function getApiBaseUrl(): string {
   const fromEnv = import.meta.env.VITE_API_URL;
@@ -85,12 +107,12 @@ export async function apiFetch<T>(
       rejectUnauthorized();
     }
     const code = data.code;
-    // Never surface 5xx / agent internals (paths, SDK text) in the UI.
-    const detail =
-      res.status >= 500
-        ? "Something went wrong. Please try again."
-        : (data.error ?? data.message ?? res.statusText);
-    const suffix = code && res.status < 500 ? ` (${code})` : "";
+    const rawDetail = data.error ?? data.message ?? res.statusText;
+    const detail = messageForApiError(res.status, code, rawDetail);
+    const suffix =
+      code && res.status < 500 && !API_ERROR_MESSAGES[code]
+        ? ` (${code})`
+        : "";
     throw new ApiError(res.status, `${detail}${suffix}`, code);
   }
   return data as T;
