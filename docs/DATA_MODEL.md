@@ -136,7 +136,16 @@ sk = TRIP#{trip_id}#ROUTE           → city route (0 or 1)
 sk = TRIP#{trip_id}#DAY#{nn}        → day nn (01..14)
 ```
 
-**`sk = PROFILE`** — Cross-trip traveler defaults (preferences, `energy_level` 1–5, interests, visited places). Listed trips still filter `begins_with TRIP#` + `entity_type=TRIP`, so profile rows never appear in trip lists. `plan-next-day` loads PROFILE and merges prefs/energy/interests/visited into crew inputs (see [`PLANNING_QUALITY.md`](./PLANNING_QUALITY.md)).
+**`sk = PROFILE`** — Cross-trip user record on the **same** single table (no separate users table):
+
+| Concern | Fields |
+| --- | --- |
+| Traveler defaults | preferences, `energy_level` 1–5, interests, visited places, … |
+| Product identity | `role` (`admin` \| `user`), `plan` (`free` \| future paid ids) |
+
+Listed trips still filter `begins_with TRIP#` + `entity_type=TRIP`, so profile rows never appear in trip lists. `plan-next-day` loads PROFILE and merges prefs/energy/interests/visited into crew inputs (see [`PLANNING_QUALITY.md`](./PLANNING_QUALITY.md)).
+
+**Admin / limits:** `role=admin` bypasses trip and GenAI caps. Bootstrap admins from env `ADMIN_EMAILS` → set PROFILE `role=admin` (see [ADR 006](./architecture-decisions/006-admin-limits-genai-caps.md)). Non-admins: trip and GenAI limits come from PROFILE `plan` + env (`GENAI_CAP_*`, etc. in [`ENVIRONMENT.md`](./ENVIRONMENT.md)). Clients must not set `role` / `plan` on `PUT /profile`.
 
 **`pk = USER#{sub}`** — Every primary query is “for this signed-in user.” Cognito `sub` as partition key enforces isolation by construction: a user cannot query another user’s partition without knowing/forging their `sub` (and the BFF only uses the JWT’s `sub`).
 
@@ -165,7 +174,9 @@ We still authorize with the JWT `sub` after the GSI fetch—GSI is convenience, 
 
 ### Why on-demand + optional TTL
 
-Portfolio / demo traffic is bursty and often idle. **On-demand** avoids provisioned capacity sitting unused. Optional **`expires_at` TTL** on abandoned drafts keeps the table from accumulating junk trips without a cleanup job.
+Portfolio / demo traffic is bursty and often idle. **On-demand** avoids provisioned capacity sitting unused. Optional **`expires_at` TTL** on abandoned drafts (and GenAI usage bucket items — [ADR 006](./architecture-decisions/006-admin-limits-genai-caps.md)) keeps the table from accumulating junk without a cleanup job.
+
+DynamoDB TTL: attribute must be a **Number** (Unix epoch **seconds**); the table TTL setting already targets `expires_at`. See AWS: [Using TTL](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/TTL.html), [Computing TTL](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/time-to-live-ttl-before-you-start.html), [Enable TTL](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/time-to-live-ttl-how-to.html).
 
 ### Table definition
 
@@ -176,7 +187,7 @@ Portfolio / demo traffic is bursty and often idle. **On-demand** avoids provisio
 | Partition key | `pk` (String) |
 | Sort key | `sk` (String) |
 | GSI1 | `gsi1pk` + `gsi1sk` (lookup by `trip_id`) |
-| TTL | `expires_at` (optional; abandoned drafts) |
+| TTL | `expires_at` (optional; abandoned drafts + GenAI `USAGE#…` buckets) |
 
 ### Access patterns
 
