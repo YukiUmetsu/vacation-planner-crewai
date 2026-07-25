@@ -37,6 +37,21 @@ def _clear_photo_state() -> None:
     clear_openverse_backoff_for_tests()
 
 
+def _stub_public_fallbacks_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent live Wikidata/Openverse calls in unit tests."""
+    empty = {
+        "photo_url": None,
+        "places_photo_name": None,
+        "photo_data_url": None,
+    }
+    monkeypatch.setattr(
+        places_routes, "resolve_wikidata_photo_payload", lambda *_a, **_k: dict(empty)
+    )
+    monkeypatch.setattr(
+        places_routes, "resolve_openverse_photo_payload", lambda *_a, **_k: dict(empty)
+    )
+
+
 def test_normalize_places_photo_name() -> None:
     assert (
         normalize_places_photo_name("places/ChIJ123/photos/AaBbCc")
@@ -363,6 +378,7 @@ def test_get_place_photo_falls_back_when_places_key_missing(
 ) -> None:
     _clear_photo_state()
     _seed_owned_place(dynamodb_table)
+    _stub_public_fallbacks_empty(monkeypatch)
     monkeypatch.setattr(places_routes, "places_api_key_from_env", lambda: "")
     monkeypatch.setattr(
         places_routes,
@@ -422,6 +438,7 @@ def test_get_place_photo_rate_limit_returns_503_without_durable_miss(
 
     _clear_photo_state()
     _seed_owned_place(dynamodb_table, with_photo_refs=False)
+    _stub_public_fallbacks_empty(monkeypatch)
     monkeypatch.setattr(places_routes, "places_api_key_from_env", lambda: "test-key")
 
     def _rate_limited(_place: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
