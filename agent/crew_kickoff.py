@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -155,12 +156,54 @@ def _model_class(crew_name: CrewName) -> type:
     return CityRoute
 
 
+def _as_nonneg_int(value: Any) -> int | None:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 0 else None
+
+
+def extract_token_usage(result: Any) -> dict[str, int]:
+    """Pull prompt/completion/total tokens from a CrewAI kickoff result."""
+    raw = getattr(result, "token_usage", None)
+    if raw is None:
+        raw = getattr(result, "usage_metrics", None)
+    if raw is None:
+        return {}
+    if hasattr(raw, "model_dump"):
+        try:
+            raw = raw.model_dump()
+        except Exception:  # noqa: BLE001
+            raw = None
+    if not isinstance(raw, dict):
+        # UsageMetrics-like object with attributes
+        raw = {
+            "prompt_tokens": getattr(raw, "prompt_tokens", None),
+            "completion_tokens": getattr(raw, "completion_tokens", None),
+            "total_tokens": getattr(raw, "total_tokens", None),
+        }
+    out: dict[str, int] = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        n = _as_nonneg_int(raw.get(key))
+        if n is not None:
+            out[key] = n
+    if "total_tokens" not in out:
+        prompt = out.get("prompt_tokens")
+        completion = out.get("completion_tokens")
+        if prompt is not None and completion is not None:
+            out["total_tokens"] = prompt + completion
+    return out
+
+
 def _build_invocation(
     *,
     crew_name: CrewName,
     crew_dir: Path,
     inputs: dict[str, Any],
     context_was_slimmed: bool,
+    latency_ms: int | None = None,
+    token_usage: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     from vacation_planner_models import (
         OUTPUT_SCHEMA_VERSION,
@@ -170,6 +213,7 @@ def _build_invocation(
     )
 
     chars = len(json.dumps(inputs, ensure_ascii=False, separators=(",", ":")))
+    usage = token_usage or {}
     meta = InvocationMeta(
         crew_name=crew_name,
         prompt_version=PROMPT_VERSIONS.get(crew_name, ""),
@@ -182,6 +226,10 @@ def _build_invocation(
         input_context_chars=chars,
         context_was_slimmed=context_was_slimmed,
         output_schema_version=OUTPUT_SCHEMA_VERSION,
+        latency_ms=latency_ms,
+        prompt_tokens=usage.get("prompt_tokens"),
+        completion_tokens=usage.get("completion_tokens"),
+        total_tokens=usage.get("total_tokens"),
     )
     return meta.model_dump(mode="json")
 
@@ -193,12 +241,16 @@ def _wrap_envelope(
     extracted: dict[str, Any],
     inputs: dict[str, Any],
     context_was_slimmed: bool,
+    latency_ms: int | None = None,
+    token_usage: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     invocation = _build_invocation(
         crew_name=crew_name,
         crew_dir=crew_dir,
         inputs=inputs,
         context_was_slimmed=context_was_slimmed,
+        latency_ms=latency_ms,
+        token_usage=token_usage,
     )
     if crew_name == "day_plan":
         if "day_plan" in extracted and "quality" in extracted:
@@ -237,7 +289,9 @@ def run_crew(crew_name: CrewName, inputs: dict[str, Any]) -> dict[str, Any]:
 
     crew, default_inputs = load_crew(crew_dir / "crew.jsonc")
     _disable_llm_stream(crew)
+    started = time.perf_counter()
     result = crew.kickoff(inputs={**default_inputs, **work_inputs})
+    latency_ms = max(0, int((time.perf_counter() - started) * 1000))
     extracted = extract_pydantic_dict(result, model_cls)
     return _wrap_envelope(
         crew_name=crew_name,
@@ -245,6 +299,8 @@ def run_crew(crew_name: CrewName, inputs: dict[str, Any]) -> dict[str, Any]:
         extracted=extracted,
         inputs=work_inputs,
         context_was_slimmed=context_was_slimmed,
+        latency_ms=latency_ms,
+        token_usage=extract_token_usage(result),
     )
 
 

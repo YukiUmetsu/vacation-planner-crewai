@@ -81,6 +81,11 @@ class InvocationMeta(BaseModel):
     input_context_chars: int = 0
     context_was_slimmed: bool = False
     output_schema_version: str = OUTPUT_SCHEMA_VERSION
+    # Ops / cost signals (optional — filled when the runtime can measure them).
+    latency_ms: int | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class DayPlanWithQuality(BaseModel):

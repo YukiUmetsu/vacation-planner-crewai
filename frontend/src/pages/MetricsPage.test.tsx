@@ -121,8 +121,7 @@ describe("MetricsPage", () => {
     });
   });
 
-  it("switches online kind between quality and product", async () => {
-    const user = userEvent.setup();
+  it("shows online quality KPIs and product charts from both feeds", async () => {
     vi.mocked(listOnlineEvents).mockImplementation(async ({ kind }) => {
       if (kind === "product") {
         return {
@@ -144,11 +143,27 @@ describe("MetricsPage", () => {
           {
             event_id: "q1",
             occurred_at: "2026-07-19T14:00:00.000000Z",
+            event: "plan_day_quality",
             trip_id: "t1",
             day_index: 1,
             passes_relevance: true,
+            plan_day_attempt: 1,
+            latency_ms: 2500,
+            total_tokens: 1800,
+            prompt_tokens: 1400,
+            completion_tokens: 400,
             crew_name: "day_plan",
             experiment_key: "onlineexp",
+          },
+          {
+            event_id: "q2",
+            occurred_at: "2026-07-19T14:05:00.000000Z",
+            event: "plan_day_retry",
+            trip_id: "t1",
+            day_index: 1,
+            failure_code: "missing_meals",
+            attempt: 1,
+            next_attempt: 2,
           },
         ],
       };
@@ -157,17 +172,20 @@ describe("MetricsPage", () => {
     render(<MetricsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("day_plan")).toBeInTheDocument();
+      expect(screen.getAllByText("Pass rate").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("100%").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Avg latency").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Avg total tokens").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Retries").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("proposal_accepted").length).toBeGreaterThan(0);
     });
 
-    await user.selectOptions(screen.getByLabelText("Kind"), "product");
-
-    await waitFor(() => {
-      expect(listOnlineEvents).toHaveBeenCalledWith(
-        expect.objectContaining({ kind: "product" }),
-      );
-      expect(screen.getByText("proposal_accepted")).toBeInTheDocument();
-    });
+    expect(listOnlineEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "quality", limit: 200 }),
+    );
+    expect(listOnlineEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "product", limit: 200 }),
+    );
   });
 
   it("calls ensureIdToken when Cognito session is present", async () => {

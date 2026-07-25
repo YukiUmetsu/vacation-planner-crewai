@@ -144,29 +144,10 @@ def _persist_online_product(body: dict[str, Any]) -> None:
         )
 
 
-def log_quality_metrics(
-    *,
-    trip_id: str,
-    day_index: int,
-    quality: dict[str, Any] | None,
-    invocation: dict[str, Any] | None,
-    guardrail_code: str | None = None,
-    places_count: int | None = None,
-) -> None:
-    """CloudWatch + DynamoDB quality + invocation line (no place payloads / PII)."""
-    q = quality or {}
+def _invocation_metric_fields(invocation: dict[str, Any] | None) -> dict[str, Any]:
+    """Shared non-PII crew dims for quality + retry online events."""
     inv = invocation or {}
-    tags = q.get("failure_tags") if isinstance(q.get("failure_tags"), list) else []
-    payload = {
-        "event": "plan_day_quality",
-        "trip_id": trip_id,
-        "day_index": day_index,
-        "passes_relevance": q.get("passes_relevance"),
-        "relevance_score": q.get("relevance_score"),
-        "constraint_score": q.get("constraint_score"),
-        "failure_tags": tags,
-        "guardrail_code": guardrail_code,
-        "places_count": places_count,
+    fields: dict[str, Any] = {
         "crew_name": inv.get("crew_name"),
         "prompt_version": inv.get("prompt_version"),
         "prompt_hash": inv.get("prompt_hash"),
@@ -177,11 +158,89 @@ def log_quality_metrics(
         "context_was_slimmed": inv.get("context_was_slimmed"),
         "output_schema_version": inv.get("output_schema_version"),
     }
-    if payload["backend_git_sha"] is None:
-        payload.pop("backend_git_sha")
+    if fields["backend_git_sha"] is None:
+        fields.pop("backend_git_sha")
+    for key in (
+        "latency_ms",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+    ):
+        raw = inv.get(key)
+        if isinstance(raw, bool):
+            continue
+        if isinstance(raw, (int, float)) and raw >= 0:
+            fields[key] = int(raw)
+    return fields
+
+
+def log_quality_metrics(
+    *,
+    trip_id: str,
+    day_index: int,
+    quality: dict[str, Any] | None,
+    invocation: dict[str, Any] | None,
+    guardrail_code: str | None = None,
+    places_count: int | None = None,
+) -> None:
+    """CloudWatch + DynamoDB terminal quality outcome (success or hard fail).
+
+    Intermediate LLM retries that will run again use ``log_plan_day_retry`` —
+    do not treat those as ``plan_day_quality`` failures.
+    """
+    q = quality or {}
+    inv = invocation or {}
+    tags = q.get("failure_tags") if isinstance(q.get("failure_tags"), list) else []
+    payload: dict[str, Any] = {
+        "event": "plan_day_quality",
+        "trip_id": trip_id,
+        "day_index": day_index,
+        "passes_relevance": q.get("passes_relevance"),
+        "relevance_score": q.get("relevance_score"),
+        "constraint_score": q.get("constraint_score"),
+        "failure_tags": tags,
+        "guardrail_code": guardrail_code,
+        "places_count": places_count,
+        **_invocation_metric_fields(inv),
+    }
+    attempt = inv.get("plan_day_attempt")
+    if attempt is not None:
+        payload["plan_day_attempt"] = attempt
 
     logger.info(
         "QUALITY_METRIC %s", json.dumps(payload, ensure_ascii=False, default=str)
+    )
+    _persist_online_quality(payload)
+
+
+def log_plan_day_retry(
+    *,
+    trip_id: str,
+    day_index: int,
+    attempt: int,
+    failure_code: str,
+    invocation: dict[str, Any] | None = None,
+    places_count: int | None = None,
+) -> None:
+    """Emit one recovery attempt (will retry) — not a terminal quality failure.
+
+    ``attempt`` is 1-based for the attempt that just failed. ``next_attempt`` is
+    the crew call that will run next. Filter ``event=plan_day_retry`` / log
+    prefix ``RETRY_METRIC`` separately from ``QUALITY_METRIC``.
+    """
+    payload = {
+        "event": "plan_day_retry",
+        "trip_id": trip_id,
+        "day_index": day_index,
+        "attempt": attempt,
+        "next_attempt": attempt + 1,
+        "failure_code": failure_code,
+        "places_count": places_count,
+        **_invocation_metric_fields(invocation),
+    }
+
+    logger.info(
+        "RETRY_METRIC %s", json.dumps(payload, ensure_ascii=False, default=str)
     )
     _persist_online_quality(payload)
 

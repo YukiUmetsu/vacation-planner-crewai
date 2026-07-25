@@ -51,7 +51,7 @@ export function isFreshPhotoMiss(
 }
 
 function hasUsableGooglePlaceId(
-  place: Pick<Place, "place_id" | "place_key">,
+  place: Pick<Place, "place_id"> & Partial<Pick<Place, "place_key">>,
 ): boolean {
   // Keep in sync with backend places.client.is_usable_google_place_id.
   let id = place.place_id?.trim() ?? "";
@@ -80,8 +80,8 @@ export function shouldSkipPlacePhotoResolve(
     | "photo_checked_at"
     | "places_photo_name"
     | "place_id"
-    | "place_key"
-  >,
+  > &
+    Partial<Pick<Place, "place_key">>,
 ): "use_url" | "miss" | "resolve" {
   if (isFreshPhotoMiss(place) && hasUsableGooglePlaceId(place)) return "miss";
   return "resolve";

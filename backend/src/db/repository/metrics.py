@@ -231,6 +231,7 @@ def _public_online_quality(item: dict[str, Any]) -> dict[str, Any]:
         "event_id": plain.get("event_id"),
         "occurred_at": plain.get("occurred_at"),
         "experiment_key": plain.get("experiment_key"),
+        "event": plain.get("event"),
         "trip_id": plain.get("trip_id"),
         "day_index": plain.get("day_index"),
         "passes_relevance": plain.get("passes_relevance"),
@@ -238,7 +239,11 @@ def _public_online_quality(item: dict[str, Any]) -> dict[str, Any]:
         "constraint_score": plain.get("constraint_score"),
         "failure_tags": list(plain.get("failure_tags") or []),
         "guardrail_code": plain.get("guardrail_code"),
+        "failure_code": plain.get("failure_code"),
         "places_count": plain.get("places_count"),
+        "plan_day_attempt": plain.get("plan_day_attempt"),
+        "attempt": plain.get("attempt"),
+        "next_attempt": plain.get("next_attempt"),
         "crew_name": plain.get("crew_name"),
         "prompt_version": plain.get("prompt_version"),
         "prompt_hash": plain.get("prompt_hash"),
@@ -247,6 +252,10 @@ def _public_online_quality(item: dict[str, Any]) -> dict[str, Any]:
         "input_context_chars": plain.get("input_context_chars"),
         "context_was_slimmed": plain.get("context_was_slimmed"),
         "output_schema_version": plain.get("output_schema_version"),
+        "latency_ms": plain.get("latency_ms"),
+        "prompt_tokens": plain.get("prompt_tokens"),
+        "completion_tokens": plain.get("completion_tokens"),
+        "total_tokens": plain.get("total_tokens"),
     }
 
 

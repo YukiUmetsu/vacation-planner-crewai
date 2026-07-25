@@ -57,13 +57,55 @@ def test_log_quality_persists_to_metrics_table(metrics_table: Any) -> None:
             "prompt_hash": "phash",
             "model_id": "nova",
             "git_sha": "abc",
+            "plan_day_attempt": 2,
+            "latency_ms": 4500,
+            "prompt_tokens": 1200,
+            "completion_tokens": 300,
+            "total_tokens": 1500,
         },
         places_count=4,
     )
     events = repo.list_online_events(kind="quality", table=metrics_table)
     assert len(events) == 1
     assert events[0]["trip_id"] == "t2"
+    assert events[0]["event"] == "plan_day_quality"
+    assert events[0]["plan_day_attempt"] == 2
+    assert events[0]["latency_ms"] == 4500
+    assert events[0]["total_tokens"] == 1500
     assert events[0]["experiment_key"]
+
+
+def test_log_plan_day_retry_is_separate_from_quality(
+    metrics_table: Any, caplog: Any
+) -> None:
+    with caplog.at_level("INFO"):
+        obs.log_plan_day_retry(
+            trip_id="t-retry",
+            day_index=1,
+            attempt=1,
+            failure_code="missing_meals",
+            invocation={
+                "crew_name": "day_plan",
+                "prompt_version": "v1",
+                "prompt_hash": "h",
+                "model_id": "nova",
+                "git_sha": "sha",
+            },
+            places_count=3,
+        )
+    assert any("RETRY_METRIC" in r.message for r in caplog.records)
+    assert not any(
+        "QUALITY_METRIC" in r.message and "plan_day_retry" in r.message
+        for r in caplog.records
+    )
+    events = repo.list_online_events(kind="quality", table=metrics_table)
+    assert len(events) == 1
+    assert events[0]["event"] == "plan_day_retry"
+    assert events[0]["failure_code"] == "missing_meals"
+    assert events[0]["attempt"] == 1
+    assert events[0]["next_attempt"] == 2
+    assert events[0].get("guardrail_code") is None
+    assert events[0].get("passes_relevance") is None
 
 
 def test_log_product_persists_to_metrics_table(metrics_table: Any) -> None:

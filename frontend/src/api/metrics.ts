@@ -28,15 +28,30 @@ export type OnlineQualityEvent = {
   event_id: string;
   occurred_at: string;
   experiment_key?: string;
+  /** `plan_day_quality` (terminal) or `plan_day_retry` (will retry). */
+  event?: string;
   trip_id?: string;
   day_index?: number;
   passes_relevance?: boolean;
   relevance_score?: number;
   constraint_score?: number;
   failure_tags?: string[];
+  guardrail_code?: string;
+  /** Retry events only — reason for the recovery attempt (not a terminal fail). */
+  failure_code?: string;
   crew_name?: string;
   model_id?: string;
   places_count?: number;
+  /** Terminal quality events: 1-based attempt that produced the outcome. */
+  plan_day_attempt?: number;
+  /** Retry events: 1-based failed attempt / next crew attempt. */
+  attempt?: number;
+  next_attempt?: number;
+  /** BFF wall-clock ms for the crew call that produced this event. */
+  latency_ms?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
 };
 
 export type OnlineProductEvent = {

@@ -299,7 +299,7 @@ Case rows are not indexed on GSI1 (experiment listing is runs-only). Distinct `C
 ```text
 pk / sk:     ONLINE#QUALITY  /  TS#{occurred_at_iso}#{event_id}
 gsi1pk/sk:   ONLINEEXP#{experiment_key}  /  TS#{…}   # when invocation dims present
-+ QUALITY_METRIC payload fields + experiment_key + occurred_at
++ QUALITY_METRIC / RETRY_METRIC payload fields + experiment_key + occurred_at
 ```
 
 `experiment_key` for online quality is `sha256(canonical_json({prompt_version, prompt_hash, model_id, git_sha, crew_name}))[:16]`.

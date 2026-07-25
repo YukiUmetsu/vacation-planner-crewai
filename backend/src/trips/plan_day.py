@@ -8,6 +8,7 @@ explicit args and must never import `trips.service.TripService`. May import
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Callable
 
 from crews.runner import CrewRunner
@@ -54,7 +55,7 @@ from ops.plan_day_worker import (
 from places.enrich import enrich_places
 from user_profile.service import ProfileService
 from safety.gate import SafetyGate
-from ops.worker_observability import log_quality_metrics
+from ops.worker_observability import log_plan_day_retry, log_quality_metrics
 
 from trips.city_route import _route_payload, overnight_city_for_day
 from trips.crud import _load_owned_bundle, _require_trip, _json_safe
@@ -286,6 +287,59 @@ def _run_plan_day_and_persist(
         list(profile.get("visited_places") or [])
     )
 
+    def _note_dedupe_empty(places_for_ban: list[dict[str, Any]]) -> None:
+        nonlocal last_quality_error, banned
+        last_quality_error = ApiError(
+            422,
+            "all suggested places were already visited",
+            code="dedupe_empty",
+        )
+        banned = merge_banned_labels(
+            banned,
+            labels_to_ban_after_failure(
+                code="dedupe_empty",
+                places=places_for_ban,
+                plan_date=day_date,
+                profile_visited_names=profile_visited_names,
+            ),
+        )
+
+    def _will_retry_plan_day(
+        *, code: str | None, attempt_idx: int, places_count: int
+    ) -> bool:
+        """Log RETRY_METRIC and return True when another crew attempt will run."""
+        if not should_retry_plan_day(code=code, attempt=attempt_idx):
+            return False
+        log_plan_day_retry(
+            trip_id=trip_id,
+            day_index=next_index,
+            attempt=attempt_idx + 1,
+            failure_code=str(code or "unknown"),
+            invocation=invocation,
+            places_count=places_count,
+        )
+        return True
+
+    def _raise_dedupe_empty_terminal() -> None:
+        err = last_quality_error
+        if err is None:
+            raise ApiError(
+                422,
+                "all suggested places were already visited",
+                code="dedupe_empty",
+            )
+        log_quality_metrics(
+            trip_id=trip_id,
+            day_index=next_index,
+            quality=merge_quality_reports(
+                crew_quality, {"failure_tags": ["duplicate_place"]}
+            ),
+            invocation=invocation,
+            guardrail_code="dedupe_empty",
+            places_count=0,
+        )
+        raise err
+
     for attempt in range(MAX_PLAN_DAY_ATTEMPTS):
         inputs = apply_plan_day_retry_inputs(
             base_inputs,
@@ -297,54 +351,44 @@ def _run_plan_day_and_persist(
             ),
             banned_places=banned,
         )
+        started = time.perf_counter()
         raw_day = runner.plan_day(inputs)
+        bff_latency_ms = max(0, int((time.perf_counter() - started) * 1000))
         day_data, crew_quality, invocation = unwrap_crew_payload(raw_day)
-        if invocation is not None:
-            invocation = {
-                **invocation,
-                "context_was_slimmed": bool(
-                    invocation.get("context_was_slimmed")
-                )
-                or context_was_slimmed,
-                "plan_day_attempt": attempt + 1,
-            }
+        if invocation is None:
+            invocation = {}
+        invocation = {
+            **invocation,
+            "context_was_slimmed": bool(invocation.get("context_was_slimmed"))
+            or context_was_slimmed,
+            "plan_day_attempt": attempt + 1,
+            # BFF wall clock includes AgentCore RTT; agent may also set latency_ms.
+            "latency_ms": bff_latency_ms,
+        }
         places = list((day_data or {}).get("places") or [])
         filtered = dedupe_places(places, visited)
         if len(filtered) < 1:
-            last_quality_error = ApiError(
-                422,
-                "all suggested places were already visited",
-                code="dedupe_empty",
-            )
-            banned = merge_banned_labels(
-                banned,
-                labels_to_ban_after_failure(
-                    code="dedupe_empty",
-                    places=places,
-                    plan_date=day_date,
-                    profile_visited_names=profile_visited_names,
-                ),
-            )
-            if should_retry_plan_day(
-                code=last_quality_error.code, attempt=attempt
+            _note_dedupe_empty(places)
+            if _will_retry_plan_day(
+                code="dedupe_empty", attempt_idx=attempt, places_count=0
             ):
                 continue
-            log_quality_metrics(
-                trip_id=trip_id,
-                day_index=next_index,
-                quality=merge_quality_reports(
-                    crew_quality, {"failure_tags": ["duplicate_place"]}
-                ),
-                invocation=invocation,
-                guardrail_code="dedupe_empty",
-                places_count=0,
-            )
-            raise last_quality_error
+            _raise_dedupe_empty_terminal()
 
         filtered = enrich_places(
             filtered,
             overnight_city=overnight,
         )
+        # Second pass: catch same venue under a new Google place_id / name key
+        # after enrich rewrites addresses.
+        filtered = dedupe_places(filtered, visited)
+        if len(filtered) < 1:
+            _note_dedupe_empty(places)
+            if _will_retry_plan_day(
+                code="dedupe_empty", attempt_idx=attempt, places_count=0
+            ):
+                continue
+            _raise_dedupe_empty_terminal()
         try:
             filtered, energy_soft_tags = filter_quality_places(
                 filtered,
@@ -373,7 +417,11 @@ def _run_plan_day_and_persist(
                     profile_visited_names=profile_visited_names,
                 ),
             )
-            if should_retry_plan_day(code=exc.code, attempt=attempt):
+            if _will_retry_plan_day(
+                code=exc.code,
+                attempt_idx=attempt,
+                places_count=len(filtered) if filtered else 0,
+            ):
                 continue
             tag = {
                 "quality_empty": "closed_place",

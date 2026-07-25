@@ -114,9 +114,11 @@ Unless the traveler explicitly asked for a **food crawl / restaurant tour / tast
 
 ### Metric catalog
 
-**Runtime (`QUALITY_METRIC` JSON line)** — dimensions/fields: `trip_id`, `day_index`, `passes_relevance`, `relevance_score`, `constraint_score`, `failure_tags`, `guardrail_code`, `places_count`, plus invocation `crew_name`, `prompt_version`, `prompt_hash`, `model_id`, `git_sha`, `input_context_chars`, `context_was_slimmed`, `output_schema_version`.
+**Runtime (`QUALITY_METRIC` JSON line)** — terminal day outcome only (`event=plan_day_quality`): `trip_id`, `day_index`, `passes_relevance`, `relevance_score`, `constraint_score`, `failure_tags`, `guardrail_code` (set only on hard fail), `places_count`, `plan_day_attempt` (1-based attempt that produced this outcome), `latency_ms` (BFF wall clock for that crew call), `prompt_tokens` / `completion_tokens` / `total_tokens` (from CrewAI when AgentCore/local; absent in fake mode), plus invocation `crew_name`, `prompt_version`, `prompt_hash`, `model_id`, `git_sha`, `input_context_chars`, `context_was_slimmed`, `output_schema_version`.
 
-Useful rates (derive in Logs Insights): empty/dedupe/closed/energy/meals/safety/context-truncation from `guardrail_code` + tag counts.
+**Runtime (`RETRY_METRIC` JSON line)** — intermediate recovery (`event=plan_day_retry`): emitted when a hard gate fails **and** another crew attempt will run. Fields: `attempt`, `next_attempt`, `failure_code` (`quality_empty` / `dedupe_empty` / `missing_meals` / `food_only_day`), `places_count`, same latency/token dims when present, plus the same invocation dims. **Do not** count these as terminal failures; pair with a later `QUALITY_METRIC` for the final outcome.
+
+Useful rates (derive in Logs Insights): empty/dedupe/closed/energy/meals/safety/context-truncation from `guardrail_code` + tag counts; silent recovery rate from `RETRY_METRIC` counts vs days that later succeed; `stats avg(latency_ms), avg(total_tokens)`.
 
 **Offline evals (`EvalResult.metrics`)** — per case then mean via `aggregate_metrics`:
 
@@ -128,7 +130,8 @@ Useful rates (derive in Logs Insights): empty/dedupe/closed/energy/meals/safety/
 | `explicit_exclusion_violation_rate` | `already_visited` or `excluded_categories` hit |
 | `duplicate_rate`, `closed_place_rate`, `energy_overage_rate`, `grounding_rate` | Structural rates |
 | `non_food_place_count`, `food_only_day_rate` | Day-balance rates (food-only days should be 0 unless crawl) |
-| `latency_ms`, `cost` | Reserved (live / Bedrock usage later) |
+| `latency_ms` | Wall-clock per case (offline harness); online uses BFF `latency_ms` on quality events |
+| `cost` | Reserved stub (0 until Bedrock $ is plumbed) |
 
 Preference fixtures: `day_plan_preference_food`, `day_plan_preference_exclusion`, `day_plan_preference_mismatch`. Balance fixtures: `day_plan_balance_food_forward` (pass), `day_plan_balance_food_only` (scorer negative case; no offline golden).
 
@@ -136,17 +139,29 @@ Preference fixtures: `day_plan_preference_food`, `day_plan_preference_exclusion`
 
 **Durable store + private UI:** `uv run python -m evals --persist` writes run/case rows to the dedicated metrics DynamoDB table (`DYNAMODB_METRICS_TABLE_NAME`). Fair A/B uses deterministic `experiment_key` (fixture suite + prompt + judge + model + git + live). Private SPA at `/metrics` (no main-nav link); API `GET /admin/metrics/runs` gated by `METRICS_ADMIN_SUBS`.
 
-**Online dual-write:** `QUALITY_METRIC` / `PRODUCT_METRIC` still emit CloudWatch log lines **and** append to the same metrics table (`ONLINE#QUALITY` / `ONLINE#PRODUCT`). Dynamo failures soft-fail so planning/`POST /events` never break. List via `GET /admin/metrics/online?kind=quality|product` and the Online section on `/metrics`.
+**Online dual-write:** `QUALITY_METRIC` / `RETRY_METRIC` / `PRODUCT_METRIC` still emit CloudWatch log lines **and** append to the same metrics table (`ONLINE#QUALITY` / `ONLINE#PRODUCT`). Distinguish quality vs retry via payload `event` (`plan_day_quality` vs `plan_day_retry`). Dynamo failures soft-fail so planning/`POST /events` never break. List via `GET /admin/metrics/online?kind=quality|product`. The private `/metrics` SPA shows **aggregates** (pass rate, retry counts, stacked day bars, fail/retry code charts) over the latest 200 events per kind; raw rows stay under collapsible “Recent …” sections.
 
 **Online product (`PRODUCT_METRIC` via `POST /events`)** — allowlisted names: `proposal_accepted`, `proposal_accepted_without_edit`, `manual_edit`, `time_to_accept` (payload `ms`), `plan_regenerated`, `place_deleted`, `suggestion_accepted`, `place_reordered` (reserved until reorder UX). No PII; `user_sub_hash` is peppered SHA-256.
 
 ### CloudWatch Logs Insights (examples)
 
 ```
-fields @timestamp, trip_id, day_index, failure_tags, guardrail_code, prompt_version
+fields @timestamp, trip_id, day_index, failure_tags, guardrail_code, plan_day_attempt, latency_ms, total_tokens, prompt_version
 | filter @message like /QUALITY_METRIC/
 | sort @timestamp desc
 | limit 50
+```
+
+```
+fields @timestamp, trip_id, day_index, attempt, next_attempt, failure_code, latency_ms, total_tokens, prompt_version
+| filter @message like /RETRY_METRIC/
+| stats count() by failure_code
+```
+
+```
+fields latency_ms, total_tokens
+| filter @message like /QUALITY_METRIC/ or @message like /RETRY_METRIC/
+| stats avg(latency_ms), pct(latency_ms, 90), avg(total_tokens) by bin(1d)
 ```
 
 ```

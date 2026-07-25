@@ -8,7 +8,12 @@ from typing import Any
 from db.place_keys import normalize_place_text
 from shared.energy import MAX_PLACES_PER_DAY
 from http_utils import ApiError
-from planning_quality.dedupe import ensure_place_key
+from planning_quality.dedupe import (
+    ensure_place_key,
+    place_identity_tokens,
+    places_identity_overlap,
+    visited_identity_tokens,
+)
 
 
 def _parse_nonneg_int(value: Any) -> int:
@@ -280,9 +285,10 @@ def validate_suggested_place(
         )
 
     key = str(enriched["place_key"])
-    existing_keys = {ensure_place_key(p) for p in existing_places}
-    blocked = set(already_visited_keys or set()) | existing_keys
-    if key in blocked:
+    blocked = visited_identity_tokens(list(already_visited_keys or set()))
+    for existing in existing_places:
+        blocked |= place_identity_tokens(existing)
+    if places_identity_overlap(enriched, blocked) or key in blocked:
         raise ApiError(
             422,
             "suggested place was already visited or is already on this day",
