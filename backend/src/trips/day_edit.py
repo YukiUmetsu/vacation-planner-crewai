@@ -71,8 +71,11 @@ def suggest_place(
     table: DynamoDBTable | None,
     runner: CrewRunner,
     safety: SafetyGate,
+    email: str | None = None,
 ) -> dict[str, Any]:
     """Research and append one place to an existing planned day."""
+    from limits.genai import consume_genai_action
+
     if day_index < 1:
         raise ApiError(400, "day_index must be >= 1", code="invalid_day_index")
 
@@ -101,6 +104,13 @@ def suggest_place(
             code="day_full",
         )
 
+    profile = ProfileService(table=table, safety=safety).get_profile(
+        user_sub, email=email
+    )
+    consume_genai_action(
+        user_sub=user_sub, profile=profile, email=email, table=table
+    )
+
     start = parse_iso_date(str(trip["start_date"]), field="start_date")
     raw_date = str(day.get("date") or "").strip()
     if raw_date:
@@ -109,7 +119,6 @@ def suggest_place(
         day_date = date_for_day_index(start, day_index)
     overnight = str(day.get("overnight_city") or trip["destination"])
 
-    profile = ProfileService(table=table, safety=safety).get_profile(user_sub)
     energy_level = clamp_energy_level(profile.get("energy_level"))
     max_minutes = max_minutes_for_energy(energy_level)
     interests = [str(i) for i in (profile.get("interests") or []) if str(i).strip()]

@@ -38,3 +38,13 @@ def gsi1_sk_day(day_index: int) -> str:
 def profile_sk() -> str:
     """User profile meta — not under TRIP# so list_trips ignores it."""
     return "PROFILE"
+
+
+def usage_genai_hour_sk(when: str) -> str:
+    """``when`` = UTC ``YYYYMMDDHH``."""
+    return f"USAGE#GENAI#HOUR#{when}"
+
+
+def usage_genai_day_sk(when: str) -> str:
+    """``when`` = UTC ``YYYYMMDD``."""
+    return f"USAGE#GENAI#DAY#{when}"

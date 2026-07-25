@@ -124,6 +124,10 @@ module "api" {
     module.secrets.product_metrics_pepper_secret_arn,
   ]
   metrics_admin_subs = var.metrics_admin_subs
+  admin_emails       = var.admin_emails
+  free_plan_max_trips = var.free_plan_max_trips
+  genai_cap_hour     = var.genai_cap_hour
+  genai_cap_day      = var.genai_cap_day
   # Built package (src + pip deps). Run: ../backend/scripts/build_lambda.sh
   backend_source_dir = "${path.root}/../backend/.build/lambda"
 }

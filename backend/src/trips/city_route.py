@@ -147,7 +147,11 @@ def propose_cities(
     table: DynamoDBTable | None,
     runner: CrewRunner,
     safety: SafetyGate,
+    email: str | None = None,
 ) -> dict[str, Any]:
+    from limits.genai import consume_genai_action
+    from user_profile.service import ProfileService
+
     destination_type = trip["destination_type"]
     if destination_type == "city":
         raise ApiError(409, "city destinations skip propose-cities", code="not_applicable")
@@ -155,6 +159,13 @@ def propose_cities(
     status = trip.get("status")
     if status not in {"drafting", "awaiting_city_confirm"}:
         raise ApiError(409, f"cannot propose cities from status={status!r}", code="bad_status")
+
+    profile = ProfileService(table=table, safety=safety).get_profile(
+        user_sub, email=email
+    )
+    consume_genai_action(
+        user_sub=user_sub, profile=profile, email=email, table=table
+    )
 
     safety.check_text(str(trip.get("preferences") or ""), source="preferences")
     safety.check_text(str(trip.get("destination") or ""), source="destination")

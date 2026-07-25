@@ -90,7 +90,31 @@ variable "secretsmanager_secret_arns" {
 }
 
 variable "metrics_admin_subs" {
-  description = "Comma-separated Cognito subs allowed for GET /admin/metrics (empty → all callers get 403)."
+  description = "Comma-separated Cognito subs for admin break-glass (empty → rely on ADMIN_EMAILS / PROFILE role)."
   type        = string
   default     = ""
+}
+
+variable "admin_emails" {
+  description = "Comma-separated emails bootstrapped to PROFILE role=admin"
+  type        = string
+  default     = ""
+}
+
+variable "free_plan_max_trips" {
+  description = "Max trips for non-admin free plan"
+  type        = number
+  default     = 1
+}
+
+variable "genai_cap_hour" {
+  description = "Max GenAI actions per user per UTC hour"
+  type        = number
+  default     = 20
+}
+
+variable "genai_cap_day" {
+  description = "Max GenAI actions per user per UTC day"
+  type        = number
+  default     = 100
 }

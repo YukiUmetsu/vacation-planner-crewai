@@ -78,8 +78,27 @@ def _load_owned_bundle(
 
 
 def create_trip(
-    *, user_sub: str, body: dict[str, Any], table: DynamoDBTable | None, safety: SafetyGate
+    *,
+    user_sub: str,
+    body: dict[str, Any],
+    table: DynamoDBTable | None,
+    safety: SafetyGate,
+    email: str | None = None,
 ) -> dict[str, Any]:
+    from limits.trips import assert_can_create_trip
+    from user_profile.service import ProfileService
+
+    profile = ProfileService(table=table, safety=safety).get_profile(
+        user_sub, email=email
+    )
+    existing = repo.list_trip_meta_for_user(user_sub=user_sub, table=table)
+    assert_can_create_trip(
+        user_sub=user_sub,
+        trip_count=len(existing),
+        profile=profile,
+        email=email,
+    )
+
     req = _validate(CreateTripRequest, body)
     start, end, day_count = validate_trip_dates(req.start_date, req.end_date)
     safety.check_text(req.preferences, source="preferences")

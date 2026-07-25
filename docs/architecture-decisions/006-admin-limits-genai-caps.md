@@ -245,8 +245,8 @@ sequenceDiagram
 
 ## Follow-ups
 
-- [ ] Implement PROFILE `role` / `plan` + admin bootstrap from `ADMIN_EMAILS`
-- [ ] Implement `limits/` + wire routes + tests
-- [ ] Terraform / `ENVIRONMENT.md` / OpenAPI error codes (defaults live there)
-- [ ] FE copy for `free_trip_limit` and `genai_quota_exceeded`
+- [x] Implement PROFILE `role` / `plan` + admin bootstrap from `ADMIN_EMAILS`
+- [x] Implement `limits/` + wire routes + tests
+- [x] Terraform / `ENVIRONMENT.md` / OpenAPI error codes (defaults live there)
+- [ ] FE copy for `free_trip_limit` and `genai_quota_exceeded` (ApiError message already surfaces)
 - [ ] Later: billing updates PROFILE `plan`; `limits/` maps plan → caps

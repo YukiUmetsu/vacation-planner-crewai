@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from auth import get_user_email
 from crews.runner import CrewRunner
 from db.protocols import DynamoDBTable
 from http_utils import parse_body
@@ -21,7 +22,9 @@ def _service(
 
 
 def create_trip(event: dict[str, Any], user_sub: str, **kwargs: Any) -> dict[str, Any]:
-    return _service(**kwargs).create_trip(user_sub, parse_body(event))
+    return _service(**kwargs).create_trip(
+        user_sub, parse_body(event), email=get_user_email(event)
+    )
 
 
 def list_trips(event: dict[str, Any], user_sub: str, **kwargs: Any) -> dict[str, Any]:
@@ -47,7 +50,9 @@ def delete_trip(
 def propose_cities(
     event: dict[str, Any], user_sub: str, trip_id: str, **kwargs: Any
 ) -> dict[str, Any]:
-    return _service(**kwargs).propose_cities(user_sub, trip_id)
+    return _service(**kwargs).propose_cities(
+        user_sub, trip_id, email=get_user_email(event)
+    )
 
 
 def confirm_cities(
@@ -59,7 +64,9 @@ def confirm_cities(
 def plan_next_day(
     event: dict[str, Any], user_sub: str, trip_id: str, **kwargs: Any
 ) -> dict[str, Any]:
-    return _service(**kwargs).plan_next_day(user_sub, trip_id)
+    return _service(**kwargs).plan_next_day(
+        user_sub, trip_id, email=get_user_email(event)
+    )
 
 
 def suggest_place(
@@ -69,7 +76,9 @@ def suggest_place(
     day_index: int,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    return _service(**kwargs).suggest_place(user_sub, trip_id, day_index)
+    return _service(**kwargs).suggest_place(
+        user_sub, trip_id, day_index, email=get_user_email(event)
+    )
 
 
 def remove_place(

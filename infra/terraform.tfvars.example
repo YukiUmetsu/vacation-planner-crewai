@@ -23,7 +23,11 @@ agent_runtime_container_uri = "" # prefer TF_VAR_… from build_push_image.sh
 agent_bedrock_models = ["us.amazon.nova-pro-v1:0"]
 # agent_allowed_bedrock_model_arns = []  # optional full-ARN override (rarely needed)
 # Seed Serper / Places via: aws secretsmanager put-secret-value
-# metrics_admin_subs             = ""  # your Cognito sub(s), comma-separated — required for /metrics dashboard
+# metrics_admin_subs             = ""  # optional break-glass Cognito sub(s)
+# admin_emails                   = "you@example.com"  # bootstrap PROFILE role=admin
+# free_plan_max_trips            = 1
+# genai_cap_hour                 = 20
+# genai_cap_day                  = 100
 
 # CloudWatch GenAI Observability — account/region singleton (enable in ONE stack per region only).
 enable_genai_observability              = true

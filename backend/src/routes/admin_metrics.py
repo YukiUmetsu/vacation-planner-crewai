@@ -1,24 +1,37 @@
-"""Private admin metrics API (Cognito sub allowlist)."""
+"""Private admin metrics API (PROFILE role + env allowlists)."""
 
 from __future__ import annotations
 
-import os
+import logging
 from typing import Any
 
+from auth import get_user_email
 from db import repository as repo
 from http_utils import ApiError
+from limits.admin import is_admin
+from user_profile.service import ProfileService
+
+logger = logging.getLogger(__name__)
 
 
-def metrics_admin_subs() -> set[str]:
-    raw = os.getenv("METRICS_ADMIN_SUBS", "").strip()
-    if not raw:
-        return set()
-    return {part.strip() for part in raw.split(",") if part.strip()}
+def require_metrics_admin(event: dict[str, Any], user_sub: str) -> None:
+    email = get_user_email(event)
+    # Env allowlists work without Dynamo (tests / break-glass).
+    if is_admin(profile=None, user_sub=user_sub, email=email):
+        try:
+            ProfileService().get_profile(user_sub, email=email)
+        except Exception:
+            logger.debug("admin profile bootstrap skipped", exc_info=True)
+        return
 
+    profile: dict[str, Any] | None
+    try:
+        profile = ProfileService().get_profile(user_sub, email=email)
+    except Exception:
+        logger.debug("profile load failed for admin check", exc_info=True)
+        profile = None
 
-def require_metrics_admin(user_sub: str) -> None:
-    allowed = metrics_admin_subs()
-    if not allowed or user_sub not in allowed:
+    if not is_admin(profile=profile, user_sub=user_sub, email=email):
         raise ApiError(403, "metrics admin access required", code="forbidden")
 
 
@@ -30,7 +43,6 @@ def _query_params(event: dict[str, Any]) -> dict[str, str]:
     for key, value in raw.items():
         if value is None:
             continue
-        # local_http may pass multi-value lists; API Gateway uses a single string.
         if isinstance(value, list):
             if not value:
                 continue
@@ -40,19 +52,14 @@ def _query_params(event: dict[str, Any]) -> dict[str, str]:
 
 
 def _reject_key_metacharacters(label: str, value: str) -> str:
-    """Keep DynamoDB key segments free of ``#`` (our key delimiter)."""
     cleaned = value.strip()
     if not cleaned or "#" in cleaned:
-        raise ApiError(
-            400,
-            f"invalid {label}",
-            code="invalid_query",
-        )
+        raise ApiError(400, f"invalid {label}", code="invalid_query")
     return cleaned
 
 
 def list_runs(event: dict[str, Any], user_sub: str) -> dict[str, Any]:
-    require_metrics_admin(user_sub)
+    require_metrics_admin(event, user_sub)
     qs = _query_params(event)
     experiment_key = (qs.get("experiment_key") or "").strip() or None
     if experiment_key is not None:
@@ -66,7 +73,7 @@ def list_runs(event: dict[str, Any], user_sub: str) -> dict[str, Any]:
 
 
 def get_run(event: dict[str, Any], user_sub: str, run_id: str) -> dict[str, Any]:
-    require_metrics_admin(user_sub)
+    require_metrics_admin(event, user_sub)
     run_id = _reject_key_metacharacters("run_id", run_id)
     qs = _query_params(event)
     started_at = _reject_key_metacharacters(
@@ -88,7 +95,7 @@ def get_run(event: dict[str, Any], user_sub: str, run_id: str) -> dict[str, Any]
 
 
 def list_online(event: dict[str, Any], user_sub: str) -> dict[str, Any]:
-    require_metrics_admin(user_sub)
+    require_metrics_admin(event, user_sub)
     qs = _query_params(event)
     kind = (qs.get("kind") or "quality").strip().lower()
     if kind not in {"quality", "product"}:

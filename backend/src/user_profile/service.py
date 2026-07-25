@@ -1,4 +1,4 @@
-"""User profile persistence (prefs, energy, interests, visited places)."""
+"""User profile persistence (prefs, energy, interests, visited places, role/plan)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,12 @@ from typing import Any
 from db import repository as repo
 from db.protocols import DynamoDBTable
 from http_utils import ApiError, public_item
+from limits.admin import (
+    admin_emails,
+    metrics_admin_subs,
+    normalize_plan,
+    normalize_role,
+)
 from models.api import UpdateProfileRequest
 from shared.energy import clamp_energy_level, max_minutes_for_energy
 from safety.gate import SafetyGate, get_safety_gate
@@ -21,6 +27,8 @@ def _default_profile(user_sub: str) -> dict[str, Any]:
         "interests": [],
         "visited_places": [],
         "suggest_include_breakfast": False,
+        "role": "user",
+        "plan": "free",
         "max_comfortable_minutes": max_minutes_for_energy(3),
     }
 
@@ -34,6 +42,8 @@ def _enrich(public: dict[str, Any]) -> dict[str, Any]:
         "interests": list(public.get("interests") or []),
         "visited_places": list(public.get("visited_places") or []),
         "suggest_include_breakfast": bool(public.get("suggest_include_breakfast")),
+        "role": normalize_role(public.get("role")),
+        "plan": normalize_plan(public.get("plan")),
     }
 
 
@@ -53,14 +63,29 @@ class ProfileService:
             self._safety = get_safety_gate()
         return self._safety
 
-    def get_profile(self, user_sub: str) -> dict[str, Any]:
-        """Return the stored profile, or blank defaults when none has been saved."""
+    def get_profile(self, user_sub: str, *, email: str | None = None) -> dict[str, Any]:
+        """Return profile, ensuring defaults and admin bootstrap from ADMIN_EMAILS."""
         item = repo.get_profile(user_sub=user_sub, table=self._table)
         if not item:
-            return {**_default_profile(user_sub), "persisted": False}
-        return {**_enrich(public_item(item)), "persisted": True}
+            public = {**_default_profile(user_sub), "persisted": False}
+        else:
+            public = {**_enrich(public_item(item)), "persisted": True}
 
-    def put_profile(self, user_sub: str, body: dict[str, Any]) -> dict[str, Any]:
+        mail = (email or "").strip().lower()
+        should_promote = False
+        if mail and mail in admin_emails():
+            should_promote = True
+        elif user_sub and user_sub in metrics_admin_subs():
+            should_promote = True
+        if should_promote and normalize_role(public.get("role")) != "admin":
+            item = repo.promote_profile_admin(user_sub=user_sub, table=self._table)
+            public = {**_enrich(public_item(item)), "persisted": True}
+
+        return public
+
+    def put_profile(self, user_sub: str, body: dict[str, Any], *, email: str | None = None) -> dict[str, Any]:
+        # Strip client attempts to set server-owned fields.
+        body = {k: v for k, v in body.items() if k not in {"role", "plan", "user_id"}}
         try:
             req = UpdateProfileRequest.model_validate(body)
         except Exception as exc:  # noqa: BLE001 — pydantic ValidationError
@@ -70,6 +95,9 @@ class ProfileService:
         self.safety.check_text(req.display_name, source="display_name")
         for interest in req.interests:
             self.safety.check_text(interest, source="interests")
+
+        # Ensure bootstrap before overwrite so admin role is preserved via put_profile merge.
+        self.get_profile(user_sub, email=email)
 
         visited = [vp.model_dump() for vp in req.visited_places]
         item = repo.put_profile(

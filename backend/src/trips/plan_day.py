@@ -618,7 +618,11 @@ def plan_next_day_sync(
     table: DynamoDBTable | None,
     runner: CrewRunner,
     safety: SafetyGate,
+    email: str | None = None,
 ) -> dict[str, Any]:
+    from limits.genai import consume_genai_action
+    from user_profile.service import ProfileService
+
     trip, route, days = _load_owned_bundle(user_sub=user_sub, trip_id=trip_id, table=table)
     status = trip.get("status")
     if status not in {"routing_confirmed", "planning", "failed"}:
@@ -629,6 +633,13 @@ def plan_next_day_sync(
     if trip["destination_type"] != "city":
         if not route or route.get("status") != "confirmed":
             raise ApiError(409, "confirmed city route required", code="route_required")
+
+    profile = ProfileService(table=table, safety=safety).get_profile(
+        user_sub, email=email
+    )
+    consume_genai_action(
+        user_sub=user_sub, profile=profile, email=email, table=table
+    )
 
     next_index = resolve_plan_day_index(trip=trip, days=days)
     stored_next = int(trip.get("next_day_index") or 1)
@@ -662,6 +673,7 @@ def start_plan_next_day(
     runner: CrewRunner,
     safety: SafetyGate,
     enqueue_plan_day: Callable[[str, str, int], None] | None,
+    email: str | None = None,
 ) -> dict[str, Any]:
     """Claim planning slot and enqueue worker; returns async response shape."""
     trip, route, days = _load_owned_bundle(user_sub=user_sub, trip_id=trip_id, table=table)
@@ -727,6 +739,16 @@ def start_plan_next_day(
     )
     if recovered is not None:
         return recovered
+
+    from limits.genai import consume_genai_action
+    from user_profile.service import ProfileService
+
+    profile = ProfileService(table=table, safety=safety).get_profile(
+        user_sub, email=email
+    )
+    consume_genai_action(
+        user_sub=user_sub, profile=profile, email=email, table=table
+    )
 
     try:
         claimed = repo.claim_planning_in_progress(
@@ -883,6 +905,7 @@ def plan_next_day(
     runner: CrewRunner,
     safety: SafetyGate,
     enqueue_plan_day: Callable[[str, str, int], None] | None,
+    email: str | None = None,
 ) -> dict[str, Any]:
     """Plan the next day — sync 200 body, or async 202 body when agentcore."""
     if plan_next_day_async_enabled():
@@ -893,6 +916,7 @@ def plan_next_day(
             runner=runner,
             safety=safety,
             enqueue_plan_day=enqueue_plan_day,
+            email=email,
         )
     return plan_next_day_sync(
         user_sub=user_sub,
@@ -900,4 +924,5 @@ def plan_next_day(
         table=table,
         runner=runner,
         safety=safety,
+        email=email,
     )

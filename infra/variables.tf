@@ -89,9 +89,33 @@ variable "agent_allowed_bedrock_model_arns" {
 }
 
 variable "metrics_admin_subs" {
-  description = "Comma-separated Cognito user subs allowed to use GET /admin/metrics (empty disables admin metrics)."
+  description = "Comma-separated Cognito user subs allowed as admin break-glass (empty disables unless ADMIN_EMAILS / PROFILE role)."
   type        = string
   default     = ""
+}
+
+variable "admin_emails" {
+  description = "Comma-separated emails bootstrapped to PROFILE role=admin"
+  type        = string
+  default     = ""
+}
+
+variable "free_plan_max_trips" {
+  description = "Max trips for non-admin free plan"
+  type        = number
+  default     = 1
+}
+
+variable "genai_cap_hour" {
+  description = "Max GenAI actions per user per UTC hour"
+  type        = number
+  default     = 20
+}
+
+variable "genai_cap_day" {
+  description = "Max GenAI actions per user per UTC day"
+  type        = number
+  default     = 100
 }
 
 variable "safety_mode" {

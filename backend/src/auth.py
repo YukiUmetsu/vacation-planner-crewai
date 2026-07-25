@@ -79,3 +79,19 @@ def get_user_sub(event: dict[str, Any]) -> str:
         )
 
     raise ApiError(500, f"Unknown AUTH_MODE={mode!r}", code="auth_misconfigured")
+
+
+def get_user_email(event: dict[str, Any]) -> str | None:
+    """Best-effort email from JWT (or X-Dev-User-Email in AUTH_MODE=dev)."""
+    mode = auth_mode()
+    headers = normalize_headers(event)
+    if mode == "dev":
+        raw = (headers.get("x-dev-user-email") or "").strip()
+        return raw or None
+
+    claims = _claims_from_event(event)
+    for key in ("email", "cognito:username"):
+        val = claims.get(key)
+        if isinstance(val, str) and val.strip() and "@" in val:
+            return val.strip()
+    return None

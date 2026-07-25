@@ -41,7 +41,8 @@ from db.repository.planning import (
     fail_planning_in_progress,
     rollback_next_day_slot,
 )
-from db.repository.profile import get_profile, put_profile
+from db.repository.profile import get_profile, promote_profile_admin, put_profile
+from db.repository.usage import QuotaExceeded, try_consume_genai_windows
 from db.repository.metrics import (
     get_eval_run,
     list_eval_runs,
@@ -103,6 +104,9 @@ __all__ = [
     "prune_visited_place_keys",
     "get_profile",
     "put_profile",
+    "promote_profile_admin",
+    "QuotaExceeded",
+    "try_consume_genai_windows",
     "put_eval_run",
     "put_eval_case",
     "list_eval_runs",

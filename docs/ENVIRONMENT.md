@@ -58,7 +58,12 @@ Demo-only UI (no API): leave `VITE_USE_DEMO_DATA` unset and `npm run dev`.
 | `DYNAMODB_ENDPOINT` | `http://localhost:8000` | unset (AWS) | DynamoDB Local. |
 | `DYNAMODB_TABLE_NAME` | `vacation-planner-local-table` | same | Trip single-table name. |
 | `DYNAMODB_METRICS_TABLE_NAME` | `vacation-planner-local-metrics` | same | Dedicated offline-eval metrics table. |
-| `METRICS_ADMIN_SUBS` | `local-dev-user` (via `dev.sh`) | unset | Comma-separated Cognito (or dev) subs for `GET /admin/metrics`. Empty → 403 for everyone. Online quality/product also dual-write to the metrics table (soft-fail). |
+| `METRICS_ADMIN_SUBS` | `local-dev-user` (via `dev.sh`) | unset | Break-glass Cognito/dev subs for admin (also promotes PROFILE `role=admin`). |
+| `ADMIN_EMAILS` | optional | unset | Comma-separated emails bootstrapped to PROFILE `role=admin` (see ADR 006). |
+| `FREE_PLAN_MAX_TRIPS` | `1` | `1` | Max trips for non-admin `plan=free`. |
+| `GENAI_QUOTA` | `on` | `on` | `off` disables GenAI hour/day caps. |
+| `GENAI_CAP_HOUR` | `20` | `20` | Max GenAI actions per UTC hour per user. |
+| `GENAI_CAP_DAY` | `100` | `100` | Max GenAI actions per UTC day per user. |
 | `AWS_REGION` / `AWS_DEFAULT_REGION` | `us-east-1` | `us-east-1` | Region for boto3. |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | `local` / `local` | `local` when endpoint set | Dummy creds for DynamoDB Local. |
 | `DEV_USER_SUB` | optional | unset | Default user when header missing (smoke scripts). |
@@ -172,7 +177,10 @@ Local/dev can still set plaintext `GOOGLE_PLACES_API_KEY`, `AMAP_WEB_KEY`, `PROD
 | `agent_runtime_container_uri` | `TF_VAR_agent_runtime_container_uri` | no | ECR image URI from `build_push_image.sh`. |
 | `agent_bedrock_models` | | no | Model IDs like `us.amazon.nova-pro-v1:0` (matches crew `llm`). Default in variables.tf. |
 | `agent_allowed_bedrock_model_arns` | `TF_VAR_agent_allowed_bedrock_model_arns` | no | Optional full-ARN override; usually leave empty. |
-| `metrics_admin_subs` | `TF_VAR_metrics_admin_subs` | no | Comma-separated Cognito subs → `METRICS_ADMIN_SUBS` for `/admin/metrics` + `/metrics` SPA. Empty → 403 for all. |
+| `metrics_admin_subs` | `TF_VAR_metrics_admin_subs` | no | Break-glass Cognito subs → `METRICS_ADMIN_SUBS`. |
+| `admin_emails` | `TF_VAR_admin_emails` | no | Bootstrap PROFILE `role=admin`. |
+| `free_plan_max_trips` | `TF_VAR_free_plan_max_trips` | no | Default `1`. |
+| `genai_cap_hour` / `genai_cap_day` | `TF_VAR_…` | no | Defaults `20` / `100`. |
 | `enable_genai_observability` | | no | Account/region Transaction Search singleton. |
 | `genai_observability_indexing_percentage` | | no | e.g. `1` free tier. |
 | `enable_bedrock_guardrails` | | no | Create Guardrail module. |
@@ -212,6 +220,10 @@ Also run `backend/scripts/build_lambda.sh` before `terraform apply`, then `./scr
 | `AMAP_WEB_SECRET_ARN` | secrets module (runtime fetch → `AMAP_WEB_KEY`) |
 | `PRODUCT_METRICS_PEPPER_SECRET_ARN` | secrets module (runtime fetch) |
 | `METRICS_ADMIN_SUBS` | `var.metrics_admin_subs` |
+| `ADMIN_EMAILS` | `var.admin_emails` |
+| `FREE_PLAN_MAX_TRIPS` | `var.free_plan_max_trips` |
+| `GENAI_CAP_HOUR` / `GENAI_CAP_DAY` | `var.genai_cap_hour` / `var.genai_cap_day` |
+| `GENAI_QUOTA` | `on` |
 | `AWS_LAMBDA_FUNCTION_NAME` | AWS runtime (async plan-next-day worker) |
 
 **AgentCore runtime** (`infra/agentcore`):

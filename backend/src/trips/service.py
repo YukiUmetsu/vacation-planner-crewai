@@ -66,8 +66,16 @@ class TripService:
     def _require_trip(self, user_sub: str, trip_id: str) -> dict[str, Any]:
         return crud._require_trip(user_sub=user_sub, trip_id=trip_id, table=self._table)
 
-    def create_trip(self, user_sub: str, body: dict[str, Any]) -> dict[str, Any]:
-        return crud.create_trip(user_sub=user_sub, body=body, table=self._table, safety=self.safety)
+    def create_trip(
+        self, user_sub: str, body: dict[str, Any], *, email: str | None = None
+    ) -> dict[str, Any]:
+        return crud.create_trip(
+            user_sub=user_sub,
+            body=body,
+            table=self._table,
+            safety=self.safety,
+            email=email,
+        )
 
     def update_trip(self, user_sub: str, trip_id: str, body: dict[str, Any]) -> dict[str, Any]:
         return crud.update_trip(
@@ -83,7 +91,9 @@ class TripService:
     def get_trip(self, user_sub: str, trip_id: str) -> dict[str, Any]:
         return crud.get_trip(user_sub=user_sub, trip_id=trip_id, table=self._table)
 
-    def propose_cities(self, user_sub: str, trip_id: str) -> dict[str, Any]:
+    def propose_cities(
+        self, user_sub: str, trip_id: str, *, email: str | None = None
+    ) -> dict[str, Any]:
         trip = self._require_trip(user_sub, trip_id)
         return city_route.propose_cities(
             user_sub=user_sub,
@@ -92,6 +102,7 @@ class TripService:
             table=self._table,
             runner=self.runner,
             safety=self.safety,
+            email=email,
         )
 
     def confirm_cities(self, user_sub: str, trip_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -105,7 +116,9 @@ class TripService:
             table=self._table,
         )
 
-    def plan_next_day(self, user_sub: str, trip_id: str) -> dict[str, Any]:
+    def plan_next_day(
+        self, user_sub: str, trip_id: str, *, email: str | None = None
+    ) -> dict[str, Any]:
         """Plan the next day — sync 200 body, or async 202 body when agentcore."""
         return plan_day.plan_next_day(
             user_sub=user_sub,
@@ -114,9 +127,12 @@ class TripService:
             runner=self.runner,
             safety=self.safety,
             enqueue_plan_day=self._enqueue_plan_day,
+            email=email,
         )
 
-    def start_plan_next_day(self, user_sub: str, trip_id: str) -> dict[str, Any]:
+    def start_plan_next_day(
+        self, user_sub: str, trip_id: str, *, email: str | None = None
+    ) -> dict[str, Any]:
         """Claim planning slot and enqueue worker; returns async response shape."""
         return plan_day.start_plan_next_day(
             user_sub=user_sub,
@@ -125,6 +141,7 @@ class TripService:
             runner=self.runner,
             safety=self.safety,
             enqueue_plan_day=self._enqueue_plan_day,
+            email=email,
         )
 
     def execute_plan_next_day(
@@ -141,7 +158,7 @@ class TripService:
         )
 
     def suggest_place(
-        self, user_sub: str, trip_id: str, day_index: int
+        self, user_sub: str, trip_id: str, day_index: int, *, email: str | None = None
     ) -> dict[str, Any]:
         """Research and append one place to an existing planned day."""
         return day_edit.suggest_place(
@@ -151,6 +168,7 @@ class TripService:
             table=self._table,
             runner=self.runner,
             safety=self.safety,
+            email=email,
         )
 
     def remove_place(
