@@ -12,6 +12,7 @@ import {
 import { TravelPlanningLoading } from "../cities/ProposeCitiesLoading";
 import { AddPlaceForm, type PlaceDraft } from "./AddPlaceForm";
 import { DayEnergyWarning } from "./DayEnergyWarning";
+import { InlineDayPlanningCard } from "./InlineDayPlanningCard";
 import { PlaceDetailPanel } from "./PlaceDetailPanel";
 
 type Props = {
@@ -86,6 +87,7 @@ export function DaysPanel({
       <section className="overflow-hidden rounded-2xl border border-line/80 bg-surface/90 shadow-sm">
         <TravelPlanningLoading
           destination={destination || city}
+          place={planningCity || city}
           title={city}
           eyebrow="Planning your day"
         />
@@ -97,6 +99,10 @@ export function DaysPanel({
       </section>
     );
   }
+
+  const nextDayIndex =
+    sorted.reduce((max, d) => Math.max(max, d.day_index), 0) + 1;
+  const nextCity = (planningCity || destination).trim() || "your next stop";
 
   return (
     <section className="rounded-2xl border border-line/80 bg-surface/90 p-6 shadow-sm sm:p-8">
@@ -113,6 +119,7 @@ export function DaysPanel({
           <DayBlock
             key={day.day_index}
             day={day}
+            destination={destination}
             energyLevel={energyLevel}
             suggestPending={suggestPendingDay === day.day_index}
             onSelectPlace={(placeIndex, place, previousName) =>
@@ -143,6 +150,13 @@ export function DaysPanel({
             }
           />
         ))}
+        {pending && sorted.length > 0 ? (
+          <InlineDayPlanningCard
+            dayIndex={nextDayIndex}
+            city={nextCity}
+            destination={destination}
+          />
+        ) : null}
       </ol>
 
       {!complete && (
@@ -152,7 +166,7 @@ export function DaysPanel({
           disabled={!onPlanNextDay || pending}
           onClick={onPlanNextDay}
         >
-          {pending ? "Planning…" : "Plan next day"}
+          {pending ? "Planning next day…" : "Plan next day"}
         </button>
       )}
 
@@ -176,6 +190,7 @@ export function DaysPanel({
 
 function DayBlock({
   day,
+  destination,
   energyLevel,
   suggestPending,
   onSelectPlace,
@@ -185,6 +200,7 @@ function DayBlock({
   onRemoveDay,
 }: {
   day: DayPlan;
+  destination?: string;
   energyLevel: EnergyLevel;
   suggestPending?: boolean;
   onSelectPlace: (
@@ -301,6 +317,8 @@ function DayBlock({
       </ul>
 
       <AddPlaceForm
+        city={day.overnight_city}
+        destination={destination}
         onAdd={onAddPlace}
         onSuggest={onSuggestPlace}
         suggestPending={suggestPending}

@@ -1,4 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import {
+  nextDefaultTravelImageUrl,
+  travelImageKey,
+} from "../../lib/travelAtmosphere";
 
 type Props = {
   city: string;
@@ -6,19 +10,35 @@ type Props = {
   className?: string;
 };
 
-/** Small square thumb; falls back to teal monogram if image missing or fails. */
+/**
+ * Small square thumb.
+ * On load error: walk default travel images, then teal monogram.
+ */
 export function CityThumb({ city, imageUrl, className = "" }: Props) {
-  const [failed, setFailed] = useState(false);
+  const [src, setSrc] = useState<string | null>(imageUrl?.trim() || null);
+  const [failed, setFailed] = useState<string[]>([]);
   const initial = city.trim().charAt(0).toUpperCase() || "?";
-  const showImage = Boolean(imageUrl) && !failed;
 
-  if (showImage) {
+  useEffect(() => {
+    setSrc(imageUrl?.trim() || null);
+    setFailed([]);
+  }, [imageUrl, city]);
+
+  if (src) {
     return (
       <img
-        src={imageUrl!}
+        src={src}
         alt=""
         className={`h-14 w-14 shrink-0 rounded-lg object-cover ${className}`}
-        onError={() => setFailed(true)}
+        onError={() => {
+          setFailed((prev) => {
+            const key = travelImageKey(src);
+            if (prev.some((u) => travelImageKey(u) === key)) return prev;
+            const nextFailed = [...prev, src];
+            setSrc(nextDefaultTravelImageUrl(nextFailed, 224));
+            return nextFailed;
+          });
+        }}
       />
     );
   }

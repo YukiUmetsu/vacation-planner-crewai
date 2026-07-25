@@ -1,43 +1,92 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  defaultTravelScenes,
   pickQuestion,
   pickQuote,
-  scenesForDestination,
+  scenesForPlace,
+  travelImageKey,
+  type TravelScene,
 } from "../../lib/travelAtmosphere";
 
 const ROTATE_MS = 10_000;
 
 type Props = {
-  /** Used for scene / quote seeding (usually trip destination or overnight city). */
+  /** Trip destination (country / region) — used with ``place`` for scene seeding. */
   destination: string;
+  /** Overnight / focus city when planning a day (preferred for imagery). */
+  place?: string;
   /** Small uppercase label above the title. */
   eyebrow?: string;
-  /** Hero title; defaults to ``destination``. */
+  /** Hero title; defaults to ``place`` then ``destination``. */
   title?: string;
 };
 
+function scenesWithoutFailed(
+  preferred: TravelScene[],
+  failedKeys: ReadonlySet<string>,
+): TravelScene[] {
+  const okPreferred = preferred.filter(
+    (s) => !failedKeys.has(travelImageKey(s.imageUrl)),
+  );
+  if (okPreferred.length > 0) return okPreferred;
+  return defaultTravelScenes().filter(
+    (s) => !failedKeys.has(travelImageKey(s.imageUrl)),
+  );
+}
+
 /**
  * Full-bleed waiting experience while a crew plans cities or a day.
- * Rotates destination scenes, quotes, and traveler questions every 10s.
+ * Rotates destination/city scenes, quotes, and traveler questions every 10s.
+ * Failed image loads drop that URL and fall back to default travel scenes.
  */
 export function TravelPlanningLoading({
   destination,
+  place,
   eyebrow = "Sketching your route",
   title,
 }: Props) {
-  const label = (title ?? destination).trim() || "your trip";
-  const seed = destination.trim() || label;
-  const scenes = useMemo(() => scenesForDestination(seed), [seed]);
+  const focus = (place || destination).trim();
+  const label = (title ?? focus).trim() || "your trip";
+  const preferred = useMemo(
+    () => scenesForPlace(place || "", destination || focus),
+    [place, destination, focus],
+  );
+  const seed = focus || label;
   const [tick, setTick] = useState(0);
+  /** Failed Unsplash pathnames (via travelImageKey), not full URLs. */
+  const [failedKeys, setFailedKeys] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setFailedKeys(new Set());
+    setTick(0);
+  }, [place, destination, focus]);
 
   useEffect(() => {
     const id = window.setInterval(() => setTick((t) => t + 1), ROTATE_MS);
     return () => window.clearInterval(id);
-  }, []);
+  }, [place, destination, focus]);
 
-  const scene = scenes[tick % scenes.length]!;
+  const scenes = useMemo(
+    () => scenesWithoutFailed(preferred, failedKeys),
+    [preferred, failedKeys],
+  );
+
+  // Keep rotation in range when failed loads shrink the pool.
+  const sceneCount = Math.max(scenes.length, 1);
+  const scene = scenes.length > 0 ? scenes[tick % sceneCount]! : null;
   const quote = pickQuote(seed, tick);
   const question = pickQuestion(seed, tick);
+
+  function markFailed(url: string) {
+    const key = travelImageKey(url);
+    if (!key) return;
+    setFailedKeys((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }
 
   return (
     <div
@@ -46,7 +95,7 @@ export function TravelPlanningLoading({
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="relative min-h-[28rem] w-full sm:min-h-[32rem]">
+      <div className="relative min-h-[28rem] w-full bg-teal-deep sm:min-h-[32rem]">
         {scenes.map((s, i) => {
           const active = i === tick % scenes.length;
           return (
@@ -57,6 +106,7 @@ export function TravelPlanningLoading({
               className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 ease-out ${
                 active ? "opacity-100" : "opacity-0"
               }`}
+              onError={() => markFailed(s.imageUrl)}
             />
           );
         })}
@@ -88,7 +138,9 @@ export function TravelPlanningLoading({
             <span className="font-semibold text-teal-soft">While you wait — </span>
             {question}
           </p>
-          <p className="mt-6 text-xs text-sand/70">{scene.caption}</p>
+          {scene ? (
+            <p className="mt-6 text-xs text-sand/70">{scene.caption}</p>
+          ) : null}
         </div>
       </div>
     </div>

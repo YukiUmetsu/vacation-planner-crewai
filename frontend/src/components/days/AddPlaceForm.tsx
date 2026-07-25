@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { allocateUniquePlaceKey } from "../../lib/dayPlaces";
+import { cityImageUrl } from "../../lib/travelAtmosphere";
 import type { Place } from "../../types/trip";
+import { CityThumb } from "../cities/CityThumb";
 
 export type PlaceDraft = {
   name: string;
@@ -9,6 +11,9 @@ export type PlaceDraft = {
 };
 
 type Props = {
+  /** Overnight city for this day — used in suggest loading imagery/copy. */
+  city?: string;
+  destination?: string;
   /** Append a place the user typed */
   onAdd?: (place: PlaceDraft) => void;
   /** Request a place suggestion (demo or API) */
@@ -19,30 +24,85 @@ type Props = {
 const fieldClass =
   "mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-teal focus:ring-2 focus:ring-teal-soft";
 
-export function AddPlaceForm({ onAdd, onSuggest, suggestPending }: Props) {
+function suggestWaitCopy(elapsedSec: number, city: string): string {
+  if (elapsedSec < 15) return `Finding a spot in ${city}…`;
+  if (elapsedSec < 40) return `Still searching ${city} for a good fit…`;
+  return `Taking a bit longer for ${city} — almost there.`;
+}
+
+export function AddPlaceForm({
+  city = "",
+  destination = "",
+  onAdd,
+  onSuggest,
+  suggestPending,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [category, setCategory] = useState("other");
   const [reason, setReason] = useState("");
+  const [elapsedSec, setElapsedSec] = useState(0);
+
+  const cityLabel = city.trim() || "this day";
+
+  useEffect(() => {
+    if (!suggestPending) {
+      setElapsedSec(0);
+      return;
+    }
+    const started = Date.now();
+    const id = window.setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [suggestPending]);
 
   if (!open) {
     return (
-      <div className="mt-3 flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="text-sm font-semibold text-teal hover:underline"
-        >
-          + Add place
-        </button>
-        <button
-          type="button"
-          onClick={onSuggest}
-          disabled={!onSuggest || suggestPending}
-          className="text-sm font-semibold text-teal hover:underline disabled:opacity-40"
-        >
-          {suggestPending ? "Suggesting…" : "Suggest a place"}
-        </button>
+      <div className="mt-3 space-y-3">
+        {suggestPending ? (
+          <div
+            className="flex items-center gap-3 overflow-hidden rounded-xl border border-line/80 bg-sand/40 p-3"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <CityThumb
+              city={cityLabel}
+              imageUrl={cityImageUrl(cityLabel, destination)}
+              className="h-12 w-12"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-ink">
+                Suggesting a place
+              </p>
+              <p className="text-xs text-ink-muted">
+                {suggestWaitCopy(elapsedSec, cityLabel)}
+              </p>
+              <div className="propose-loading-shimmer mt-2 h-1 overflow-hidden rounded-full bg-line/60">
+                <div className="propose-loading-shimmer-bar h-full w-1/3 rounded-full bg-teal/70" />
+              </div>
+            </div>
+          </div>
+        ) : null}
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            disabled={suggestPending}
+            className="text-sm font-semibold text-teal hover:underline disabled:opacity-40"
+          >
+            + Add place
+          </button>
+          <button
+            type="button"
+            onClick={onSuggest}
+            disabled={!onSuggest || suggestPending}
+            className="text-sm font-semibold text-teal hover:underline disabled:opacity-40"
+          >
+            {suggestPending ? "Suggesting…" : "Suggest a place"}
+          </button>
+        </div>
       </div>
     );
   }
@@ -86,38 +146,39 @@ export function AddPlaceForm({ onAdd, onSuggest, suggestPending }: Props) {
             placeholder="Short note"
           />
         </label>
-        <div className="flex gap-2 pt-1">
-          <button
-            type="button"
-            className="rounded-lg bg-teal px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-deep disabled:opacity-50"
-            disabled={!name.trim() || !onAdd}
-            onClick={() => {
-              onAdd?.({
-                name: name.trim(),
-                category,
-                reason_to_visit: reason.trim() || undefined,
-              });
-              setName("");
-              setReason("");
-              setCategory("other");
-              setOpen(false);
-            }}
-          >
-            Add
-          </button>
-          <button
-            type="button"
-            className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold text-ink-muted"
-            onClick={() => setOpen(false)}
-          >
-            Cancel
-          </button>
-        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="rounded-lg bg-teal px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-deep disabled:opacity-50"
+          disabled={!name.trim() || !onAdd}
+          onClick={() => {
+            onAdd?.({
+              name: name.trim(),
+              category,
+              reason_to_visit: reason.trim() || undefined,
+            });
+            setName("");
+            setReason("");
+            setCategory("other");
+            setOpen(false);
+          }}
+        >
+          Add
+        </button>
+        <button
+          type="button"
+          className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold text-ink-muted"
+          onClick={() => setOpen(false)}
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );
 }
 
+/** Build a Place from a manual draft (demo / local add). */
 export function placeFromDraft(
   draft: PlaceDraft,
   order: number,

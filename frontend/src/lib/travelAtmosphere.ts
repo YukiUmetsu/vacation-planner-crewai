@@ -57,7 +57,8 @@ const DESTINATION_SCENES: { match: RegExp; scenes: TravelScene[] }[] = [
   {
     match: /thailand|bangkok|chiang|phuket/,
     scenes: [
-      { imageUrl: U("photo-1528183429752-a53900bd20d8"), caption: "Thai temple gold" },
+      // Replaces broken photo-1528183429752-a53900bd20d8 (404).
+      { imageUrl: U("photo-1552465011-b4e21bf6e79a"), caption: "Thai temple gold" },
       { imageUrl: U("photo-1508009603885-50cf7c579365"), caption: "Bangkok canals" },
     ],
   },
@@ -69,8 +70,14 @@ const FALLBACK_SCENES: TravelScene[] = [
   { imageUrl: U("photo-1476514525535-07fb3b4ae5f1"), caption: "Lake reflection" },
   { imageUrl: U("photo-1507525428034-b723cf961d3e"), caption: "Quiet shoreline" },
   { imageUrl: U("photo-1530789253388-582c481c54b0"), caption: "Market wander" },
-  { imageUrl: U("photo-1501785888041-af3ef6d9e041"), caption: "Alpine pass" },
+  // Replaces broken alpine id photo-1501785888041-af3ef6d9e041 (404).
+  { imageUrl: U("photo-1464822759023-fed622ff2c3b"), caption: "Mountain ridgeline" },
 ];
+
+/** Generic travel scenes when city/destination imagery is missing or fails to load. */
+export function defaultTravelScenes(): TravelScene[] {
+  return FALLBACK_SCENES;
+}
 
 /** Well-known city → Unsplash thumb (w=224). */
 const CITY_IMAGE_OVERRIDES: Record<string, string> = {
@@ -80,7 +87,8 @@ const CITY_IMAGE_OVERRIDES: Record<string, string> = {
   hiroshima: U("photo-1528164344705-47542687000d", 224),
   nara: U("photo-1490806843957-31f4c9a91c65", 224),
   paris: U("photo-1502602898657-3e91760cbb34", 224),
-  rome: U("photo-1552832230-c0197dc311b5", 224),
+  // Replaces broken photo-1552832230-c0197dc311b5 (404).
+  rome: U("photo-1531572753322-ad063cecc140", 224),
   florence: U("photo-1523906834658-6e24ef2386f9", 224),
   venice: U("photo-1534445867742-43195f401b6c", 224),
   barcelona: U("photo-1583422409516-2895a77efded", 224),
@@ -130,6 +138,39 @@ function hashSeed(text: string): number {
   return h;
 }
 
+/** Path-only key so w=/q= variants of the same Unsplash photo match. */
+export function travelImageKey(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
+/** Stable default image URL (thumb or hero via ``width``). */
+export function defaultTravelImageUrl(seed = "travel", width = 224): string {
+  const idx = hashSeed(seed.trim() || "travel") % FALLBACK_SCENES.length;
+  return FALLBACK_SCENES[idx]!.imageUrl.replace(/w=\d+/, `w=${width}`);
+}
+
+/**
+ * Next default travel image not already tried (by photo path).
+ * Returns null only when every curated default was excluded.
+ */
+export function nextDefaultTravelImageUrl(
+  exclude: Iterable<string> = [],
+  width = 224,
+): string | null {
+  const banned = new Set(
+    [...exclude].map((u) => travelImageKey(u)).filter(Boolean),
+  );
+  for (const scene of FALLBACK_SCENES) {
+    if (banned.has(travelImageKey(scene.imageUrl))) continue;
+    return scene.imageUrl.replace(/w=\d+/, `w=${width}`);
+  }
+  return null;
+}
+
 export function scenesForDestination(destination: string): TravelScene[] {
   const key = destination.trim().toLowerCase();
   if (!key) return FALLBACK_SCENES;
@@ -139,6 +180,52 @@ export function scenesForDestination(destination: string): TravelScene[] {
   return FALLBACK_SCENES;
 }
 
+/**
+ * Prefer imagery for a specific city (or overnight), then fall back to the
+ * trip destination pool so loading screens feel place-specific.
+ */
+export function scenesForPlace(
+  place: string,
+  destinationFallback?: string,
+): TravelScene[] {
+  const city = place.trim();
+  const dest = (destinationFallback || "").trim();
+  const cityKey = city.toLowerCase();
+
+  const fromCity = city ? scenesForDestination(city) : [];
+  const fromDest = dest ? scenesForDestination(dest) : [];
+
+  // Prefer city/region-specific pools over generic fallbacks when both exist.
+  const cityIsFallback =
+    fromCity.length > 0 && fromCity[0] === FALLBACK_SCENES[0];
+  const destIsFallback =
+    fromDest.length > 0 && fromDest[0] === FALLBACK_SCENES[0];
+
+  let pool: TravelScene[];
+  if (fromCity.length && !cityIsFallback) pool = [...fromCity];
+  else if (fromDest.length && !destIsFallback) pool = [...fromDest];
+  else if (fromCity.length) pool = [...fromCity];
+  else if (fromDest.length) pool = [...fromDest];
+  else pool = [...FALLBACK_SCENES];
+
+  // Lead with a known city hero when we have an override thumb.
+  if (cityKey && CITY_IMAGE_OVERRIDES[cityKey]) {
+    const hero: TravelScene = {
+      imageUrl: CITY_IMAGE_OVERRIDES[cityKey]!.replace(/w=\d+/, "w=1600"),
+      caption: `${city} streets`,
+    };
+    pool = [hero, ...pool.filter((s) => s.imageUrl !== hero.imageUrl)];
+  }
+
+  // Dedupe by URL while preserving order.
+  const seen = new Set<string>();
+  return pool.filter((s) => {
+    if (seen.has(s.imageUrl)) return false;
+    seen.add(s.imageUrl);
+    return true;
+  });
+}
+
 /** Stable thumb URL for a city name; falls back to destination pool. */
 export function cityImageUrl(
   city: string,
@@ -146,7 +233,7 @@ export function cityImageUrl(
 ): string {
   const key = city.trim().toLowerCase();
   if (key && CITY_IMAGE_OVERRIDES[key]) return CITY_IMAGE_OVERRIDES[key];
-  const pool = scenesForDestination(destinationFallback || city);
+  const pool = scenesForPlace(city, destinationFallback);
   const idx = hashSeed(key || "city") % pool.length;
   return pool[idx]!.imageUrl.replace(/w=\d+/, "w=224");
 }
