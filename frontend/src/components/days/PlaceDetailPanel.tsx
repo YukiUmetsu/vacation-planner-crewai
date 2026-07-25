@@ -94,7 +94,10 @@ export function PlaceDetailPanel({
     }
 
     setPhotoLoading(true);
-    setImageUrl(null);
+    // Keep a durable URL visible while BFF upgrades to a data URL.
+    if (!storedPlacePhotoUrl(place) && !forceRefresh) {
+      setImageUrl(null);
+    }
     void resolvePlacePhoto({
       tripId: ownedTripId!,
       placeKey: placeKey || undefined,

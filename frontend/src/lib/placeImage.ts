@@ -50,18 +50,40 @@ export function isFreshPhotoMiss(
   return Date.now() - checked < MISS_TTL_MS;
 }
 
+function hasUsableGooglePlaceId(
+  place: Pick<Place, "place_id" | "place_key">,
+): boolean {
+  // Keep in sync with backend places.client.is_usable_google_place_id.
+  let id = place.place_id?.trim() ?? "";
+  if (id.startsWith("places/")) id = id.slice("places/".length);
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(id)) return false;
+  const key = place.place_key?.trim() ?? "";
+  if (key && id === key) return false;
+  if (/^\d+$/.test(id)) return false;
+  // Slug-style ids: lowercase with separators, not classic ChIJ… tokens.
+  if (id === id.toLowerCase() && !id.startsWith("ChIJ")) {
+    if (id.includes("-") || id.includes("_")) return false;
+  }
+  return true;
+}
+
 /**
- * Skip BFF when we already have a durable URL, or a fresh durable miss.
- * Still call BFF when only a Google place_id / photo name is present.
+ * Skip BFF only for a confirmed durable miss (with a real Google place_id).
+ * Always resolve when we have a Wikimedia URL — the BFF returns a data URL so
+ * browsers that block hotlinks (e.g. Arc tracking protection) still render.
  */
 export function shouldSkipPlacePhotoResolve(
   place: Pick<
     Place,
-    "photo_url" | "photo_status" | "photo_checked_at" | "places_photo_name" | "place_id"
+    | "photo_url"
+    | "photo_status"
+    | "photo_checked_at"
+    | "places_photo_name"
+    | "place_id"
+    | "place_key"
   >,
 ): "use_url" | "miss" | "resolve" {
-  if (storedPlacePhotoUrl(place)) return "use_url";
-  if (isFreshPhotoMiss(place)) return "miss";
+  if (isFreshPhotoMiss(place) && hasUsableGooglePlaceId(place)) return "miss";
   return "resolve";
 }
 

@@ -29,18 +29,36 @@ describe("placeImage", () => {
     expect(isStablePhotoUrl("https://lh3.googleusercontent.com/x")).toBe(false);
   });
 
-  it("skips BFF for durable URL or fresh miss", () => {
+  it("skips BFF only for confirmed miss; always resolves Wikimedia via BFF", () => {
+    // Wikimedia still goes through BFF for a data URL (hotlink blockers).
     expect(
       shouldSkipPlacePhotoResolve({
         photo_url: "https://upload.wikimedia.org/x.jpg",
       }),
-    ).toBe("use_url");
+    ).toBe("resolve");
+    expect(
+      shouldSkipPlacePhotoResolve({
+        place_id: "ChIJN1t_tDeuEmsRUsoyG83frY4",
+        photo_status: "none",
+        photo_checked_at: new Date().toISOString(),
+      }),
+    ).toBe("miss");
+    // Rate-limit poison: none without a real Google id — retry via BFF.
     expect(
       shouldSkipPlacePhotoResolve({
         photo_status: "none",
         photo_checked_at: new Date().toISOString(),
       }),
-    ).toBe("miss");
+    ).toBe("resolve");
+    // Crew slug ≠ place_key (name|address) — still not a Google id.
+    expect(
+      shouldSkipPlacePhotoResolve({
+        place_id: "teamlab-borderless",
+        place_key: "teamlab borderless|tokyo",
+        photo_status: "none",
+        photo_checked_at: new Date().toISOString(),
+      }),
+    ).toBe("resolve");
     expect(
       shouldSkipPlacePhotoResolve({
         place_id: "ChIJ123",
