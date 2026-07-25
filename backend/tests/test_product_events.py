@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from routes.events import _sanitize_payload, post_event
-from services.worker_observability import stable_user_sub_hash
+from ops.worker_observability import stable_user_sub_hash
 
 
 def test_stable_user_sub_hash_is_deterministic() -> None:

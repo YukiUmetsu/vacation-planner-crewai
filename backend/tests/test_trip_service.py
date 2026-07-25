@@ -10,8 +10,8 @@ from crews.fake_runner import FakeCrewRunner
 from db import repository as repo
 from db.place_keys import make_place_key
 from http_utils import ApiError
-from services.safety import NoopSafetyGate
-from services.trip_service import TripService
+from safety.gate import NoopSafetyGate
+from trips.service import TripService
 
 
 USER = "test-user-1"
@@ -311,7 +311,7 @@ def test_plan_next_day_includes_profile_context(
     dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from crews.fake_runner import FakeCrewRunner
-    from services.profile_service import ProfileService
+    from user_profile.service import ProfileService
 
     runner = FakeCrewRunner()
     service = TripService(table=dynamodb_table, runner=runner, safety=NoopSafetyGate())

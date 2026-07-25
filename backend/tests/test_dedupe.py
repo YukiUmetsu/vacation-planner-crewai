@@ -1,4 +1,4 @@
-from services.dedupe import dedupe_places, ensure_place_key
+from planning_quality.dedupe import dedupe_places, ensure_place_key
 
 
 def test_ensure_place_key_fills_missing() -> None:

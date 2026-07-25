@@ -17,6 +17,7 @@ Short, dated decisions about how this system is shaped — especially cost, AWS 
 | [002](./002-single-api-lambda.md) | Single API Lambda behind HTTP API | Accepted |
 | [003](./003-bff-agentcore-runtime-only.md) | BFF-only AgentCore + Runtime-only MVP | Accepted |
 | [004](./004-crew-quality-envelope.md) | Crew quality envelope + hard vs soft relevance | Accepted |
+| [005](./005-services-domain-packages.md) | Domain packages instead of flat `services/` | Accepted |
 
 ## System context (target)
 

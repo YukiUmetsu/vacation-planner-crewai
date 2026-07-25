@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from services import secrets as secrets_mod
+from ops import secrets as secrets_mod
 
 
 @pytest.fixture(autouse=True)

@@ -188,7 +188,7 @@ def log_quality_metrics(
 
 def stable_user_sub_hash(user_sub: str) -> str:
     """Stable, non-reversible user id for product metrics (not Python hash())."""
-    from services.secrets import resolve_secret
+    from ops.secrets import resolve_secret
 
     pepper = resolve_secret(
         plain_env="PRODUCT_METRICS_HASH_PEPPER",

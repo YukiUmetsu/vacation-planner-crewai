@@ -11,8 +11,8 @@ from crews.fake_runner import FakeCrewRunner
 from db import repository as repo
 from handler import handler
 from routes import trips as trip_routes
-from services.safety import NoopSafetyGate
-from services.trip_service import TripService
+from safety.gate import NoopSafetyGate
+from trips.service import TripService
 
 
 USER = "test-user-remove"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from services.plan_day_retry import (
+from planning_quality.plan_day_retry import (
     MAX_PLAN_DAY_ATTEMPTS,
     apply_plan_day_retry_inputs,
     labels_to_ban_after_failure,

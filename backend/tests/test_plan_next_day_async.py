@@ -10,8 +10,8 @@ import pytest
 from crews.fake_runner import FakeCrewRunner
 from db import repository as repo
 from http_utils import ApiError
-from services.safety import NoopSafetyGate
-from services.trip_service import TripService
+from safety.gate import NoopSafetyGate
+from trips.service import TripService
 from tests.test_trip_service import USER, _confirm_country, _create_country
 
 

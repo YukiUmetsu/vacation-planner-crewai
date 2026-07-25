@@ -7,7 +7,7 @@ import os
 from http_utils import ApiError
 
 import boto3
-from services.safety import SafetyRejected
+from safety.gate import SafetyRejected
 
 class BedrockGuardrailsSafetyGate:
     """Calls Bedrock ApplyGuardrail once ``check_text`` is implemented."""

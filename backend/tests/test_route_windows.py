@@ -5,14 +5,14 @@ from __future__ import annotations
 import pytest
 
 from http_utils import ApiError
-from services.route_windows import (
+from shared.route_windows import (
     _largest_remainder_partition,
     _scale_nights,
     consolidate_route_cities,
     max_cities_for_trip,
     normalize_route_windows,
 )
-from services.trip_service import _assert_route_fits_window
+from trips.city_route import assert_route_fits_window as _assert_route_fits_window
 
 
 @pytest.mark.parametrize(

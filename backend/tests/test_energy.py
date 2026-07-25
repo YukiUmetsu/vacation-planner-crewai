@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from services.energy import (
+from shared.energy import (
     max_minutes_for_energy,
     target_place_count_for_energy,
 )

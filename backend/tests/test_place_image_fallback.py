@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from services import place_image_fallback as wiki
+from places import image_fallback as wiki
 
 
 def test_candidate_titles_include_city() -> None:
@@ -15,9 +15,26 @@ def test_candidate_titles_include_city() -> None:
     assert "Meiji Shrine (Tokyo)" in titles
 
 
+def test_wikipedia_backoff_skips_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    wiki.clear_wikipedia_backoff_for_tests()
+    calls = {"n": 0}
+
+    def _json(_url: str) -> dict[str, Any] | None:
+        calls["n"] += 1
+        return None
+
+    monkeypatch.setattr(wiki, "_http_get_json", _json)
+    wiki.note_wikipedia_transient(seconds=60)
+    with pytest.raises(wiki.PlacesTransientError):
+        wiki.lookup_wikipedia_image_url("Nijo Castle", city="Kyoto")
+    assert calls["n"] == 0
+    wiki.clear_wikipedia_backoff_for_tests()
+
+
 def test_resolve_wikipedia_photo_payload_with_thumbnail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    wiki.clear_wikipedia_backoff_for_tests()
     def _json(url: str) -> dict[str, Any] | None:
         if "page/summary" in url:
             return {

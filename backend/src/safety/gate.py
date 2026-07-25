@@ -50,7 +50,7 @@ def get_safety_gate() -> SafetyGate:
     if mode in {"off", "noop", "none"}:
         return NoopSafetyGate()
     if mode in {"bedrock", "guardrails"}:
-        from services.bedrock_safety import BedrockGuardrailsSafetyGate
+        from safety.bedrock import BedrockGuardrailsSafetyGate
 
         return BedrockGuardrailsSafetyGate.from_env()
     if mode in {"keyword", "keywords"}:

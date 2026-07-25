@@ -1,7 +1,7 @@
-"""Regression net for services → domain-package moves.
+"""Regression net for domain-package layout (ADR 005).
 
-Locks the **public import surface** and a **TripService façade smoke path** so
-refactors can be checked before and after with the same command:
+Locks the **public import surface** and a **TripService smoke path** so
+refactors can be checked with the same command:
 
     ./scripts/run_migration_suite.sh
     # or: uv run pytest -m migration -q
@@ -15,36 +15,34 @@ from typing import Any
 import pytest
 
 from crews.fake_runner import FakeCrewRunner
-from services.safety import NoopSafetyGate
-from services.trip_service import TripService
+from safety.gate import NoopSafetyGate
+from trips.service import TripService
 
 USER = "migration-suite-user"
 
-# Modules currently imported by routes/, handler.py, or other services.
-# Keep these importable (via real modules or temporary re-export shims)
-# until call sites are updated in a later pass.
-LEGACY_IMPORT_PATHS: tuple[str, ...] = (
-    "services.trip_service",
-    "services.profile_service",
-    "services.safety",
-    "services.bedrock_safety",
-    "services.plan_day_worker",
-    "services.worker_observability",
-    "services.places_client",
-    "services.places_enrich",
-    "services.place_photo_cache",
-    "services.place_image_fallback",
-    "services.place_quality",
-    "services.day_balance",
-    "services.plan_day_retry",
-    "services.quality_policy",
-    "services.energy",
-    "services.dedupe",
-    "services.dates",
-    "services.route_windows",
-    "services.crew_context_budget",
-    "services.crew_envelope",
-    "services.secrets",
+# Canonical domain import paths used by routes/, handler.py, and peers.
+DOMAIN_IMPORT_PATHS: tuple[str, ...] = (
+    "trips.service",
+    "user_profile.service",
+    "safety.gate",
+    "safety.bedrock",
+    "ops.plan_day_worker",
+    "ops.worker_observability",
+    "places.client",
+    "places.enrich",
+    "places.photo_cache",
+    "places.image_fallback",
+    "planning_quality.place_quality",
+    "planning_quality.day_balance",
+    "planning_quality.plan_day_retry",
+    "planning_quality.quality_policy",
+    "shared.energy",
+    "planning_quality.dedupe",
+    "shared.dates",
+    "shared.route_windows",
+    "crew_io.context_budget",
+    "crew_io.envelope",
+    "ops.secrets",
 )
 
 # Public methods routes / handler rely on today.
@@ -75,14 +73,14 @@ def service(dynamodb_table: Any) -> TripService:
 
 
 @pytest.mark.migration
-def test_legacy_service_import_paths_resolve() -> None:
+def test_domain_import_paths_resolve() -> None:
     missing: list[str] = []
-    for path in LEGACY_IMPORT_PATHS:
+    for path in DOMAIN_IMPORT_PATHS:
         try:
             importlib.import_module(path)
         except Exception as exc:  # noqa: BLE001 — collect all failures
             missing.append(f"{path}: {type(exc).__name__}: {exc}")
-    assert not missing, "broken legacy imports:\n" + "\n".join(missing)
+    assert not missing, "broken domain imports:\n" + "\n".join(missing)
 
 
 @pytest.mark.migration

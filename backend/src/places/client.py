@@ -55,6 +55,48 @@ class PlacesLookupResult:
     photo_name: str | None = None
 
 
+class PlacesTransientError(Exception):
+    """Upstream Places/Wikipedia rate-limit or temporary outage — do not cache as a miss."""
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+# Process-local backoff after Places 429/5xx so photo opens prefer Wikipedia.
+_PLACES_BACKOFF_UNTIL = 0.0
+_PLACES_BACKOFF_SEC = 90.0
+
+
+def places_lookup_in_backoff() -> bool:
+    return time.monotonic() < _PLACES_BACKOFF_UNTIL
+
+
+def note_places_transient(*, seconds: float | None = None) -> None:
+    global _PLACES_BACKOFF_UNTIL
+    _PLACES_BACKOFF_UNTIL = time.monotonic() + (
+        _PLACES_BACKOFF_SEC if seconds is None else max(5.0, float(seconds))
+    )
+
+
+def clear_places_backoff_for_tests() -> None:
+    global _PLACES_BACKOFF_UNTIL
+    _PLACES_BACKOFF_UNTIL = 0.0
+
+
+def is_http_transient(status: int | None) -> bool:
+    return status in {408, 425, 429, 500, 502, 503, 504}
+
+
+def raise_if_http_transient(exc: BaseException, *, what: str) -> None:
+    """Re-raise rate-limits / 5xx as PlacesTransientError; ignore other errors."""
+    if isinstance(exc, urllib.error.HTTPError) and is_http_transient(exc.code):
+        raise PlacesTransientError(
+            f"{what} temporarily unavailable (HTTP {exc.code})",
+            status=int(exc.code),
+        ) from exc
+
+
 class PlacesClient(Protocol):
     def search_text(
         self, text_query: str, *, max_results: int = DEFAULT_MAX_RESULTS
@@ -190,6 +232,10 @@ class GooglePlacesClient:
         try:
             with urllib.request.urlopen(req, timeout=self._timeout_sec) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise_if_http_transient(exc, what="places search_text")
+            logger.warning("places search_text failed: %s", exc)
+            return []
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             logger.warning("places search_text failed: %s", exc)
             return []
@@ -245,6 +291,7 @@ class GooglePlacesClient:
             with urllib.request.urlopen(req, timeout=self._timeout_sec) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
+            raise_if_http_transient(exc, what="places photo media")
             body = ""
             try:
                 body = exc.read().decode("utf-8", errors="replace")[:300]
@@ -295,6 +342,7 @@ class GooglePlacesClient:
                     content_type = "image/jpeg"
                 return data, content_type, uri
         except (urllib.error.URLError, TimeoutError) as exc:
+            raise_if_http_transient(exc, what="places CDN fetch")
             logger.warning("places CDN fetch failed: %s", exc)
             return None
         except Exception as exc:  # noqa: BLE001
@@ -319,6 +367,7 @@ class GooglePlacesClient:
             with urllib.request.urlopen(req, timeout=self._timeout_sec) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
+            raise_if_http_transient(exc, what="places get details")
             body = ""
             try:
                 body = exc.read().decode("utf-8", errors="replace")[:300]
@@ -332,6 +381,7 @@ class GooglePlacesClient:
             )
             return None
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise_if_http_transient(exc, what="places get details")
             logger.warning("places get details failed for %s: %s", pid[:24], exc)
             return None
         except Exception as exc:  # noqa: BLE001
@@ -379,7 +429,12 @@ class GooglePlacesClient:
         try:
             with urllib.request.urlopen(details_req, timeout=self._timeout_sec) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise_if_http_transient(exc, what="legacy place details")
+            logger.warning("legacy place details failed for %s: %s", pid[:24], exc)
+            return None
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise_if_http_transient(exc, what="legacy place details")
             logger.warning("legacy place details failed for %s: %s", pid[:24], exc)
             return None
         except Exception as exc:  # noqa: BLE001
@@ -388,13 +443,18 @@ class GooglePlacesClient:
             )
             return None
 
-        if not isinstance(payload, dict) or payload.get("status") not in {
-            "OK",
-            "ZERO_RESULTS",
-        }:
+        if not isinstance(payload, dict):
+            return None
+        status = str(payload.get("status") or "").strip().upper()
+        if status in {"OVER_QUERY_LIMIT", "UNKNOWN_ERROR"}:
+            raise PlacesTransientError(
+                f"legacy place details temporarily unavailable ({status})",
+                status=429 if status == "OVER_QUERY_LIMIT" else 503,
+            )
+        if status not in {"OK", "ZERO_RESULTS"}:
             logger.info(
                 "legacy place details status=%s for %s",
-                (payload or {}).get("status") if isinstance(payload, dict) else None,
+                status or None,
                 pid[:24],
             )
             return None
@@ -433,7 +493,12 @@ class GooglePlacesClient:
                     content_type = "image/jpeg"
                 final_url = str(resp.geturl() or "")
                 return data, content_type, final_url
+        except urllib.error.HTTPError as exc:
+            raise_if_http_transient(exc, what="legacy place photo")
+            logger.warning("legacy place photo failed for %s: %s", pid[:24], exc)
+            return None
         except (urllib.error.URLError, TimeoutError) as exc:
+            raise_if_http_transient(exc, what="legacy place photo")
             logger.warning("legacy place photo failed for %s: %s", pid[:24], exc)
             return None
         except Exception as exc:  # noqa: BLE001
@@ -618,7 +683,7 @@ def resolve_place_photo_payload(
 
 
 def places_api_key_from_env() -> str:
-    from services.secrets import resolve_secret
+    from ops.secrets import resolve_secret
 
     return resolve_secret(
         plain_env="GOOGLE_PLACES_API_KEY",

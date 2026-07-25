@@ -3,8 +3,8 @@
 Layers (cheapest first):
 
 1. **DynamoDB nested keys on each place** in DAY.``places`` — durable
-   ``photo_url`` (Wikimedia), ``place_id``, ``places_photo_name``,
-   ``photo_status`` / ``photo_checked_at``.
+   ``photo_url`` (Wikimedia / other persistable public hosts), ``place_id``,
+   ``places_photo_name``, ``photo_status`` / ``photo_checked_at``.
 2. **Short in-process cache** — ~15m URL payloads (Strict Mode + re-open).
 3. **Process negative cache** — ~30m; durable miss also on the place (7d).
 
@@ -72,9 +72,8 @@ def get_cached_payload(key: str) -> dict[str, str | None] | None:
 def set_cached_payload(key: str, payload: dict[str, str | None]) -> None:
     if not payload.get("photo_data_url") and not payload.get("photo_url"):
         return
+    # Keep photo_data_url for stable hosts too — browsers may block Wikimedia hotlinks.
     slim = dict(payload)
-    if slim.get("photo_url") and is_stable_photo_url(slim.get("photo_url")):
-        slim["photo_data_url"] = None
     _POSITIVE[key] = (time.monotonic() + _POSITIVE_TTL_SEC, slim)
     _POSITIVE.move_to_end(key)
     while len(_POSITIVE) > _MAX_POSITIVE_ENTRIES:
@@ -106,6 +105,27 @@ def is_stable_photo_url(url: str | None) -> bool:
         return False
     host = (urlparse(raw).hostname or "").lower()
     return any(host == suffix or host.endswith("." + suffix) for suffix in _STABLE_HOST_SUFFIXES)
+
+
+# Never persist short-lived Google Place Photo CDN links.
+_EPHEMERAL_HOST_SUFFIXES = (
+    "googleusercontent.com",
+    "ggpht.com",
+    "googleapis.com",
+)
+
+
+def is_persistable_photo_url(url: str | None) -> bool:
+    """True for http(s) URLs we may store on the place (excludes Google photo CDNs)."""
+    raw = str(url or "").strip()
+    if not raw.startswith("http"):
+        return False
+    host = (urlparse(raw).hostname or "").lower()
+    if not host:
+        return False
+    if any(host == s or host.endswith("." + s) for s in _EPHEMERAL_HOST_SUFFIXES):
+        return False
+    return True
 
 
 def _parse_checked_at(raw: Any) -> datetime | None:
@@ -202,7 +222,7 @@ def persist_place_photo_fields(
                 updated.append(place)
                 continue
 
-            if photo_url and is_stable_photo_url(photo_url):
+            if photo_url and is_persistable_photo_url(photo_url):
                 if place.get("photo_url") != photo_url:
                     place["photo_url"] = photo_url
                     changed = True

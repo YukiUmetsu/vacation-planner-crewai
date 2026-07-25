@@ -11,7 +11,7 @@ from typing import Any
 
 from evals.case import EvalCase
 
-# Keep in sync with docs/PLANNING_QUALITY.md and backend/services/energy.py
+# Keep in sync with docs/PLANNING_QUALITY.md and backend/src/shared/energy.py
 _MAX_MINUTES_BY_ENERGY: dict[int, int] = {
     1: 270,
     2: 390,

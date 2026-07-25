@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from services.crew_context_budget import inputs_char_len, slim_crew_inputs
+from crew_io.context_budget import inputs_char_len, slim_crew_inputs
 
 
 def _base_day_inputs(**overrides: object) -> dict:

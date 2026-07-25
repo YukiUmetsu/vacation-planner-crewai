@@ -10,7 +10,7 @@ import pytest
 from db import repository as repo
 from http_utils import ApiError
 from routes import places as places_routes
-from services.place_photo_cache import (
+from places.photo_cache import (
     cache_key,
     clear_cache_for_tests,
     get_cached_payload,
@@ -32,7 +32,7 @@ def test_stable_photo_url_detects_wikimedia() -> None:
     assert not is_stable_photo_url("")
 
 
-def test_memory_cache_roundtrip_drops_stable_data_url() -> None:
+def test_memory_cache_roundtrip_keeps_stable_data_url() -> None:
     clear_cache_for_tests()
     key = cache_key(trip_id="t1", place_key="meiji")
     assert get_cached_payload(key) is None
@@ -47,7 +47,7 @@ def test_memory_cache_roundtrip_drops_stable_data_url() -> None:
     hit = get_cached_payload(key)
     assert hit is not None
     assert hit["photo_url"] == "https://upload.wikimedia.org/x.jpg"
-    assert hit["photo_data_url"] is None
+    assert hit["photo_data_url"] == "data:image/jpeg;base64,abc"
     clear_cache_for_tests()
 
 
@@ -140,6 +140,15 @@ def test_get_place_photo_serves_stable_url_without_externals(
     monkeypatch.setattr(places_routes, "resolve_place_photo_payload", _boom)
     monkeypatch.setattr(places_routes, "resolve_wikipedia_photo_payload", _boom)
     monkeypatch.setattr(places_routes, "places_api_key_from_env", lambda: "key")
+    monkeypatch.setattr(
+        places_routes,
+        "resolve_cached_stable_photo_payload",
+        lambda photo_url, **_k: {
+            "photo_url": photo_url,
+            "places_photo_name": None,
+            "photo_data_url": "data:image/jpeg;base64,abc",
+        },
+    )
 
     result = places_routes.get_place_photo(
         {
@@ -151,7 +160,7 @@ def test_get_place_photo_serves_stable_url_without_externals(
         user,
     )
     assert result["photo_url"] == wiki
-    assert result.get("photo_data_url") in (None, "")
+    assert result["photo_data_url"] == "data:image/jpeg;base64,abc"
 
 
 def test_get_place_photo_respects_durable_miss(
@@ -185,6 +194,7 @@ def test_get_place_photo_respects_durable_miss(
                 {
                     "name": "Obscure Alley",
                     "place_key": "obscure",
+                    "place_id": "ChIJN1t_tDeuEmsRUsoyG83frY4",
                     "photo_status": "none",
                     "photo_checked_at": datetime.now(timezone.utc).isoformat(),
                 }

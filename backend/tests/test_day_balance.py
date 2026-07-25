@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from http_utils import ApiError
-from services.day_balance import (
+from planning_quality.day_balance import (
     day_balance_guidance,
     detect_food_crawl_mode,
     min_non_food_places_for,
@@ -111,7 +111,7 @@ def test_day_balance_guidance_mentions_mode() -> None:
 
 
 def test_day_shape_hint_scales_with_target() -> None:
-    from services.day_balance import day_shape_hint
+    from planning_quality.day_balance import day_shape_hint
 
     assert "activity" in day_shape_hint(
         food_crawl_mode=False, target_place_count=5

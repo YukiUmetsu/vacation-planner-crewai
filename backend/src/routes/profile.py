@@ -6,8 +6,8 @@ from typing import Any
 
 from db.protocols import DynamoDBTable
 from http_utils import parse_body
-from services.profile_service import ProfileService
-from services.safety import SafetyGate
+from user_profile.service import ProfileService
+from safety.gate import SafetyGate
 
 
 def _service(

@@ -7,8 +7,8 @@ from typing import Any
 from crews.runner import CrewRunner
 from db.protocols import DynamoDBTable
 from http_utils import parse_body
-from services.safety import SafetyGate
-from services.trip_service import TripService
+from safety.gate import SafetyGate
+from trips.service import TripService
 
 
 def _service(

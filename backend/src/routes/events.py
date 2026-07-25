@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from http_utils import ApiError, parse_body
-from services.worker_observability import log_product_event
+from ops.worker_observability import log_product_event
 
 ALLOWED_EVENTS = frozenset(
     {

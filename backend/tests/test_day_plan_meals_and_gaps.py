@@ -9,8 +9,8 @@ import pytest
 from crews.fake_runner import FakeCrewRunner
 from db import repository as repo
 from http_utils import ApiError
-from services.safety import NoopSafetyGate
-from services.trip_service import (
+from safety.gate import NoopSafetyGate
+from trips.service import (
     TripService,
     first_missing_day_index,
     resolve_plan_day_index,
@@ -84,7 +84,7 @@ def test_meal_guidance_lunch_dinner_always() -> None:
 
 def test_meal_guidance_survives_preferences_slim() -> None:
     """Preferences are truncated from the end — meal rules must be prepended."""
-    from services.crew_context_budget import slim_crew_inputs
+    from crew_io.context_budget import slim_crew_inputs
 
     meal = _meal_guidance(include_breakfast=False)
     huge_tail = "x" * 20_000
@@ -130,7 +130,7 @@ def test_plan_next_day_heals_missing_day_one(
 def test_plan_next_day_includes_breakfast_when_profile_asks(
     service: TripService, dynamodb_table: Any
 ) -> None:
-    from services.profile_service import ProfileService
+    from user_profile.service import ProfileService
 
     ProfileService(table=dynamodb_table, safety=NoopSafetyGate()).put_profile(
         USER,

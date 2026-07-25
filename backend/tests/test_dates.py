@@ -1,4 +1,4 @@
-from services.dates import inclusive_day_count, validate_trip_dates
+from shared.dates import inclusive_day_count, validate_trip_dates
 from http_utils import ApiError
 import pytest
 from datetime import date

@@ -9,9 +9,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from http_utils import ApiError
-from services.place_quality import filter_quality_places, validate_suggested_place
-from services.places_client import PlacesLookupResult
-from services.places_enrich import (
+from planning_quality.place_quality import filter_quality_places, validate_suggested_place
+from places.client import PlacesLookupResult
+from places.enrich import (
     apply_lookup_to_place,
     closed_weekdays_from_hours,
     enrich_place,
@@ -356,7 +356,7 @@ def test_apply_lookup_refreshes_stale_photo_url() -> None:
 
 
 def test_format_places_cost_labels() -> None:
-    from services.places_client import format_places_cost
+    from places.client import format_places_cost
 
     assert format_places_cost("PRICE_LEVEL_FREE", None) == "Free"
     assert format_places_cost("PRICE_LEVEL_INEXPENSIVE", None) == "$ · Inexpensive"
@@ -542,7 +542,7 @@ def test_enrich_always_open_not_weekday_closed() -> None:
 
 
 def test_google_client_parses_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    from services.places_client import GooglePlacesClient
+    from places.client import GooglePlacesClient
 
     captured: dict[str, Any] = {}
 
@@ -565,7 +565,7 @@ def test_google_client_parses_results(monkeypatch: pytest.MonkeyPatch) -> None:
         return _Resp()
 
     monkeypatch.setattr(
-        "services.places_client.urllib.request.urlopen",
+        "places.client.urllib.request.urlopen",
         _urlopen,
     )
     client = GooglePlacesClient("test-key")
@@ -580,11 +580,11 @@ def test_google_client_parses_results(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_google_client_soft_fails_on_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    from services.places_client import GooglePlacesClient
+    from places.client import GooglePlacesClient
     import urllib.error
 
     def _raise(*_a: object, **_k: object) -> None:
         raise urllib.error.URLError("network down")
 
-    monkeypatch.setattr("services.places_client.urllib.request.urlopen", _raise)
+    monkeypatch.setattr("places.client.urllib.request.urlopen", _raise)
     assert GooglePlacesClient("test-key").search_text("Cafe") == []

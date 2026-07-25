@@ -10,19 +10,31 @@ import pytest
 from db import repository as repo
 from http_utils import ApiError
 from routes import places as places_routes
-from services.places_client import (
+from places.client import (
+    clear_places_backoff_for_tests,
     normalize_place_id,
     normalize_places_photo_name,
     is_usable_google_place_id,
     resolve_place_photo_uri,
 )
-from services.place_photo_cache import clear_cache_for_tests
+from places.image_fallback import clear_wikipedia_backoff_for_tests
+from places.openverse_fallback import clear_openverse_backoff_for_tests
+from places.photo_cache import clear_cache_for_tests
+from places.wikidata_fallback import clear_wikidata_backoff_for_tests
 
 USER = "user-photo-1"
 TRIP = "trip-photo-1"
 PHOTO_NAME = "places/ChIJ1234567890/photos/AaBb"
 PLACE_ID = "ChIJ1234567890"
 PLACE_KEY = "cafe|tokyo"
+
+
+def _clear_photo_state() -> None:
+    clear_cache_for_tests()
+    clear_places_backoff_for_tests()
+    clear_wikipedia_backoff_for_tests()
+    clear_wikidata_backoff_for_tests()
+    clear_openverse_backoff_for_tests()
 
 
 def test_normalize_places_photo_name() -> None:
@@ -90,7 +102,7 @@ def test_resolve_place_photo_uri_falls_back_to_place_id() -> None:
 
 
 def test_resolve_place_photo_payload_uses_legacy_when_new_api_has_no_photos() -> None:
-    from services.places_client import resolve_place_photo_payload
+    from places.client import resolve_place_photo_payload
 
     client = MagicMock()
     client.first_photo_name_for_place_id.return_value = None
@@ -159,7 +171,7 @@ def test_get_place_photo_requires_trip_id() -> None:
 def test_get_place_photo_rejects_unowned_ref(
     dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    clear_cache_for_tests()
+    _clear_photo_state()
     _seed_owned_place(dynamodb_table)
     monkeypatch.setattr(places_routes, "places_api_key_from_env", lambda: "test-key")
     monkeypatch.setattr(
@@ -188,7 +200,7 @@ def test_get_place_photo_rejects_unowned_ref(
 def test_get_place_photo_returns_data_url(
     dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    clear_cache_for_tests()
+    _clear_photo_state()
     _seed_owned_place(dynamodb_table)
     captured: dict[str, Any] = {}
     monkeypatch.setattr(places_routes, "places_api_key_from_env", lambda: "test-key")
@@ -220,7 +232,7 @@ def test_get_place_photo_returns_data_url(
 def test_get_place_photo_enriches_when_refs_missing(
     dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    clear_cache_for_tests()
+    _clear_photo_state()
     _seed_owned_place(dynamodb_table, with_photo_refs=False)
     monkeypatch.setattr(places_routes, "places_api_key_from_env", lambda: "test-key")
 
@@ -244,6 +256,15 @@ def test_get_place_photo_enriches_when_refs_missing(
             "photo_data_url": "data:image/jpeg;base64,abc",
         },
     )
+    monkeypatch.setattr(
+        places_routes,
+        "resolve_wikipedia_photo_payload",
+        lambda *_a, **_k: {
+            "photo_url": None,
+            "places_photo_name": None,
+            "photo_data_url": None,
+        },
+    )
     result = places_routes.get_place_photo(
         {
             "queryStringParameters": {
@@ -260,7 +281,7 @@ def test_get_place_photo_looks_up_when_place_id_is_crew_slug(
     dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Crews often set place_id=place_key; that must not block Text Search."""
-    clear_cache_for_tests()
+    _clear_photo_state()
     repo.put_trip(
         user_sub=USER,
         trip_id=TRIP,
@@ -316,6 +337,15 @@ def test_get_place_photo_looks_up_when_place_id_is_crew_slug(
             "photo_data_url": "data:image/jpeg;base64,abc",
         },
     )
+    monkeypatch.setattr(
+        places_routes,
+        "resolve_wikipedia_photo_payload",
+        lambda *_a, **_k: {
+            "photo_url": None,
+            "places_photo_name": None,
+            "photo_data_url": None,
+        },
+    )
     result = places_routes.get_place_photo(
         {
             "queryStringParameters": {
@@ -331,7 +361,7 @@ def test_get_place_photo_looks_up_when_place_id_is_crew_slug(
 def test_get_place_photo_falls_back_when_places_key_missing(
     dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    clear_cache_for_tests()
+    _clear_photo_state()
     _seed_owned_place(dynamodb_table)
     monkeypatch.setattr(places_routes, "places_api_key_from_env", lambda: "")
     monkeypatch.setattr(
@@ -355,3 +385,72 @@ def test_get_place_photo_falls_back_when_places_key_missing(
         )
     assert exc.value.status_code == 404
     assert exc.value.code == "photo_not_found"
+
+
+def test_legacy_photo_over_query_limit_is_transient(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from places.client import GooglePlacesClient, PlacesTransientError
+
+    client = GooglePlacesClient("test-key")
+
+    class _Resp:
+        def read(self) -> bytes:
+            return b'{"status":"OVER_QUERY_LIMIT"}'
+
+        def __enter__(self) -> "_Resp":
+            return self
+
+        def __exit__(self, *_a: object) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "places.client.urllib.request.urlopen",
+        lambda *_a, **_k: _Resp(),
+    )
+    with pytest.raises(PlacesTransientError) as exc:
+        client.fetch_legacy_photo_bytes("ChIJN1t_tDeuEmsRUsoyG83frY4")
+    assert exc.value.status == 429
+
+
+def test_get_place_photo_rate_limit_returns_503_without_durable_miss(
+    dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HTTP 429 must not poison photo_status=none (would hide photos for days)."""
+    from places.client import PlacesTransientError
+    from places.photo_cache import clear_cache_for_tests
+
+    _clear_photo_state()
+    _seed_owned_place(dynamodb_table, with_photo_refs=False)
+    monkeypatch.setattr(places_routes, "places_api_key_from_env", lambda: "test-key")
+
+    def _rate_limited(_place: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        raise PlacesTransientError("places search_text temporarily unavailable", status=429)
+
+    monkeypatch.setattr(places_routes, "enrich_place", _rate_limited)
+    monkeypatch.setattr(
+        places_routes,
+        "resolve_wikipedia_photo_payload",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            PlacesTransientError("wikipedia temporarily unavailable", status=429)
+        ),
+    )
+
+    with pytest.raises(ApiError) as exc:
+        places_routes.get_place_photo(
+            {
+                "queryStringParameters": {
+                    "trip_id": TRIP,
+                    "place_key": PLACE_KEY,
+                }
+            },
+            USER,
+        )
+    assert exc.value.status_code == 503
+    assert exc.value.code == "photo_temporarily_unavailable"
+
+    day = repo.get_day(
+        user_sub=USER, trip_id=TRIP, day_index=1, table=dynamodb_table
+    )
+    place = (day or {}).get("places") or [{}]
+    assert (place[0] or {}).get("photo_status") != "none"

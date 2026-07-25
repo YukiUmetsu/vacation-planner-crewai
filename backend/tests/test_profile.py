@@ -9,8 +9,8 @@ import pytest
 
 from handler import handler
 from routes import profile as profile_routes
-from services.profile_service import ProfileService
-from services.safety import NoopSafetyGate
+from user_profile.service import ProfileService
+from safety.gate import NoopSafetyGate
 
 
 def _event(
@@ -95,7 +95,7 @@ def test_list_trips_ignores_profile_row(
 ) -> None:
     from crews.fake_runner import FakeCrewRunner
     from routes import trips as trip_routes
-    from services.trip_service import TripService
+    from trips.service import TripService
 
     trip_svc = TripService(
         table=dynamodb_table,

@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from http_utils import ApiError
-from services.crew_envelope import unwrap_crew_payload
-from services.quality_policy import enforce_hard_quality, merge_quality_reports
+from crew_io.envelope import unwrap_crew_payload
+from planning_quality.quality_policy import enforce_hard_quality, merge_quality_reports
 
 
 def test_unwrap_legacy_bare_day_plan() -> None:
@@ -52,7 +52,7 @@ def test_soft_tags_do_not_block() -> None:
 
 
 def test_scrub_bff_resolved_tags_drops_stale_crew_hard_tags() -> None:
-    from services.quality_policy import scrub_bff_resolved_tags
+    from planning_quality.quality_policy import scrub_bff_resolved_tags
 
     scrubbed = scrub_bff_resolved_tags(
         {

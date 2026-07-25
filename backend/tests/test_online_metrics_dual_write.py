@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import db.repository as repo
-from services import worker_observability as obs
+from ops import worker_observability as obs
 
 
 def test_log_quality_still_emits_when_dynamo_fails(

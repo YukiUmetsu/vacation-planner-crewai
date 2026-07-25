@@ -33,10 +33,14 @@ src/
   handler.py          # Lambda / HTTP entry
   auth.py             # AUTH_MODE=dev | cognito (APIGW JWT claims)
   http_utils.py
-  routes/trips.py
+  routes/             # HTTP handlers
+  trips/              # TripService + CRUD / route / plan-day / day-edit
+  places/             # Google Places + photo cache
+  planning_quality/   # post-generation quality policy
+  shared/             # energy, route_windows, dates
+  crew_io/ safety/ user_profile/ ops/
   crews/              # CrewRunner: fake (default) | local | agentcore
   db/
-  services/
   models/api.py
 scripts/
   build_lambda.sh     # package src + deps for Terraform zip
@@ -114,7 +118,7 @@ uv sync --group dev
 uv run pytest
 ```
 
-**Services package migration (before and after):** same command both times —
+**Domain package regression (ADR 005):** —
 
 ```bash
 cd backend
@@ -122,7 +126,7 @@ cd backend
 # or: uv run pytest -m migration -q
 ```
 
-That suite locks legacy `services.*` import paths, TripService public methods, façade smokes (city/country/list/delete), plus the existing trip / plan-day / places / quality domain tests. Run full `uv run pytest` before merging.
+That suite locks domain import paths, TripService public methods, TripService smokes (city/country/list/delete), plus the existing trip / plan-day / places / quality domain tests. Run full `uv run pytest` before merging.
 
 These offline tests also run on `git push` via [`.githooks/pre-push`](../.githooks/pre-push). Install once:
 

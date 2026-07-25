@@ -10,7 +10,7 @@ import re
 from typing import Any, Iterable
 
 from http_utils import ApiError
-from services.place_quality import is_food_place
+from planning_quality.place_quality import is_food_place
 
 # Explicit crawl / tour phrasing only — bare "food" or "ramen" must NOT match.
 _FOOD_CRAWL_PATTERNS: tuple[re.Pattern[str], ...] = tuple(

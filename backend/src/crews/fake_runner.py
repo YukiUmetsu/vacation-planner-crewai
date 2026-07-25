@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from db.place_keys import make_place_key
-from services.route_windows import max_cities_for_trip
+from shared.route_windows import max_cities_for_trip
 
 # Paced overnight bases (same order the Japan demo uses).
 _CITY_POOL: list[tuple[str, str, list[str]]] = [

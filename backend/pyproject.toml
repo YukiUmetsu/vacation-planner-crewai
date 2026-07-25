@@ -27,5 +27,5 @@ packages = ["src"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 markers = [
-    "migration: import surface + TripService façade smoke for package moves",
+    "migration: import surface + TripService smoke for package moves",
 ]

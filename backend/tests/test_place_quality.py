@@ -7,7 +7,7 @@ from datetime import date
 import pytest
 
 from http_utils import ApiError
-from services.place_quality import filter_quality_places
+from planning_quality.place_quality import filter_quality_places
 
 
 MONDAY = date(2026, 9, 7)  # weekday 0
@@ -100,7 +100,7 @@ def test_energy_overload_warns_without_trimming() -> None:
 
 
 def test_require_meal_stops_lunch_and_dinner() -> None:
-    from services.place_quality import infer_meal_role, require_meal_stops
+    from planning_quality.place_quality import infer_meal_role, require_meal_stops
 
     require_meal_stops(
         [
@@ -187,7 +187,7 @@ def test_filter_reindexes_order_in_day() -> None:
 
 
 def test_validate_suggested_place_rejects_closed_and_warns_overload() -> None:
-    from services.place_quality import validate_suggested_place
+    from planning_quality.place_quality import validate_suggested_place
 
     existing = [_open("A"), _open("B"), _open("C")]
     with pytest.raises(ApiError) as closed:

@@ -51,7 +51,7 @@ def test_request_override_beats_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_async_plan_disabled_while_override_active(monkeypatch: pytest.MonkeyPatch) -> None:
-    from services.plan_day_worker import plan_next_day_async_enabled
+    from ops.plan_day_worker import plan_next_day_async_enabled
 
     monkeypatch.setenv("CREW_MODE", "agentcore")
     monkeypatch.delenv("PLAN_NEXT_DAY_ASYNC", raising=False)

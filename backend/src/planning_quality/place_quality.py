@@ -6,9 +6,9 @@ from datetime import date
 from typing import Any
 
 from db.place_keys import normalize_place_text
-from services.energy import MAX_PLACES_PER_DAY
+from shared.energy import MAX_PLACES_PER_DAY
 from http_utils import ApiError
-from services.dedupe import ensure_place_key
+from planning_quality.dedupe import ensure_place_key
 
 
 def _parse_nonneg_int(value: Any) -> int:

@@ -9,10 +9,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from db.place_keys import normalize_place_text
-from services.places_client import (
+from places.client import (
     GooglePlacesClient,
     PlacesClient,
     PlacesLookupResult,
+    PlacesTransientError,
     format_places_cost,
     is_usable_google_place_id,
     places_api_key_from_env,
@@ -490,6 +491,8 @@ def enrich_place(
 
     try:
         candidates = active_client.search_text(query)
+    except PlacesTransientError:
+        raise
     except Exception as exc:  # noqa: BLE001 — soft enrich boundary
         logger.warning("places enrich failed for %r: %s", query, exc)
         return place
@@ -585,7 +588,15 @@ def enrich_places(
 
     def _run(item: tuple[int, dict[str, Any]]) -> tuple[int, dict[str, Any]]:
         i, p = item
-        return i, enrich_place(p, overnight_city=overnight_city, client=active_client)
+        try:
+            return i, enrich_place(p, overnight_city=overnight_city, client=active_client)
+        except PlacesTransientError as exc:
+            logger.warning(
+                "places enrich rate-limited for %r: %s",
+                str(p.get("name") or "")[:80],
+                exc,
+            )
+            return i, p
 
     workers = min(_MAX_PARALLEL, len(work))
     if workers == 1:

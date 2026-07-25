@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from services.worker_observability import (
+from ops.worker_observability import (
     WorkerTimer,
     log_crew_duration,
     log_worker_outcome,
@@ -16,7 +16,7 @@ from services.worker_observability import (
 def test_log_worker_outcome_includes_searchable_fields(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    with caplog.at_level(logging.INFO, logger="services.worker_observability"):
+    with caplog.at_level(logging.INFO, logger="ops.worker_observability"):
         log_worker_outcome(
             trip_id="t1",
             day_index=2,
@@ -40,7 +40,7 @@ def test_worker_timer_non_negative() -> None:
 
 
 def test_log_crew_duration(caplog: pytest.LogCaptureFixture) -> None:
-    with caplog.at_level(logging.INFO, logger="services.worker_observability"):
+    with caplog.at_level(logging.INFO, logger="ops.worker_observability"):
         log_crew_duration(
             operation="propose_cities",
             trip_id="t9",

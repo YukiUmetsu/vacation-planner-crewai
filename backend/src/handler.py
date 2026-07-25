@@ -30,9 +30,9 @@ from routes import trips as trip_routes
 from routes import events as event_routes
 from routes import places as places_routes
 from routes import admin_metrics as admin_metrics_routes
-from services.plan_day_worker import is_plan_next_day_worker_event
-from services.trip_service import TripService
-from services.worker_observability import WorkerTimer, log_worker_outcome
+from ops.plan_day_worker import is_plan_next_day_worker_event
+from trips.service import TripService
+from ops.worker_observability import WorkerTimer, log_worker_outcome
 
 configure_logging()
 logger = logging.getLogger(__name__)

@@ -7,15 +7,34 @@ from typing import Any
 
 from db import repository as repo
 from http_utils import ApiError
-from services.place_image_fallback import (
+from places.client import (
+    PlacesTransientError,
+    is_usable_google_place_id,
+    note_places_transient,
+    normalize_place_id,
+    normalize_places_photo_name,
+    places_api_key_from_env,
+    places_lookup_in_backoff,
+    resolve_place_photo_payload,
+)
+from places.enrich import enrich_place
+from places.image_fallback import (
+    note_wikipedia_transient,
     resolve_cached_stable_photo_payload,
     resolve_wikipedia_photo_payload,
+    wikipedia_lookup_in_backoff,
 )
-from services.place_photo_cache import (
+from places.openverse_fallback import (
+    note_openverse_transient,
+    openverse_lookup_in_backoff,
+    resolve_openverse_photo_payload,
+)
+from places.photo_cache import (
     cache_key,
     get_cached_payload,
     is_fresh_photo_miss,
     is_negative_cached,
+    is_persistable_photo_url,
     is_stable_photo_url,
     lookup_key,
     persist_place_photo_fields,
@@ -23,15 +42,11 @@ from services.place_photo_cache import (
     set_cached_payload,
     set_negative_cached,
 )
-from services.places_client import (
-    is_usable_google_place_id,
-    normalize_place_id,
-    normalize_places_photo_name,
-    places_api_key_from_env,
-    resolve_place_photo_payload,
+from places.wikidata_fallback import (
+    note_wikidata_transient,
+    resolve_wikidata_photo_payload,
+    wikidata_lookup_in_backoff,
 )
-from services.places_enrich import enrich_place
-
 logger = logging.getLogger(__name__)
 
 
@@ -108,7 +123,11 @@ def _match_owned_place(
 
 def _ensure_photo_refs(place: dict[str, Any]) -> dict[str, Any]:
     """Fill Google place_id via Text Search when missing (slug / placeholder ids)."""
-    if is_stable_photo_url(str(place.get("photo_url") or "") or None):
+    stored = str(place.get("photo_url") or "") or None
+    if is_stable_photo_url(stored) or (
+        is_persistable_photo_url(stored)
+        and str(place.get("photo_status") or "").strip().lower() == "ok"
+    ):
         return place
     has_google_id = is_usable_google_place_id(
         str(place.get("place_id") or "") or None,
@@ -203,62 +222,209 @@ def get_place_photo(event: dict[str, Any], user_sub: str) -> dict[str, Any]:
             )
 
         if is_fresh_photo_miss(owned):
-            raise ApiError(
-                404,
-                "No photo available for this place",
-                code="photo_not_found",
+            # Durable miss without a confirmed Google place_id is often a stale
+            # rate-limit poison — allow another resolve attempt.
+            has_google = is_usable_google_place_id(
+                str(owned.get("place_id") or "") or None,
+                place_key=str(owned.get("place_key") or "") or None,
             )
+            if has_google:
+                raise ApiError(
+                    404,
+                    "No photo available for this place",
+                    code="photo_not_found",
+                )
 
         stored_url = str(owned.get("photo_url") or "").strip() or None
-        if is_stable_photo_url(stored_url):
+        if is_stable_photo_url(stored_url) or (
+            is_persistable_photo_url(stored_url)
+            and str(owned.get("photo_status") or "").strip().lower() == "ok"
+        ):
+            # Include bytes so the SPA can render without hotlinking CDNs
+            # (Arc / tracking blockers often fail bare third-party <img>).
             payload = resolve_cached_stable_photo_payload(
                 stored_url or "",
                 places_photo_name=str(owned.get("places_photo_name") or "").strip()
                 or None,
-                include_bytes=False,
+                include_bytes=True,
             )
             set_cached_payload(mem_key, payload)
             return payload
 
-    owned = _ensure_photo_refs(owned)
-    stored_photo_name = str(owned.get("places_photo_name") or "").strip() or None
-    if stored_photo_name and places_photo_name_is_stale(owned):
-        # Force Details refresh via place_id path.
-        stored_photo_name = None
-    raw_place_id = str(owned.get("place_id") or "").strip() or None
-    stored_place_id = (
-        raw_place_id
-        if is_usable_google_place_id(
-            raw_place_id, place_key=str(owned.get("place_key") or "") or None
-        )
-        else None
-    )
+    # refresh=1 still prefers a known-good durable URL after a failed re-resolve below.
+    prior_stable_url = str(owned.get("photo_url") or "").strip() or None
+    if not (
+        is_stable_photo_url(prior_stable_url)
+        or is_persistable_photo_url(prior_stable_url)
+    ):
+        prior_stable_url = None
+
+    transient = False
     has_places_key = bool(places_api_key_from_env())
     payload: dict[str, Any] = {
         "photo_url": None,
         "places_photo_name": None,
         "photo_data_url": None,
     }
-    if has_places_key and (stored_photo_name or stored_place_id):
-        payload = resolve_place_photo_payload(
-            photo_name=stored_photo_name,
-            place_id=stored_place_id,
-            include_bytes=True,
+
+    def _google_refs(place: dict[str, Any]) -> tuple[str | None, str | None]:
+        photo = str(place.get("places_photo_name") or "").strip() or None
+        if photo and places_photo_name_is_stale(place):
+            photo = None
+        raw_id = str(place.get("place_id") or "").strip() or None
+        gid = (
+            raw_id
+            if is_usable_google_place_id(
+                raw_id, place_key=str(place.get("place_key") or "") or None
+            )
+            else None
+        )
+        return photo, gid
+
+    stored_photo_name, stored_place_id = _google_refs(owned)
+
+    def _note_transient(exc: PlacesTransientError, *, what: str) -> None:
+        nonlocal transient
+        transient = True
+        # Keep provider backoffs separate so one 429 does not redirect traffic
+        # onto another already-stressed public API.
+        if what == "wikipedia":
+            note_wikipedia_transient()
+        elif what == "wikidata":
+            note_wikidata_transient()
+        elif what == "openverse":
+            note_openverse_transient()
+        else:
+            note_places_transient()
+        logger.warning(
+            "photo %s transient name=%r status=%s: %s",
+            what,
+            place_name,
+            getattr(exc, "status", None),
+            exc,
         )
 
-    if not payload.get("photo_data_url") and not payload.get("photo_url"):
-        wiki = resolve_wikipedia_photo_payload(
-            place_name,
-            city=city,
-            include_bytes=False,
-        )
-        if wiki.get("photo_data_url") or wiki.get("photo_url"):
-            logger.info(
-                "photo resolve: wikipedia fallback name=%r city=%r",
-                place_name,
-                city or None,
+    def _try_google_payload() -> None:
+        nonlocal payload, stored_photo_name, stored_place_id
+        if not (has_places_key and (stored_photo_name or stored_place_id)):
+            return
+        try:
+            payload = resolve_place_photo_payload(
+                photo_name=stored_photo_name,
+                place_id=stored_place_id,
+                include_bytes=True,
             )
-            payload = wiki
+        except PlacesTransientError as exc:
+            _note_transient(exc, what="google")
+
+    def _try_wikipedia() -> None:
+        nonlocal payload, transient
+        if payload.get("photo_data_url") or payload.get("photo_url"):
+            return
+        if wikipedia_lookup_in_backoff():
+            transient = True
+            logger.info(
+                "photo resolve: wikipedia skipped (backoff) name=%r",
+                place_name,
+            )
+            return
+        try:
+            wiki = resolve_wikipedia_photo_payload(
+                place_name,
+                city=city,
+                include_bytes=True,
+            )
+            if wiki.get("photo_data_url") or wiki.get("photo_url"):
+                logger.info(
+                    "photo resolve: wikipedia fallback name=%r city=%r",
+                    place_name,
+                    city or None,
+                )
+                payload = wiki
+        except PlacesTransientError as exc:
+            _note_transient(exc, what="wikipedia")
+
+    def _try_wikidata() -> None:
+        nonlocal payload, transient
+        if payload.get("photo_data_url") or payload.get("photo_url"):
+            return
+        if wikidata_lookup_in_backoff():
+            transient = True
+            logger.info(
+                "photo resolve: wikidata skipped (backoff) name=%r",
+                place_name,
+            )
+            return
+        try:
+            wd = resolve_wikidata_photo_payload(
+                place_name,
+                city=city,
+                include_bytes=True,
+            )
+            if wd.get("photo_data_url") or wd.get("photo_url"):
+                logger.info(
+                    "photo resolve: wikidata P18 fallback name=%r city=%r",
+                    place_name,
+                    city or None,
+                )
+                payload = wd
+        except PlacesTransientError as exc:
+            _note_transient(exc, what="wikidata")
+
+    def _try_openverse() -> None:
+        nonlocal payload, transient
+        if payload.get("photo_data_url") or payload.get("photo_url"):
+            return
+        if openverse_lookup_in_backoff():
+            transient = True
+            logger.info(
+                "photo resolve: openverse skipped (backoff) name=%r",
+                place_name,
+            )
+            return
+        try:
+            ov = resolve_openverse_photo_payload(
+                place_name,
+                city=city,
+                include_bytes=True,
+            )
+            if ov.get("photo_data_url") or ov.get("photo_url"):
+                logger.info(
+                    "photo resolve: openverse fallback name=%r city=%r",
+                    place_name,
+                    city or None,
+                )
+                payload = ov
+        except PlacesTransientError as exc:
+            _note_transient(exc, what="openverse")
+
+    def _try_public_fallbacks() -> None:
+        """Wikipedia → Wikidata P18 → Openverse (last resort; stricter quotas)."""
+        _try_wikipedia()
+        _try_wikidata()
+        _try_openverse()
+
+    def _try_enrich_then_google() -> None:
+        nonlocal payload, owned, stored_photo_name, stored_place_id
+        if payload.get("photo_data_url") or payload.get("photo_url"):
+            return
+        try:
+            owned = _ensure_photo_refs(owned)
+            stored_photo_name, stored_place_id = _google_refs(owned)
+            _try_google_payload()
+        except PlacesTransientError as exc:
+            _note_transient(exc, what="enrich")
+
+    # 1) Existing Google refs.
+    _try_google_payload()
+
+    # 2) While Places is in 429 backoff, skip Text Search and use public fallbacks.
+    #    Otherwise enrich (Text Search) then public fallbacks.
+    if places_lookup_in_backoff():
+        _try_public_fallbacks()
+    else:
+        _try_enrich_then_google()
+        _try_public_fallbacks()
 
     resolved_place_id = stored_place_id or (
         str(owned.get("place_id") or "").strip()
@@ -270,32 +436,48 @@ def get_place_photo(event: dict[str, Any], user_sub: str) -> dict[str, Any]:
     )
 
     if not payload.get("photo_data_url") and not payload.get("photo_url"):
-        set_negative_cached(mem_key, miss_key)
-        persist_place_photo_fields(
-            user_sub=user_sub,
-            trip_id=trip_id,
-            day_index=day_index,
-            place_key=pk,
-            place_id=resolved_place_id,
-            photo_status="none",
-        )
-        if not has_places_key and not stored_photo_name and not stored_place_id:
+        if prior_stable_url:
+            # Re-resolve failed (quota / flaky wiki) — keep the durable Wikimedia URL.
+            payload = resolve_cached_stable_photo_payload(
+                prior_stable_url,
+                places_photo_name=str(owned.get("places_photo_name") or "").strip()
+                or None,
+                include_bytes=True,
+            )
+        elif transient:
+            # Do not durable-miss: rate limits / 5xx are temporary.
             raise ApiError(
                 503,
-                "Google Places is not configured (set GOOGLE_PLACES_API_KEY or GOOGLE_PLACES_SECRET_ARN)",
-                code="places_not_configured",
+                "Photo provider is temporarily unavailable; try again shortly",
+                code="photo_temporarily_unavailable",
             )
-        logger.info(
-            "photo resolve: no image name=%r place_key=%r place_id=%r",
-            place_name,
-            owned.get("place_key"),
-            (stored_place_id or "")[:32] or None,
-        )
-        raise ApiError(
-            404,
-            "No photo available for this place",
-            code="photo_not_found",
-        )
+        else:
+            set_negative_cached(mem_key, miss_key)
+            persist_place_photo_fields(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                day_index=day_index,
+                place_key=pk,
+                place_id=resolved_place_id,
+                photo_status="none",
+            )
+            if not has_places_key and not stored_photo_name and not stored_place_id:
+                raise ApiError(
+                    503,
+                    "Google Places is not configured (set GOOGLE_PLACES_API_KEY or GOOGLE_PLACES_SECRET_ARN)",
+                    code="places_not_configured",
+                )
+            logger.info(
+                "photo resolve: no image name=%r place_key=%r place_id=%r",
+                place_name,
+                owned.get("place_key"),
+                (stored_place_id or "")[:32] or None,
+            )
+            raise ApiError(
+                404,
+                "No photo available for this place",
+                code="photo_not_found",
+            )
 
     set_cached_payload(mem_key, payload)
     persist_place_photo_fields(

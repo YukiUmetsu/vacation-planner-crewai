@@ -10,8 +10,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from services.dedupe import ensure_place_key
-from services.place_quality import (
+from planning_quality.dedupe import ensure_place_key
+from planning_quality.place_quality import (
     is_closed_on_date,
     is_permanently_closed,
     place_matches_visited_name,

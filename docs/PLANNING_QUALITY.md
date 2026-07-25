@@ -7,7 +7,7 @@ Canonical product rules for how we judge a day’s plan. Package READMEs hold im
 | Topic | Where |
 | --- | --- |
 | **Traveler energy ↔ day load** | This file (canonical thresholds) |
-| **Input safety (prompt injection / harmful prefs)** | [`backend/README.md`](../backend/README.md) (`SAFETY_MODE`), [`backend/src/services/bedrock_safety.py`](../backend/src/services/bedrock_safety.py) |
+| **Input safety (prompt injection / harmful prefs)** | [`backend/README.md`](../backend/README.md) (`SAFETY_MODE`), [`backend/src/safety/bedrock.py`](../backend/src/safety/bedrock.py) |
 | **Bedrock Guardrail policies + IAM** | [`infra/README.md`](../infra/README.md) (Guardrails section), [`infra/guardrails/`](../infra/guardrails/) |
 | **Offline crew evals** | [`agent/evals/README.md`](../agent/evals/README.md) |
 | **AgentCore trust boundary** | [ADR 003](./architecture-decisions/003-bff-agentcore-runtime-only.md) |
@@ -26,7 +26,7 @@ Traveler **energy level** is an integer **1–5** (signal bars in the profile UI
 Canonical minute table (keep in sync):
 
 - Frontend: `frontend/src/lib/energyLevel.ts` (`MAX_COMFORTABLE_TOTAL_MINUTES`)
-- Backend: `backend/src/services/energy.py`
+- Backend: `backend/src/shared/energy.py`
 - Offline scorers: `agent/evals/scorers.py`
 
 ### Warning thresholds (canonical)

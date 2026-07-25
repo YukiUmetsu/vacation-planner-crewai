@@ -8,8 +8,8 @@ from db import repository as repo
 from db.protocols import DynamoDBTable
 from http_utils import ApiError, public_item
 from models.api import UpdateProfileRequest
-from services.energy import clamp_energy_level, max_minutes_for_energy
-from services.safety import SafetyGate, get_safety_gate
+from shared.energy import clamp_energy_level, max_minutes_for_energy
+from safety.gate import SafetyGate, get_safety_gate
 
 
 def _default_profile(user_sub: str) -> dict[str, Any]:
