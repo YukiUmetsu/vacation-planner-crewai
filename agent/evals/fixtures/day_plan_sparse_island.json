@@ -1,0 +1,25 @@
+{
+  "id": "day_plan_sparse_island",
+  "crew": "day_plan",
+  "inputs": {
+    "overnight_city": "Naoshima",
+    "day_index": 1,
+    "date": "2026-09-02",
+    "destination": "Japan",
+    "destination_type": "country",
+    "preferences": "art, quiet",
+    "interests": "art museums",
+    "food_crawl_mode": "false",
+    "already_visited": "",
+    "energy_level": 3,
+    "max_comfortable_minutes": 510,
+    "target_place_count": 4,
+    "include_breakfast": "false",
+    "min_non_food_places": 1
+  },
+  "expected": {
+    "min_places": 3,
+    "max_places": 6,
+    "overnight_city": "Naoshima"
+  }
+}

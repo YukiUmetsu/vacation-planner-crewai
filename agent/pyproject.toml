@@ -1,6 +1,6 @@
 [project]
 name = "vacation-planner-agent-runtime"
-version = "0.1.5"
+version = "0.1.6"
 description = "AgentCore Runtime entrypoint for Vacation Planner crews"
 requires-python = ">=3.10,<3.14"
 dependencies = [
@@ -30,6 +30,7 @@ only-include = [
     "main.py",
     "crew_kickoff.py",
     "invoke_payload.py",
+    "runtime_secrets.py",
     "entrypoint.sh",
     "crews/day_plan/crew.jsonc",
     "crews/day_plan/day_models.py",
@@ -37,6 +38,10 @@ only-include = [
     "crews/day_plan/tools",
     "crews/day_plan/knowledge",
     "crews/day_plan/skills",
+    "crews/day_plan_single/crew.jsonc",
+    "crews/day_plan_single/day_models.py",
+    "crews/day_plan_single/agents",
+    "crews/day_plan_single/tools",
     "crews/city_route/crew.jsonc",
     "crews/city_route/city_models.py",
     "crews/city_route/agents",
@@ -46,6 +51,7 @@ only-include = [
     "crews/suggest_place/crew.jsonc",
     "crews/suggest_place/suggest_models.py",
     "crews/suggest_place/agents",
+    "crews/suggest_place/tools",
 ]
 
 [tool.uv.sources]

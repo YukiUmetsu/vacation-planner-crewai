@@ -6,7 +6,7 @@
     "day_index": 1,
     "date": "2026-09-01",
     "preferences": "culture, food",
-    "already_visited": []
+    "already_visited": ""
   },
   "expected": {
     "min_places": 3,

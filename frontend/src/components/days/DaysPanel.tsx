@@ -61,6 +61,7 @@ export function DaysPanel({
     placeIndex: number;
     place: Place;
     previousName: string | null;
+    overnightCity: string;
   } | null>(null);
 
   function handleRemovePlace(dayIndex: number, placeIndex: number) {
@@ -128,6 +129,7 @@ export function DaysPanel({
                 placeIndex,
                 place: enrichPlace(place),
                 previousName,
+                overnightCity: day.overnight_city,
               })
             }
             onAddPlace={
@@ -180,6 +182,8 @@ export function DaysPanel({
         <PlaceDetailPanel
           place={selected.place}
           tripId={tripId}
+          overnightCity={selected.overnightCity}
+          destination={destination}
           previousPlaceName={selected.previousName}
           onClose={() => setSelected(null)}
         />

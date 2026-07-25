@@ -31,6 +31,7 @@ Product flow (create → cities → days), data model and DynamoDB keys, async p
 
 - CI: backend pytest (moto), frontend Vitest + production build, agent eval harness smoke
 - Offline evals: `agent/evals` fixtures + scorers (see [Evaluation](./agent/evals/README.md))
+- Orchestration A/B: `day_plan` vs `day_plan_single` via `--compare-orchestration` ([decision rule](./docs/PLANNING_QUALITY.md#orchestration-experiment-three-agent-vs-single-call))
 - Ops: CloudWatch API logs dashboard + AgentCore / GenAI observability hooks
 
 ---
@@ -54,8 +55,11 @@ Three deployable codebases at the top level — no shared `apps/` umbrella:
 ├── frontend/                   # React TypeScript SPA (Vite)
 ├── backend/                    # HTTP API: Cognito JWT, DynamoDB, invoke AgentCore
 ├── agent/                      # CrewAI crews + AgentCore Runtime package
-│   ├── crews/day_plan/         # One-day crew → DayPlan (structured)
+│   ├── crews/day_plan/         # Researcher→planner→reviewer → DayPlanWithQuality
+│   ├── crews/day_plan_single/  # Single-call day baseline (orchestration A/B)
 │   ├── crews/city_route/       # Country/region → CityRoute (structured)
+│   ├── crews/suggest_place/    # Extra stop → Place
+│   ├── evals/                  # Offline fixtures + --compare-orchestration
 │   ├── models/
 │   └── main.py
 ├── docs/
@@ -89,6 +93,8 @@ flowchart TB
   runtime --> crew[CrewAI day crew]
   crew --> bedrock[Bedrock Nova]
   crew --> serper[Serper]
+  crew --> amap[Amap optional]
+  api -->|"Places enrich"| googlePlaces[Google Places / Amap]
 ```
 
 **Backend:** verifies Cognito JWT (via API Gateway authorizer), reads/writes DynamoDB, invokes AgentCore with server-side IAM. The browser never holds AWS credentials or talks to AgentCore directly.

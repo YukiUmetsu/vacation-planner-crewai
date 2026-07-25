@@ -8,11 +8,13 @@ Traveler energy hour caps (for future scorers): [`docs/PLANNING_QUALITY.md`](../
 
 | Path | Purpose |
 | --- | --- |
-| `case.py` / `harness.py` | Load fixtures + run cases (done) |
-| `scorers.py` | Place/city count, keys, dedupe, nights, energy/closed, `suggest_place`, graded day_plan metrics |
+| `case.py` / `harness.py` | Load fixtures + run cases |
+| `scorers.py` / `cost.py` | Graded day_plan metrics + token→USD estimate |
+| `compare_orchestration.py` | `day_plan` vs `day_plan_single` pairwise decision |
 | `fixtures/*.json` | Case inputs + expected hints (`day_plan_*`, `suggest_place_*`, …) |
 | `fixtures/*preference*` | Interest / exclusion cases for non-vacuous `preference_relevance_score` |
-| `test_harness.py` | Smoke tests for loading / scorers / producer errors / metric aggregates |
+| `test_harness.py` / `test_compare_orchestration.py` | Smoke tests |
+| `runs/` | Live compare raw envelopes (gitignored) |
 
 ## Fixture shape
 
@@ -20,7 +22,12 @@ Traveler energy hour caps (for future scorers): [`docs/PLANNING_QUALITY.md`](../
 {
   "id": "day_plan_tokyo_day1",
   "crew": "day_plan",
-  "inputs": { "overnight_city": "Tokyo", "day_index": 1, "already_visited": [] },
+  "inputs": {
+    "overnight_city": "Tokyo",
+    "day_index": "1",
+    "food_crawl_mode": "false",
+    "already_visited": ""
+  },
   "expected": {
     "min_places": 3,
     "max_places": 6,
@@ -30,6 +37,8 @@ Traveler energy hour caps (for future scorers): [`docs/PLANNING_QUALITY.md`](../
   }
 }
 ```
+
+Crew `inputs` should match BFF string shapes (`food_crawl_mode` `"true"|"false"`, `already_visited` comma-joined). `crew` may also be `day_plan_single` (compare runner overrides crew anyway).
 
 `EvalResult.metrics` holds graded rates (see [`docs/PLANNING_QUALITY.md`](../../docs/PLANNING_QUALITY.md) metric catalog).
 
@@ -78,9 +87,13 @@ uv run pytest evals/test_harness.py -q
 cd agent
 uv run python -m evals            # score fixtures that have sibling *.output.json
 uv run python -m evals --live     # call crew_kickoff (needs credentials)
+uv run python -m evals --live --compare-orchestration \
+  --report reports/orchestration_compare.md
 uv run python -m evals --preference-judge llm --report reports/metrics.md
 uv run python -m evals --persist
 ```
+
+`--compare-orchestration` runs each `day_plan` fixture under both `day_plan` and `day_plan_single`, saves raw envelopes under `evals/runs/<run_id>/`, and prints a keep/simplify decision against the bar in [`docs/PLANNING_QUALITY.md`](../../docs/PLANNING_QUALITY.md).
 
 Offline mode **skips** cases without `fixtures/<id>.output.json` (prints `SKIP`). A golden for `day_plan_example_shape` is included so the default command exits 0.
 

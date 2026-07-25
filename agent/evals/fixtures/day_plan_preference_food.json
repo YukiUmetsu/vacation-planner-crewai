@@ -7,13 +7,16 @@
     "date": "2026-09-02",
     "preferences": "ramen, temples",
     "interests": "ramen, temples",
-    "already_visited": [],
+    "already_visited": "",
     "energy_level": 3
   },
   "expected": {
     "min_places": 3,
     "max_places": 6,
     "forbidden_place_keys": [],
-    "interests": ["ramen", "temple"]
+    "interests": [
+      "ramen",
+      "temple"
+    ]
   }
 }

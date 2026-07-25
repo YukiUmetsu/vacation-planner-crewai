@@ -26,12 +26,14 @@ Cross-day uniqueness still matters, so each place gets a stable `place_key`, and
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `place_id` | string \| null | Google Places place ID when known (e.g. `ChIJ…`); not an internal UUID. Stable dedupe uses `place_key`. |
+| `place_id` | string \| null | Provider place id when known: Google `ChIJ…`, or `amap:…` after mainland China enrich. Not an internal UUID. Stable dedupe uses `place_key`. |
 | `name` | string | Named POI / venue (not a neighborhood or district) |
 | `address` | string \| null | Street-level address when known (not district-only) |
-| `lat` / `lng` | float \| null | Optional; for maps later |
+| `lat` / `lng` | float \| null | Optional coordinates (filled by Amap enrich when available) |
 | `website_url` | string \| null | Official / booking link |
-| `maps_url` | string \| null | Google Maps (or similar) link |
+| `maps_url` | string \| null | Crew-schema map link (Google Maps or Amap URI) |
+| `map_url` | string \| null | API/UI alias of `maps_url` (BFF enrich sets both) |
+| `places_provider` | string \| null | `google` \| `amap` when enrich selected a provider |
 | `category` | enum | `museum` \| `food` \| `park` \| `transit` \| `lodging` \| `nightlife` \| `shopping` \| `nature` \| `other` |
 | `reason_to_visit` | string | Why it fits this day |
 | `details` | string | Practical description |

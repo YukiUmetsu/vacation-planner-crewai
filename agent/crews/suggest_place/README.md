@@ -4,7 +4,7 @@ Research → one `Place` to append to an existing day.
 
 | Agent | Role |
 | --- | --- |
-| `suggest_place_researcher` | Serper: 2–4 candidates with status/hours and minute estimates |
+| `suggest_place_researcher` | Serper + `custom:amap_place_search` (Amap for mainland China): 2–4 candidates with status/hours and minute estimates |
 | `suggest_place_composer` | One structured `Place` under `remaining_minutes` |
 
 Hard rules in prompts (mirrored by API `validate_suggested_place`):

@@ -851,7 +851,15 @@ components:
           type: string
         place_id:
           type: string
-          description: Google Places place ID when known (not an internal UUID)
+          description: "Provider place id when known (Google ChIJ…, or amap:…); not an internal UUID"
+        lat:
+          type: number
+          format: double
+          nullable: true
+        lng:
+          type: number
+          format: double
+          nullable: true
         cost:
           type: string
         photo_url:
@@ -859,7 +867,7 @@ components:
           description: Durable only for stable hosts (e.g. Wikimedia); not Google CDN
         places_photo_name:
           type: string
-          description: Places photo resource name for refresh
+          description: Places photo resource name for refresh (Google); unused for Amap ids
         photo_status:
           type: string
           description: Durable photo cache status (`ok` | `none`)
@@ -879,8 +887,16 @@ components:
             maximum: 6
         main_attraction:
           type: string
+        maps_url:
+          type: string
+          description: Crew-schema map link (Google Maps or Amap URI)
         map_url:
           type: string
+          description: API/UI alias of maps_url (BFF enrich sets both)
+        places_provider:
+          type: string
+          description: "google | amap when enrich selected a provider"
+          nullable: true
         map_embed_query:
           type: string
         why_suggested:

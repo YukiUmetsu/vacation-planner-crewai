@@ -1,0 +1,27 @@
+{
+  "id": "day_plan_exclusion_museums",
+  "crew": "day_plan",
+  "inputs": {
+    "overnight_city": "Tokyo",
+    "day_index": 1,
+    "date": "2026-09-02",
+    "destination": "Japan",
+    "destination_type": "country",
+    "preferences": "food only vibe but need balance",
+    "interests": "ramen",
+    "food_crawl_mode": "false",
+    "already_visited": "",
+    "energy_level": 3,
+    "max_comfortable_minutes": 510,
+    "target_place_count": 5,
+    "include_breakfast": "false",
+    "min_non_food_places": 1
+  },
+  "expected": {
+    "min_places": 3,
+    "min_non_food_places": 1,
+    "interests": [
+      "ramen"
+    ]
+  }
+}

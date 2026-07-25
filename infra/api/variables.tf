@@ -71,6 +71,12 @@ variable "google_places_secret_arn" {
   default     = ""
 }
 
+variable "amap_web_secret_arn" {
+  description = "Secrets Manager ARN for Amap Web Service key (Lambda reads at runtime)"
+  type        = string
+  default     = ""
+}
+
 variable "product_metrics_pepper_secret_arn" {
   description = "Secrets Manager ARN for product metrics hash pepper (Lambda reads at runtime)"
   type        = string

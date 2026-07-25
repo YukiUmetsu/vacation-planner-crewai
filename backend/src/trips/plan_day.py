@@ -378,6 +378,7 @@ def _run_plan_day_and_persist(
         filtered = enrich_places(
             filtered,
             overnight_city=overnight,
+            destination=str(trip.get("destination") or ""),
         )
         # Second pass: catch same venue under a new Google place_id / name key
         # after enrich rewrites addresses.

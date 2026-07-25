@@ -19,10 +19,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-CrewName = Literal["day_plan", "city_route", "suggest_place"]
+CrewName = Literal["day_plan", "day_plan_single", "city_route", "suggest_place"]
 
 _CREW_MODEL_ATTR: dict[CrewName, str] = {
     "day_plan": "DayPlanWithQuality",
+    "day_plan_single": "DayPlanWithQuality",
     "city_route": "CityRoute",
     "suggest_place": "Place",
 }
@@ -62,44 +63,10 @@ def _load_dotenv_once() -> None:
                     continue
                 key, _, value = line.partition("=")
                 os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
-    _ensure_serper_from_secrets()
+    from runtime_secrets import ensure_amap_web_key, ensure_serper_api_key
 
-
-def _ensure_serper_from_secrets() -> None:
-    """If SERPER_API_KEY unset, load from SERPER_SECRET_ARN (AgentCore / AWS)."""
-    if os.getenv("SERPER_API_KEY", "").strip():
-        return
-    secret_id = os.getenv("SERPER_SECRET_ARN", "").strip()
-    if not secret_id:
-        return
-    try:
-        import boto3
-    except ImportError:
-        return
-    try:
-        raw = (
-            boto3.client("secretsmanager")
-            .get_secret_value(SecretId=secret_id)
-            .get("SecretString")
-            or ""
-        )
-    except Exception:
-        return
-    if not isinstance(raw, str) or not raw.strip():
-        return
-    value = raw.strip()
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError:
-        os.environ["SERPER_API_KEY"] = value
-        return
-    if isinstance(parsed, dict):
-        for key in ("api_key", "SERPER_API_KEY", "key", "value", "secret"):
-            cand = parsed.get(key)
-            if isinstance(cand, str) and cand.strip():
-                os.environ["SERPER_API_KEY"] = cand.strip()
-                return
-    os.environ["SERPER_API_KEY"] = value
+    ensure_serper_api_key()
+    ensure_amap_web_key()
 
 
 def _ensure_import_paths(crew_dir: Path) -> None:
@@ -149,7 +116,7 @@ def extract_pydantic_dict(result: Any, model_cls: type) -> dict[str, Any]:
 def _model_class(crew_name: CrewName) -> type:
     from vacation_planner_models import CityRoute, DayPlanWithQuality, Place
 
-    if crew_name == "day_plan":
+    if crew_name in {"day_plan", "day_plan_single"}:
         return DayPlanWithQuality
     if crew_name == "suggest_place":
         return Place
@@ -164,35 +131,107 @@ def _as_nonneg_int(value: Any) -> int | None:
     return n if n >= 0 else None
 
 
-def extract_token_usage(result: Any) -> dict[str, int]:
-    """Pull prompt/completion/total tokens from a CrewAI kickoff result."""
-    raw = getattr(result, "token_usage", None)
+def _usage_dict_from_obj(raw: Any) -> dict[str, Any] | None:
     if raw is None:
-        raw = getattr(result, "usage_metrics", None)
-    if raw is None:
-        return {}
+        return None
     if hasattr(raw, "model_dump"):
         try:
-            raw = raw.model_dump()
+            dumped = raw.model_dump()
+            if isinstance(dumped, dict):
+                return dumped
         except Exception:  # noqa: BLE001
-            raw = None
-    if not isinstance(raw, dict):
-        # UsageMetrics-like object with attributes
-        raw = {
-            "prompt_tokens": getattr(raw, "prompt_tokens", None),
-            "completion_tokens": getattr(raw, "completion_tokens", None),
-            "total_tokens": getattr(raw, "total_tokens", None),
-        }
+            pass
+    if isinstance(raw, dict):
+        return raw
+    # UsageMetrics-like / LiteLLM usage objects
+    return {
+        "prompt_tokens": getattr(raw, "prompt_tokens", None),
+        "completion_tokens": getattr(raw, "completion_tokens", None),
+        "total_tokens": getattr(raw, "total_tokens", None),
+        "input_tokens": getattr(raw, "input_tokens", None),
+        "output_tokens": getattr(raw, "output_tokens", None),
+        "prompt_token_count": getattr(raw, "prompt_token_count", None),
+        "completion_token_count": getattr(raw, "completion_token_count", None),
+        "total_token_count": getattr(raw, "total_token_count", None),
+    }
+
+
+def _usage_dict_has_tokens(raw: dict[str, Any]) -> bool:
+    for key in (
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "input_tokens",
+        "output_tokens",
+        "prompt_token_count",
+        "completion_token_count",
+        "total_token_count",
+    ):
+        if _as_nonneg_int(raw.get(key)) is not None:
+            return True
+    nested = raw.get("usage")
+    if isinstance(nested, dict):
+        return _usage_dict_has_tokens(nested)
+    return False
+
+
+def extract_token_usage(result: Any) -> dict[str, int]:
+    """Pull prompt/completion/total tokens from a CrewAI kickoff result."""
+    candidates: list[Any] = [
+        getattr(result, "token_usage", None),
+        getattr(result, "usage_metrics", None),
+        getattr(result, "usage", None),
+    ]
+    for attr in ("token_usage", "usage_metrics"):
+        nested = getattr(result, attr, None)
+        if nested is not None and not isinstance(nested, dict):
+            sr = getattr(nested, "successful_requests", None)
+            if sr is not None:
+                candidates.append(sr)
+
+    raw_dict: dict[str, Any] | None = None
+    for cand in candidates:
+        parsed = _usage_dict_from_obj(cand)
+        if not parsed or not _usage_dict_has_tokens(parsed):
+            continue
+        raw_dict = parsed
+        break
+    if not raw_dict:
+        return {}
+
+    nested_usage = raw_dict.get("usage")
+    if isinstance(nested_usage, dict):
+        raw_dict = {**raw_dict, **nested_usage}
+
+    prompt = _as_nonneg_int(
+        raw_dict.get("prompt_tokens")
+        if raw_dict.get("prompt_tokens") is not None
+        else raw_dict.get("input_tokens")
+        if raw_dict.get("input_tokens") is not None
+        else raw_dict.get("prompt_token_count")
+    )
+    completion = _as_nonneg_int(
+        raw_dict.get("completion_tokens")
+        if raw_dict.get("completion_tokens") is not None
+        else raw_dict.get("output_tokens")
+        if raw_dict.get("output_tokens") is not None
+        else raw_dict.get("completion_token_count")
+    )
+    total = _as_nonneg_int(
+        raw_dict.get("total_tokens")
+        if raw_dict.get("total_tokens") is not None
+        else raw_dict.get("total_token_count")
+    )
+
     out: dict[str, int] = {}
-    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-        n = _as_nonneg_int(raw.get(key))
-        if n is not None:
-            out[key] = n
-    if "total_tokens" not in out:
-        prompt = out.get("prompt_tokens")
-        completion = out.get("completion_tokens")
-        if prompt is not None and completion is not None:
-            out["total_tokens"] = prompt + completion
+    if prompt is not None:
+        out["prompt_tokens"] = prompt
+    if completion is not None:
+        out["completion_tokens"] = completion
+    if total is not None:
+        out["total_tokens"] = total
+    elif prompt is not None and completion is not None:
+        out["total_tokens"] = prompt + completion
     return out
 
 
@@ -252,7 +291,7 @@ def _wrap_envelope(
         latency_ms=latency_ms,
         token_usage=token_usage,
     )
-    if crew_name == "day_plan":
+    if crew_name in {"day_plan", "day_plan_single"}:
         if "day_plan" in extracted and "quality" in extracted:
             return {
                 "result": extracted["day_plan"],

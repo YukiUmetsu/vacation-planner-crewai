@@ -67,6 +67,10 @@ function hasUsableGooglePlaceId(
   return true;
 }
 
+export function isAmapPlaceId(placeId: string | null | undefined): boolean {
+  return Boolean(placeId?.trim().startsWith("amap:"));
+}
+
 /**
  * Skip BFF only for a confirmed durable miss (with a real Google place_id).
  * Always resolve when we have a Wikimedia URL — the BFF returns a data URL so
@@ -81,15 +85,29 @@ export function shouldSkipPlacePhotoResolve(
     | "places_photo_name"
     | "place_id"
   > &
-    Partial<Pick<Place, "place_key">>,
+    Partial<Pick<Place, "place_key" | "places_provider">>,
 ): "use_url" | "miss" | "resolve" {
+  const amap =
+    place.places_provider === "amap" || isAmapPlaceId(place.place_id);
+  if (amap) {
+    if (anyStoredPhotoUrl(place)) return "use_url";
+    if (isFreshPhotoMiss(place)) return "miss";
+    // No Google photo path for Amap ids — avoid proxy/enrich loops.
+    return "miss";
+  }
   if (isFreshPhotoMiss(place) && hasUsableGooglePlaceId(place)) return "miss";
   return "resolve";
 }
 
 export function canResolvePlacePhoto(
-  place: Pick<Place, "places_photo_name" | "place_id" | "photo_url">,
+  place: Pick<
+    Place,
+    "places_photo_name" | "place_id" | "photo_url" | "places_provider"
+  >,
 ): boolean {
+  if (place.places_provider === "amap" || isAmapPlaceId(place.place_id)) {
+    return Boolean(place.photo_url?.trim() || place.places_photo_name?.trim());
+  }
   return Boolean(
     place.places_photo_name?.trim() ||
       place.place_id?.trim() ||

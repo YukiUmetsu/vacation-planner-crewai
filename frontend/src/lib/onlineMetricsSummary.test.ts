@@ -65,6 +65,21 @@ describe("summarizeQualityEvents", () => {
     expect(summary.byDay).toHaveLength(2);
   });
 
+  it("coerces string latency/token fields from API", () => {
+    const summary = summarizeQualityEvents([
+      {
+        event: "plan_day_quality",
+        latency_ms: "2500" as unknown as number,
+        total_tokens: "400" as unknown as number,
+        prompt_tokens: "250" as unknown as number,
+        completion_tokens: "150" as unknown as number,
+      },
+    ]);
+    expect(summary.meanLatencyMs).toBe(2500);
+    expect(summary.meanTotalTokens).toBe(400);
+    expect(summary.latencySampleSize).toBe(1);
+  });
+
   it("treats legacy events without event field as terminal", () => {
     const summary = summarizeQualityEvents([
       { occurred_at: "2026-07-24T10:00:00Z", passes_relevance: true },

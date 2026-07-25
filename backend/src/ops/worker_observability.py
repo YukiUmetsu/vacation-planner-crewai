@@ -144,6 +144,37 @@ def _persist_online_product(body: dict[str, Any]) -> None:
         )
 
 
+def _as_metric_int(raw: Any) -> int | None:
+    """Coerce Dynamo/JSON number-ish values to a non-negative int."""
+    if isinstance(raw, bool) or raw is None:
+        return None
+    if isinstance(raw, int):
+        return raw if raw >= 0 else None
+    if isinstance(raw, float):
+        if raw >= 0 and raw == int(raw):
+            return int(raw)
+        return int(raw) if raw >= 0 else None
+    if isinstance(raw, str) and raw.strip():
+        try:
+            value = float(raw.strip())
+        except ValueError:
+            return None
+        if value < 0:
+            return None
+        return int(value)
+    # Decimal from Dynamo before _to_plain
+    try:
+        from decimal import Decimal
+
+        if isinstance(raw, Decimal):
+            if raw < 0:
+                return None
+            return int(raw)
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 def _invocation_metric_fields(invocation: dict[str, Any] | None) -> dict[str, Any]:
     """Shared non-PII crew dims for quality + retry online events."""
     inv = invocation or {}
@@ -166,11 +197,9 @@ def _invocation_metric_fields(invocation: dict[str, Any] | None) -> dict[str, An
         "completion_tokens",
         "total_tokens",
     ):
-        raw = inv.get(key)
-        if isinstance(raw, bool):
-            continue
-        if isinstance(raw, (int, float)) and raw >= 0:
-            fields[key] = int(raw)
+        n = _as_metric_int(inv.get(key))
+        if n is not None:
+            fields[key] = n
     return fields
 
 

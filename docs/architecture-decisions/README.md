@@ -47,6 +47,7 @@ flowchart TB
   subgraph llm [LLM / tools]
     bedrock[Bedrock Nova]
     serper[Serper]
+    amap[Amap optional]
   end
 
   user --> spa
@@ -57,6 +58,8 @@ flowchart TB
   lambda -.->|"Event worker InvokeAgentRuntime"| agentcore
   agentcore --> bedrock
   agentcore --> serper
+  agentcore --> amap
+  lambda -->|"Places enrich"| placesApi[Google Places / Amap]
   lambda -->|"Put DAY after crew"| ddb
   spa -.->|"poll GET /trips/id"| apigw
 ```

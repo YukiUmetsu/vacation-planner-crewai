@@ -273,8 +273,8 @@ function MetricsDashboard() {
                 value={formatLatencyMs(qualitySummary.meanLatencyMs)}
                 hint={
                   qualitySummary.latencySampleSize
-                    ? `BFF wall clock · n=${qualitySummary.latencySampleSize}`
-                    : "No latency_ms on events yet — plan a day after deploy"
+                    ? `BFF wall clock · n=${qualitySummary.latencySampleSize} of ${qualitySummary.sampleSize}`
+                    : "No latency_ms on sampled events — plan a day after API deploy (averages skip missing fields)"
                 }
               />
               <StatCard
@@ -282,8 +282,8 @@ function MetricsDashboard() {
                 value={formatTokenCount(qualitySummary.meanTotalTokens)}
                 hint={
                   qualitySummary.tokenSampleSize
-                    ? `prompt ${formatTokenCount(qualitySummary.meanPromptTokens)} · completion ${formatTokenCount(qualitySummary.meanCompletionTokens)} · n=${qualitySummary.tokenSampleSize}`
-                    : "Needs AgentCore/local crew (fake mode has no tokens)"
+                    ? `prompt ${formatTokenCount(qualitySummary.meanPromptTokens)} · completion ${formatTokenCount(qualitySummary.meanCompletionTokens)} · n=${qualitySummary.tokenSampleSize} of ${qualitySummary.sampleSize}`
+                    : "No token fields yet — needs AgentCore/local with CrewAI usage (fake mode has none)"
                 }
               />
               <StatCard

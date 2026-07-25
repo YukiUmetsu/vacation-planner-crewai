@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from db.place_keys import normalize_place_text
+from places.amap_client import AmapPlacesClient, amap_api_key_from_env
 from places.client import (
     GooglePlacesClient,
     PlacesClient,
@@ -19,6 +20,8 @@ from places.client import (
     places_api_key_from_env,
     places_enrich_enabled,
 )
+from places.region import is_mainland_china
+
 
 logger = logging.getLogger(__name__)
 
@@ -413,7 +416,7 @@ def apply_lookup_to_place(
 
     if lookup.place_id:
         existing = str(out.get("place_id") or "").strip()
-        if not is_usable_google_place_id(
+        if lookup.provider == "amap" or not is_usable_google_place_id(
             existing, place_key=str(out.get("place_key") or "") or None
         ):
             out["place_id"] = lookup.place_id
@@ -425,7 +428,9 @@ def apply_lookup_to_place(
     if closed is not None:
         out["closed_weekdays"] = closed
 
-    hours_text = open_hours_text(lookup.regular_opening_hours)
+    hours_text = lookup.open_hours_text or open_hours_text(
+        lookup.regular_opening_hours
+    )
     if hours_text:
         out["open_hours"] = hours_text
 
@@ -439,6 +444,24 @@ def apply_lookup_to_place(
     # Always refresh when we resolved a URI — stored CDN links expire.
     if photo_uri:
         out["photo_url"] = photo_uri
+
+    if lookup.lat is not None:
+        out["lat"] = lookup.lat
+    if lookup.lng is not None:
+        out["lng"] = lookup.lng
+
+    # Crew schema uses maps_url; API/UI use map_url — set both.
+    maps = lookup.maps_url or str(out.get("maps_url") or out.get("map_url") or "").strip()
+    if maps:
+        out["maps_url"] = maps
+        out["map_url"] = maps
+    elif out.get("maps_url") and not out.get("map_url"):
+        out["map_url"] = out["maps_url"]
+    elif out.get("map_url") and not out.get("maps_url"):
+        out["maps_url"] = out["map_url"]
+
+    if lookup.provider:
+        out["places_provider"] = lookup.provider
 
     return out
 
@@ -461,10 +484,35 @@ def _needs_places_lookup(place: dict[str, Any]) -> bool:
     return status != "closed"
 
 
+def resolve_places_client(
+    *,
+    overnight_city: str = "",
+    destination: str = "",
+    client: PlacesClient | None = None,
+) -> PlacesClient | None:
+    """Pick Amap for mainland China when configured; otherwise Google."""
+    if client is not None:
+        return client
+    if not places_enrich_enabled():
+        return None
+    if is_mainland_china(overnight_city, destination):
+        amap_key = amap_api_key_from_env()
+        if amap_key:
+            return AmapPlacesClient(amap_key, city=overnight_city.strip())
+        logger.info(
+            "mainland China enrich: AMAP_WEB_KEY missing; falling back to Google"
+        )
+    key = places_api_key_from_env()
+    if not key:
+        return None
+    return GooglePlacesClient(key)
+
+
 def enrich_place(
     place: dict[str, Any],
     *,
     overnight_city: str = "",
+    destination: str = "",
     client: PlacesClient | None = None,
     loose_match: bool = False,
 ) -> dict[str, Any]:
@@ -477,12 +525,13 @@ def enrich_place(
     if not _needs_places_lookup(place):
         return place
 
-    active_client = client
+    active_client = resolve_places_client(
+        overnight_city=overnight_city,
+        destination=destination,
+        client=client,
+    )
     if active_client is None:
-        key = places_api_key_from_env()
-        if not key:
-            return place
-        active_client = GooglePlacesClient(key)
+        return place
 
     name = str(place.get("name") or "").strip()
     query = _build_query(place, overnight_city)
@@ -522,7 +571,8 @@ def enrich_place(
 
     photo_uri: str | None = None
     photo_name = lookup.photo_name
-    if not photo_name and lookup.place_id and hasattr(
+    # Google-only photo helpers — skip for Amap place ids.
+    if lookup.provider != "amap" and not photo_name and lookup.place_id and hasattr(
         active_client, "first_photo_name_for_place_id"
     ):
         try:
@@ -532,7 +582,7 @@ def enrich_place(
         except Exception as exc:  # noqa: BLE001
             logger.warning("places photo name lookup failed for %r: %s", name, exc)
             photo_name = None
-    if photo_name and hasattr(active_client, "photo_media_uri"):
+    if lookup.provider != "amap" and photo_name and hasattr(active_client, "photo_media_uri"):
         try:
             photo_uri = active_client.photo_media_uri(photo_name)  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001
@@ -550,6 +600,12 @@ def enrich_place(
             price_level=lookup.price_level,
             price_range=lookup.price_range,
             photo_name=photo_name,
+            lat=lookup.lat,
+            lng=lookup.lng,
+            provider=lookup.provider,
+            maps_url=lookup.maps_url,
+            open_hours_text=lookup.open_hours_text,
+            raw_extra=lookup.raw_extra,
         )
 
     return apply_lookup_to_place(place, lookup, photo_uri=photo_uri)
@@ -559,6 +615,7 @@ def enrich_places(
     places: list[dict[str, Any]],
     *,
     overnight_city: str = "",
+    destination: str = "",
     client: PlacesClient | None = None,
 ) -> list[dict[str, Any]]:
     """Enrich places in parallel (bounded). Soft no-op when Places is off or key missing."""
@@ -567,12 +624,13 @@ def enrich_places(
     if not places_enrich_enabled():
         return places
 
-    active_client = client
+    active_client = resolve_places_client(
+        overnight_city=overnight_city,
+        destination=destination,
+        client=client,
+    )
     if active_client is None:
-        key = places_api_key_from_env()
-        if not key:
-            return places
-        active_client = GooglePlacesClient(key)
+        return places
 
     # Preserve order; parallelize only places that need a lookup.
     results: list[dict[str, Any] | None] = [None] * len(places)
@@ -589,7 +647,12 @@ def enrich_places(
     def _run(item: tuple[int, dict[str, Any]]) -> tuple[int, dict[str, Any]]:
         i, p = item
         try:
-            return i, enrich_place(p, overnight_city=overnight_city, client=active_client)
+            return i, enrich_place(
+                p,
+                overnight_city=overnight_city,
+                destination=destination,
+                client=active_client,
+            )
         except PlacesTransientError as exc:
             logger.warning(
                 "places enrich rate-limited for %r: %s",

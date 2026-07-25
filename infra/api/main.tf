@@ -130,6 +130,7 @@ resource "aws_lambda_function" "api" {
         BEDROCK_GUARDRAIL_VERSION         = var.bedrock_guardrail_version
         METRICS_ADMIN_SUBS                = var.metrics_admin_subs
         GOOGLE_PLACES_SECRET_ARN          = var.google_places_secret_arn
+        AMAP_WEB_SECRET_ARN               = var.amap_web_secret_arn
         PRODUCT_METRICS_PEPPER_SECRET_ARN = var.product_metrics_pepper_secret_arn
       }
     )

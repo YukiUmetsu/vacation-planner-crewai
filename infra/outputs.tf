@@ -43,6 +43,10 @@ output "google_places_secret_arn" {
   value = module.secrets.google_places_secret_arn
 }
 
+output "amap_web_secret_arn" {
+  value = module.secrets.amap_web_secret_arn
+}
+
 output "product_metrics_pepper_secret_arn" {
   value = module.secrets.product_metrics_pepper_secret_arn
 }

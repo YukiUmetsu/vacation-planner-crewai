@@ -1,0 +1,27 @@
+{
+  "id": "day_plan_day2_context",
+  "crew": "day_plan",
+  "inputs": {
+    "overnight_city": "Tokyo",
+    "day_index": 2,
+    "date": "2026-09-03",
+    "destination": "Japan",
+    "destination_type": "country",
+    "preferences": "culture, food",
+    "interests": "temples, food",
+    "food_crawl_mode": "false",
+    "already_visited": "tokyo-station|tokyo",
+    "energy_level": 3,
+    "max_comfortable_minutes": 510,
+    "target_place_count": 5,
+    "include_breakfast": "false",
+    "min_non_food_places": 1,
+    "prior_days_summary": "Day1: Asakusa temples and sushi"
+  },
+  "expected": {
+    "min_places": 3,
+    "forbidden_place_keys": [
+      "tokyo-station|tokyo"
+    ]
+  }
+}

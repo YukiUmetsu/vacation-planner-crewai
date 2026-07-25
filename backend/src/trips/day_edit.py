@@ -210,6 +210,7 @@ def suggest_place(
         candidate = enrich_place(
             candidate,
             overnight_city=overnight,
+            destination=str(trip.get("destination") or ""),
         )
     except PlacesTransientError as exc:
         # Soft-fail like pre-rate-limit behavior — still return the crew place.

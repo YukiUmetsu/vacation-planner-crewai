@@ -35,7 +35,7 @@ src/
   http_utils.py
   routes/             # HTTP handlers
   trips/              # TripService + CRUD / route / plan-day / day-edit
-  places/             # Google Places + photo cache
+  places/             # Google / Amap enrich + photo cache
   planning_quality/   # post-generation quality policy
   shared/             # energy, route_windows, dates
   crew_io/ safety/ user_profile/ ops/
@@ -66,7 +66,8 @@ Full map (local + Terraform `TF_VAR_*` + injected Lambda/AgentCore env): **[`doc
 | `AGENT_ROOT` | `<repo>/agent` | Used by `CREW_MODE=local` only |
 | `AGENT_RUNTIME_ARN` | unset | Required for `CREW_MODE=agentcore` |
 | `CREW_INPUT_MAX_CHARS` | `16000` | Soft budget for crew `inputs` (char proxy). Over budget → slim advisory fields only; full visited list still used for BFF dedupe |
-| `GOOGLE_PLACES_API_KEY` | unset | Optional Places API (New) enrich before `place_quality` |
+| `GOOGLE_PLACES_API_KEY` | unset | Optional Google Places API (New) enrich before `place_quality` (non–mainland China) |
+| `AMAP_WEB_KEY` | unset | Optional Amap Web Service key for mainland China enrich (+ agent research tool) |
 | `PLACES_ENRICH` | `on` | `off` disables enrich even if a key is set |
 | `PLAN_NEXT_DAY_ASYNC` | `auto` | `auto` = async 202 when `CREW_MODE=agentcore`; `on`/`off` force async or sync |
 
@@ -191,17 +192,24 @@ App-level crew failures also log `crew_failed` in `/aws/bedrock-agentcore/runtim
 
 ### Places open-status enrich (optional)
 
-After the crew returns places, the BFF can call **Google Places API (New)** Text Search to overwrite `operational_status` / `closed_weekdays` / `open_hours` before `place_quality` filters. Soft behavior:
+After the crew returns places, the BFF can enrich `operational_status` / `closed_weekdays` / `open_hours` / map links before `place_quality` filters:
+
+| Region | Client | Env |
+| --- | --- | --- |
+| Mainland China | **Amap** (`amap:…` place ids) | `AMAP_WEB_KEY` or `AMAP_WEB_SECRET_ARN` |
+| Everywhere else (incl. HK/Macau/Taiwan) | **Google Places API (New)** | `GOOGLE_PLACES_API_KEY` or `GOOGLE_PLACES_SECRET_ARN` |
+
+Soft behavior:
 
 | Env | Effect |
 | --- | --- |
-| `GOOGLE_PLACES_API_KEY` unset | No HTTP calls; keep crew fields |
+| Relevant key unset | No HTTP for that provider; keep crew fields (China falls back to Google only if Amap key missing) |
 | `PLACES_ENRICH=off` | Force skip even if a key is set |
-| Key set + enrich on | Lookup by name + address/city; hits must match name **and** location (overnight city or address tokens) before status overwrite; API errors leave the place unchanged |
+| Key set + enrich on | Lookup by name + overnight city; hits must match name **and** location before status overwrite; API errors leave the place unchanged |
 
-Terraform: `TF_VAR_google_places_api_key` → Lambda env (same pattern as AgentCore `SERPER_API_KEY`). Enable **Places API (New)** on the Google Cloud project that owns the key.
+Terraform: Google Places + Amap secret shells → Lambda / AgentCore `*_SECRET_ARN` (runtime fetch). Enable **Places API (New)** on the Google Cloud project that owns the Google key.
 
-**API key restrictions (required if you set a key):**
+**API key restrictions (Google, required if you set a key):**
 
 1. Application restriction: prefer **IP addresses** of the API Lambda NAT/egress (or leave unset only for local experiments).
 2. API restriction: allow **only** Places API (New) — not Maps JS, Geocoding, etc.

@@ -227,6 +227,23 @@ def get_eval_run(
 
 def _public_online_quality(item: dict[str, Any]) -> dict[str, Any]:
     plain = _to_plain(item)
+
+    def _num(key: str) -> int | None:
+        raw = plain.get(key)
+        if isinstance(raw, bool) or raw is None:
+            return None
+        if isinstance(raw, int):
+            return raw if raw >= 0 else None
+        if isinstance(raw, float) and raw >= 0:
+            return int(raw)
+        if isinstance(raw, str) and raw.strip():
+            try:
+                value = float(raw.strip())
+            except ValueError:
+                return None
+            return int(value) if value >= 0 else None
+        return None
+
     return {
         "event_id": plain.get("event_id"),
         "occurred_at": plain.get("occurred_at"),
@@ -252,10 +269,10 @@ def _public_online_quality(item: dict[str, Any]) -> dict[str, Any]:
         "input_context_chars": plain.get("input_context_chars"),
         "context_was_slimmed": plain.get("context_was_slimmed"),
         "output_schema_version": plain.get("output_schema_version"),
-        "latency_ms": plain.get("latency_ms"),
-        "prompt_tokens": plain.get("prompt_tokens"),
-        "completion_tokens": plain.get("completion_tokens"),
-        "total_tokens": plain.get("total_tokens"),
+        "latency_ms": _num("latency_ms"),
+        "prompt_tokens": _num("prompt_tokens"),
+        "completion_tokens": _num("completion_tokens"),
+        "total_tokens": _num("total_tokens"),
     }
 
 

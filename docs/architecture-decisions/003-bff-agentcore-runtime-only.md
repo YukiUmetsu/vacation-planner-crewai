@@ -51,7 +51,7 @@ For MVP / portfolio deploy, enable **AgentCore Runtime** only — enough to run 
 | Product | Why skip for now |
 | --- | --- |
 | **AgentCore Memory** | Session/long-term memory adds events + retrieval tokens; prefs come from the trip form / profile instead |
-| **AgentCore Gateway** | Extra networking/tool surface; crews can use in-process tools (e.g. Serper) without it |
+| **AgentCore Gateway** | Extra networking/tool surface; crews can use in-process tools (e.g. Serper, Amap) without it |
 | **AgentCore Browser** (or similar hosted browser tools) | High cost/complexity; not required for day-plan JSON |
 
 CrewAI `memory: false` on the crew side stays aligned with this (no embedder bill for cross-run “learning”). See root README cost notes.
@@ -63,6 +63,7 @@ flowchart TB
     RT --> Crew[CrewAI]
     Crew --> Nova[Bedrock Nova]
     Crew --> Serper[Serper]
+    Crew --> Amap[Amap optional]
   end
 
   subgraph later [Later — only if product needs]
@@ -79,7 +80,7 @@ flowchart TB
 ### Positive
 
 - Clear security story: JWT at the edge, IAM to AgentCore, no AWS keys in the SPA.
-- Idle and feature cost stay low: pay for Runtime + Bedrock tokens (+ Serper) when planning runs.
+- Idle and feature cost stay low: pay for Runtime + Bedrock tokens (+ Serper, optional Amap) when planning runs.
 - Matches thin Lambda packaging: CrewAI lives in the AgentCore package, not the API zip ([002](./002-single-api-lambda.md)).
 
 ### Negative / tradeoffs

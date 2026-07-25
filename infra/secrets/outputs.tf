@@ -30,6 +30,14 @@ output "google_places_secret_name" {
   value = aws_secretsmanager_secret.google_places.name
 }
 
+output "amap_web_secret_arn" {
+  value = aws_secretsmanager_secret.amap_web.arn
+}
+
+output "amap_web_secret_name" {
+  value = aws_secretsmanager_secret.amap_web.name
+}
+
 output "product_metrics_pepper_secret_arn" {
   value = aws_secretsmanager_secret.product_metrics_pepper.arn
 }

@@ -53,6 +53,12 @@ class PlacesLookupResult:
     price_level: str | None = None
     price_range: dict[str, Any] | None = None
     photo_name: str | None = None
+    lat: float | None = None
+    lng: float | None = None
+    provider: str = "google"
+    maps_url: str | None = None
+    open_hours_text: str | None = None
+    raw_extra: dict[str, Any] | None = None
 
 
 class PlacesTransientError(Exception):

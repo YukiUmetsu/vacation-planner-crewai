@@ -7,13 +7,16 @@
     "date": "2026-09-04",
     "preferences": "contemporary art museums",
     "interests": "museum, art",
-    "already_visited": [],
+    "already_visited": "",
     "energy_level": 3
   },
   "expected": {
     "min_places": 3,
     "max_places": 6,
     "forbidden_place_keys": [],
-    "interests": ["museum", "art"]
+    "interests": [
+      "museum",
+      "art"
+    ]
   }
 }

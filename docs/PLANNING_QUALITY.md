@@ -71,7 +71,7 @@ Example: energy **3** → warn after **510** min. Day with **540** min → cauti
 | Dedupe places across days (`place_key`) | Backend `dedupe_places` + crew `already_visited` prompt |
 | Crew input size (token proxy) | BFF `crew_context_budget.slim_crew_inputs` — only when over `CREW_INPUT_MAX_CHARS`; cut order: `already_visited` → `prior_days_summary` → `city_route_json` → `preferences`. Full visited list still used for dedupe / quality. Large context fields (`already_visited`, `preferences`, `interests`) are interpolated once in the research task; later tasks remind without re-listing. |
 | Place count 3–7 / schema | Agent `DayPlan` Pydantic + eval scorers |
-| Permanently closed / weekday-closed | Crew reviewer + **Google Places BFF enrich** + `place_quality` + scorers |
+| Permanently closed / weekday-closed | Crew reviewer + **Places BFF enrich** (Google outside mainland China; Amap for mainland) + `place_quality` + scorers |
 | Energy budget | Crew prompts + `place_quality` / `validate_suggested_place` + scorers |
 | Lunch + dinner food stops | Crew prompts + `DayPlan` Pydantic (≥2 `category=food`) + BFF `require_meal_stops` + scorers |
 | Day balance (≥1 non-food unless food crawl) | Crew prompts (`food_crawl_mode` / `min_non_food_places`) + BFF `require_day_balance` / `require_suggested_place_balance` + scorers |
@@ -128,10 +128,11 @@ Useful rates (derive in Logs Insights): empty/dedupe/closed/energy/meals/safety/
 | `hard_constraint_pass` / `_rate` | Same as schema for MVP |
 | `preference_relevance_score` | Interest/keyword overlap (0–1) |
 | `explicit_exclusion_violation_rate` | `already_visited` or `excluded_categories` hit |
-| `duplicate_rate`, `closed_place_rate`, `energy_overage_rate`, `grounding_rate` | Structural rates |
+| `duplicate_rate`, `closed_place_rate`, `closed_place_case_rate`, `energy_overage_rate`, `grounding_rate` | Structural rates (`closed_place_rate` = closed/n; `closed_place_case_rate` = any closed on the day) |
+| `missing_meals_rate`, `wrong_city_rate` | Meal / overnight mismatches |
 | `non_food_place_count`, `food_only_day_rate` | Day-balance rates (food-only days should be 0 unless crawl) |
 | `latency_ms` | Wall-clock per case (offline harness); online uses BFF `latency_ms` on quality events |
-| `cost` | Reserved stub (0 until Bedrock $ is plumbed) |
+| `cost` / `cost_usd` | Estimated USD from invocation tokens (Nova Pro rate table); omitted when tokens missing |
 
 Preference fixtures: `day_plan_preference_food`, `day_plan_preference_exclusion`, `day_plan_preference_mismatch`. Balance fixtures: `day_plan_balance_food_forward` (pass), `day_plan_balance_food_only` (scorer negative case; no offline golden).
 
@@ -184,9 +185,47 @@ fields @timestamp, event_name, payload.ms
 1. [x] Persist profile (prefs, energy, interests) in DynamoDB; inject into `plan-next-day`.
 2. [x] Enforce energy caps + closed / weekday-closed checks in offline scorers **and** API post-crew `place_quality` filter; reviewer crew task (brief-only swaps, no new research tools).
 3. [x] Suggest one more place: `suggest_place` crew + `POST /trips/{id}/days/{n}/suggest-place` with `validate_suggested_place` + offline scorer.
-4. [x] Venue open status via Places API when Serper is not enough (BFF enrich with Google Places API New before `place_quality`; tool-assisted discovery remains soft).
+4. [x] Venue open status via Places enrich when Serper is not enough (BFF: Google Places API New by default; **Amap** for mainland China) before `place_quality`; tool-assisted discovery remains soft.
 5. [x] Runtime QualityReport envelope (hard block / soft log) + invocation metadata + POST /events (ADR 004).
 6. [x] Offline graded metrics + preference fixtures (heuristic `preference_relevance_score`).
 7. [x] Offline graded metric dashboard (`--report`) + LLM-as-judge scorer backend (same metric keys).
 8. [x] Persist offline eval runs to dedicated DynamoDB metrics table + private `/metrics` dashboard.
 9. [x] Dual-write online QUALITY/PRODUCT metrics to DynamoDB (keep CloudWatch) + Online SPA section.
+10. [ ] Live `--compare-orchestration` run (Nova Pro × `day_plan` vs `day_plan_single`) and record decision.
+11. [x] Mainland China Places enrich + maps via Amap (高德); researcher Amap tool.
+
+---
+
+## Orchestration experiment (three-agent vs single-call)
+
+**Question:** Does researcher → planner → reviewer beat one structured LLM call enough to justify latency/cost?
+
+| Arm | Crew | Notes |
+| --- | --- | --- |
+| Multi | `day_plan` | Sequential 3 agents + Serper (+ Amap when China) |
+| Single | `day_plan_single` | One agent/task → `DayPlanWithQuality`, same tools/model/schema |
+
+**Decision rule (declared before live runs):** keep three-agent if any of (a) hard-constraint pass rate **+10 pp**, (b) food-only+duplicate+closed **case** failures **−25%** relative (`closed_place_case_rate`), (c) preference relevance **+0.10**, **and** mean `latency_ms` ≤ **2.5×** / `cost_usd` ≤ **3×** single-call. Missing cost on either arm → do **not** keep three-agent (cannot justify spend). Otherwise prefer single-call for MVP.
+
+```bash
+cd agent
+uv run python -m evals --live --compare-orchestration \
+  --report reports/orchestration_compare.md
+# optional: --model-id bedrock/...  --runs-dir evals/runs
+```
+
+---
+
+## Mainland China providers
+
+When destination / overnight is mainland China (not HK/Macau/Taiwan):
+
+- BFF enrich uses **Amap** (`AMAP_WEB_KEY` / `AMAP_WEB_SECRET_ARN`) behind `PlacesClient`; `place_id` stored as `amap:…`
+- Place detail: outbound **Amap URI** link (iframe embed is skipped — Amap URI pages are not frameable)
+- Researchers get CrewAI tool `custom:amap_place_search` in addition to `SerperDevTool` (`day_plan`, `suggest_place`, `day_plan_single`)
+
+---
+
+## Online metrics (latency / tokens)
+
+`QUALITY_METRIC` events include `latency_ms` (BFF wall clock) and token fields from the crew envelope when CrewAI usage is present. `/metrics` averages only events that carry those fields (`latencySampleSize` / `tokenSampleSize` of the sampled window). Fake crew mode has no tokens by design; redeploy API after emit changes and plan a day to populate latency.

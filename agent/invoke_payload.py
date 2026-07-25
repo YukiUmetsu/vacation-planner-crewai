@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-CrewName = Literal["day_plan", "city_route", "suggest_place"]
-ALLOWED_CREWS = frozenset({"day_plan", "city_route", "suggest_place"})
+CrewName = Literal["day_plan", "day_plan_single", "city_route", "suggest_place"]
+ALLOWED_CREWS = frozenset(
+    {"day_plan", "day_plan_single", "city_route", "suggest_place"}
+)
 
 
 class PayloadError(ValueError):

@@ -101,6 +101,17 @@ function bump(map: Map<string, number>, key: string, by = 1): void {
   map.set(key, (map.get(key) || 0) + by);
 }
 
+function asNonNegNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return null;
+}
+
 export function summarizeQualityEvents(
   events: QualityEventLike[],
 ): QualitySummary {
@@ -131,33 +142,15 @@ export function summarizeQualityEvents(
       dayMap.set(day, bucket);
     }
 
-    if (
-      typeof ev.latency_ms === "number" &&
-      Number.isFinite(ev.latency_ms) &&
-      ev.latency_ms >= 0
-    ) {
-      latencySum += ev.latency_ms;
+    const latency = asNonNegNumber(ev.latency_ms);
+    if (latency !== null) {
+      latencySum += latency;
       latencyN += 1;
     }
 
-    const prompt =
-      typeof ev.prompt_tokens === "number" &&
-      Number.isFinite(ev.prompt_tokens) &&
-      ev.prompt_tokens >= 0
-        ? ev.prompt_tokens
-        : null;
-    const completion =
-      typeof ev.completion_tokens === "number" &&
-      Number.isFinite(ev.completion_tokens) &&
-      ev.completion_tokens >= 0
-        ? ev.completion_tokens
-        : null;
-    let total =
-      typeof ev.total_tokens === "number" &&
-      Number.isFinite(ev.total_tokens) &&
-      ev.total_tokens >= 0
-        ? ev.total_tokens
-        : null;
+    const prompt = asNonNegNumber(ev.prompt_tokens);
+    const completion = asNonNegNumber(ev.completion_tokens);
+    let total = asNonNegNumber(ev.total_tokens);
     if (total === null && prompt !== null && completion !== null) {
       total = prompt + completion;
     }

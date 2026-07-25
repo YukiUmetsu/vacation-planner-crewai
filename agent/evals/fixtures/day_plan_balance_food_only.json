@@ -7,8 +7,8 @@
     "date": "2026-09-02",
     "preferences": "ramen, sushi",
     "interests": "ramen, sushi",
-    "food_crawl_mode": false,
-    "already_visited": [],
+    "food_crawl_mode": "false",
+    "already_visited": "",
     "energy_level": 3
   },
   "expected": {

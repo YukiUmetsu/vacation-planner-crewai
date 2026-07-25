@@ -83,12 +83,103 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Exit non-zero if --persist fails (default: soft-fail with warning)",
     )
+    parser.add_argument(
+        "--compare-orchestration",
+        action="store_true",
+        help="Run each day_plan fixture under day_plan and day_plan_single; write pairwise report",
+    )
+    parser.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=None,
+        help="Directory for raw compare outputs (default: evals/runs when comparing)",
+    )
+    parser.add_argument(
+        "--model-id",
+        default=None,
+        help="Optional CREW_MODEL_ID override for live / compare runs",
+    )
     args = parser.parse_args(argv)
+
+    if args.model_id:
+        import os
+
+        os.environ["CREW_MODEL_ID"] = args.model_id
 
     cases = load_cases(args.fixtures_dir)
     if not cases:
         print("No fixtures found.", file=sys.stderr)
         return 2
+
+    try:
+        preference_scorer = resolve_preference_scorer(args.preference_judge)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    if args.compare_orchestration:
+        from evals.compare_orchestration import run_orchestration_compare
+
+        if not args.live:
+            print(
+                "ERROR: --compare-orchestration requires --live "
+                "(or provide a custom producer in tests).",
+                file=sys.stderr,
+            )
+            return 2
+        runs_dir = args.runs_dir or (Path(__file__).resolve().parent / "runs")
+        report = run_orchestration_compare(
+            cases=cases,
+            producer=_live_producer,
+            preference_scorer=preference_scorer,
+            runs_dir=runs_dir,
+        )
+        print(json.dumps(report["decision"], indent=2))
+        print("\n=== day_plan aggregates ===")
+        print(format_metrics_table(report["arms"]["day_plan"]["aggregates"]))
+        print("\n=== day_plan_single aggregates ===")
+        print(format_metrics_table(report["arms"]["day_plan_single"]["aggregates"]))
+        if args.report is not None:
+            args.report.parent.mkdir(parents=True, exist_ok=True)
+            if args.report.suffix.lower() == ".json":
+                args.report.write_text(
+                    json.dumps(report, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            else:
+                lines = [
+                    "# Orchestration compare",
+                    "",
+                    f"run_id: `{report['run_id']}`",
+                    f"cases: {report['case_count']}",
+                    "",
+                    "## Decision",
+                    "",
+                    f"- keep_three_agent: **{report['decision']['keep_three_agent']}**",
+                    *[f"- {r}" for r in report["decision"]["reasons"]],
+                    "",
+                    "## Aggregates",
+                    "",
+                    "### day_plan",
+                    "",
+                    "```",
+                    format_metrics_table(report["arms"]["day_plan"]["aggregates"]),
+                    "```",
+                    "",
+                    "### day_plan_single",
+                    "",
+                    "```",
+                    format_metrics_table(
+                        report["arms"]["day_plan_single"]["aggregates"]
+                    ),
+                    "```",
+                    "",
+                ]
+                args.report.write_text("\n".join(lines), encoding="utf-8")
+            print(f"\nWrote compare report → {args.report}")
+        if report.get("runs_dir"):
+            print(f"Raw outputs → {report['runs_dir']}")
+        return 0 if report["decision"]["keep_three_agent"] is not None else 0
 
     if not args.live:
         runnable: list[EvalCase] = []
@@ -102,12 +193,6 @@ def main(argv: list[str] | None = None) -> int:
         if not cases:
             print("No offline outputs found (add fixtures/<id>.output.json or use --live).")
             return 0
-
-    try:
-        preference_scorer = resolve_preference_scorer(args.preference_judge)
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
 
     producer = _live_producer if args.live else _offline_producer
     results = run_cases(cases, producer, preference_scorer=preference_scorer)

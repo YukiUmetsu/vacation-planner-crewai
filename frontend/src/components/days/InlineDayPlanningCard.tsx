@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   cityImageUrl,
   nextDefaultTravelImageUrl,
@@ -37,12 +37,12 @@ export function InlineDayPlanningCard({
     [label, destination],
   );
   const [imageUrl, setImageUrl] = useState<string | null>(preferredUrl);
-  const [failedUrls, setFailedUrls] = useState<string[]>([]);
+  const failedUrlsRef = useRef<string[]>([]);
   const [elapsedSec, setElapsedSec] = useState(0);
 
   useEffect(() => {
     setImageUrl(preferredUrl);
-    setFailedUrls([]);
+    failedUrlsRef.current = [];
   }, [preferredUrl]);
 
   useEffect(() => {
@@ -67,13 +67,12 @@ export function InlineDayPlanningCard({
               className="absolute inset-0 h-full w-full object-cover"
               onError={() => {
                 if (!imageUrl) return;
-                setFailedUrls((prev) => {
-                  const key = travelImageKey(imageUrl);
-                  if (prev.some((u) => travelImageKey(u) === key)) return prev;
-                  const nextFailed = [...prev, imageUrl];
-                  setImageUrl(nextDefaultTravelImageUrl(nextFailed, 800));
-                  return nextFailed;
-                });
+                const prev = failedUrlsRef.current;
+                const key = travelImageKey(imageUrl);
+                if (prev.some((u) => travelImageKey(u) === key)) return;
+                const nextFailed = [...prev, imageUrl];
+                failedUrlsRef.current = nextFailed;
+                setImageUrl(nextDefaultTravelImageUrl(nextFailed, 800));
               }}
             />
           ) : null}

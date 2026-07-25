@@ -62,6 +62,7 @@ module "agentcore" {
   bedrock_models        = var.agent_bedrock_models
   bedrock_model_arns    = var.agent_allowed_bedrock_model_arns
   serper_secret_arn     = module.secrets.serper_secret_arn
+  amap_web_secret_arn   = module.secrets.amap_web_secret_arn
   observability_enabled = var.enable_genai_observability
 
   # TRACES→XRAY delivery is useless until Transaction Search is ACTIVE.
@@ -115,9 +116,11 @@ module "api" {
   bedrock_guardrail_version         = local.bedrock_guardrail_version
   bedrock_guardrail_arn             = local.bedrock_guardrail_arn
   google_places_secret_arn          = module.secrets.google_places_secret_arn
+  amap_web_secret_arn               = module.secrets.amap_web_secret_arn
   product_metrics_pepper_secret_arn = module.secrets.product_metrics_pepper_secret_arn
   secretsmanager_secret_arns = [
     module.secrets.google_places_secret_arn,
+    module.secrets.amap_web_secret_arn,
     module.secrets.product_metrics_pepper_secret_arn,
   ]
   metrics_admin_subs = var.metrics_admin_subs

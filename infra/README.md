@@ -74,7 +74,8 @@ export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output te
 # Use the tag printed by ../agent/scripts/build_push_image.sh
 # (auto-bumped version, e.g. .../vacation-planner-agent:0.1.2), not :latest.
 export TF_VAR_agent_runtime_container_uri="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/vacation-planner-agent:0.1.2"
-# Serper / Places: put-secret-value into vacation-planner-dev/serper and …/google-places
+# Serper / Places / Amap: put-secret-value into vacation-planner-dev/serper,
+# …/google-places, and …/amap-web (Terraform creates the secret shells).
 ```
 
 In `terraform.tfvars`:

@@ -56,6 +56,12 @@ variable "serper_secret_arn" {
   default     = ""
 }
 
+variable "amap_web_secret_arn" {
+  description = "Secrets Manager ARN for Amap Web Service key (runtime fetch → AMAP_WEB_KEY)"
+  type        = string
+  default     = ""
+}
+
 variable "observability_enabled" {
   description = "Wire ADOT/GenAI Observability env + IAM on the AgentCore runtime (pair with account Transaction Search)"
   type        = bool

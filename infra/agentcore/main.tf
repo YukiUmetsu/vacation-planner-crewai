@@ -162,6 +162,16 @@ data "aws_iam_policy_document" "runtime" {
       resources = [var.serper_secret_arn]
     }
   }
+
+  dynamic "statement" {
+    for_each = var.amap_web_secret_arn != "" ? [1] : []
+    content {
+      sid       = "AmapWebSecretRead"
+      effect    = "Allow"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [var.amap_web_secret_arn]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "runtime" {
@@ -204,6 +214,9 @@ resource "aws_bedrockagentcore_agent_runtime" "this" {
     } : {},
     var.serper_secret_arn != "" ? {
       SERPER_SECRET_ARN = var.serper_secret_arn
+    } : {},
+    var.amap_web_secret_arn != "" ? {
+      AMAP_WEB_SECRET_ARN = var.amap_web_secret_arn
     } : {}
   )
 

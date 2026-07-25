@@ -6,10 +6,12 @@ CrewAI crews packaged for **Amazon Bedrock AgentCore Runtime**.
 
 | Path | Purpose |
 | --- | --- |
-| `crews/day_plan/` | Day crew: research → `DayPlan` (structured, one day) |
+| `crews/day_plan/` | Day crew: researcher → planner → reviewer → `DayPlanWithQuality` |
+| `crews/day_plan_single/` | Single-call day baseline (same schema; orchestration A/B) |
 | `crews/city_route/` | City route crew: research → `CityRoute` (structured) |
 | `crews/suggest_place/` | Extra stop: research → single `Place` |
 | `models/` | Installable package `vacation_planner_models` (Pydantic + `place_key`) |
+| `evals/` | Offline fixtures, scorers, `--compare-orchestration` |
 | `main.py` | AgentCore Runtime entrypoint (`BedrockAgentCoreApp`) |
 | `pyproject.toml` | Runtime deps including `bedrock-agentcore` |
 | `tests/` | Model/crew unit tests |
@@ -25,11 +27,12 @@ vacation-planner-models = { path = "../../models", editable = true }
 Later task wiring uses a **uniquely named** local re-export (CrewAI resolves under the crew root). Names differ so both crews can load in one process:
 
 ```jsonc
-"output_pydantic": { "python": "day_models.DayPlan" }
+"output_pydantic": { "python": "day_models.DayPlanWithQuality" }
+// planner draft: "day_models.DayPlan"
 // city_route: "city_models.CityRoute"
 ```
 
-(`day_models.py` / `city_models.py` re-export `vacation_planner_models`.)
+(`day_models.py` / `city_models.py` / `suggest_models.py` re-export `vacation_planner_models`.)
 
 ```bash
 cd models && uv sync --extra dev && uv run pytest ../tests
@@ -87,7 +90,7 @@ Local Phoenix tracing (`run_with_phoenix.py`) is unchanged for crew development;
 `crew_kickoff.py` loads `crews/<name>/crew.jsonc` relative to this package root (`Path(__file__).parent / "crews"`). The wheel therefore includes:
 
 - `main.py`, `crew_kickoff.py`, `invoke_payload.py`
-- `crews/day_plan/` and `crews/city_route/` runtime assets (`crew.jsonc`, `*_models.py`, `agents/`, `tools/`, `knowledge/`, `skills/`)
+- `crews/day_plan/`, `crews/day_plan_single/`, `crews/city_route/`, `crews/suggest_place/` runtime assets (`crew.jsonc`, `*_models.py`, `agents/`, `tools/`, …)
 
 Shared Pydantic models install via the **`vacation-planner-models`** dependency (`models/`). Local-only files are **not** packaged: `.venv/`, `logs/`, `uv.lock`, `run_with_phoenix.py`, `smoke_test.py`, crew `pyproject.toml` / README.
 
@@ -123,4 +126,4 @@ Do **not** install only the three Python modules without `crews/` — `run_crew`
 
 ## Offline evals
 
-Harness scaffolding lives in [`evals/`](./evals/). CLI: `uv run python -m evals`. Implement scorers + goldens yourself (see `evals/README.md`).
+Harness + scorers live in [`evals/`](./evals/). CLI: `uv run python -m evals` (offline goldens, `--live`, `--compare-orchestration`). See `evals/README.md`.

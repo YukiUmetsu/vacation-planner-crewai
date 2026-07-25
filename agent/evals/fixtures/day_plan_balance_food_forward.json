@@ -7,8 +7,8 @@
     "date": "2026-09-02",
     "preferences": "ramen, sushi, culture",
     "interests": "ramen, sushi, temples",
-    "food_crawl_mode": false,
-    "already_visited": [],
+    "food_crawl_mode": "false",
+    "already_visited": "",
     "energy_level": 3
   },
   "expected": {
@@ -17,6 +17,10 @@
     "min_non_food_places": 1,
     "food_crawl_mode": false,
     "forbidden_place_keys": [],
-    "interests": ["ramen", "sushi", "temple"]
+    "interests": [
+      "ramen",
+      "sushi",
+      "temple"
+    ]
   }
 }

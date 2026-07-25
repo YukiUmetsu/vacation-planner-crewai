@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
 from evals.case import EvalCase
+from evals.cost import estimate_cost_usd
 from evals.preference_scorer import PreferenceScorer
 from evals.scorers import collect_day_plan_metrics, score_output
 
@@ -45,7 +46,7 @@ def run_case(
         "schema_valid": 1.0 if len(failures) == 0 else 0.0,
         "hard_constraint_pass": 1.0 if len(failures) == 0 else 0.0,
     }
-    if case.crew == "day_plan":
+    if case.crew in {"day_plan", "day_plan_single"}:
         metrics.update(
             collect_day_plan_metrics(
                 domain, case, preference_scorer=preference_scorer
@@ -53,8 +54,16 @@ def run_case(
         )
     if latency_ms is not None:
         metrics["latency_ms"] = float(latency_ms)
-    # Cost stub until Bedrock usage is plumbed.
-    metrics.setdefault("cost", 0.0)
+    # Prefer token-derived cost from envelope invocation when present.
+    inv = output.get("invocation") if isinstance(output.get("invocation"), dict) else {}
+    cost = estimate_cost_usd(inv)
+    if cost is not None:
+        metrics["cost"] = cost
+        metrics["cost_usd"] = cost
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        raw = inv.get(key)
+        if isinstance(raw, (int, float)) and raw >= 0:
+            metrics[key] = float(raw)
     return EvalResult(
         case_id=case.id,
         passed=len(failures) == 0,

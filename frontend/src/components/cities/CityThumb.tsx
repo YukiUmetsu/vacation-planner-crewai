@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   nextDefaultTravelImageUrl,
   travelImageKey,
@@ -16,12 +16,12 @@ type Props = {
  */
 export function CityThumb({ city, imageUrl, className = "" }: Props) {
   const [src, setSrc] = useState<string | null>(imageUrl?.trim() || null);
-  const [failed, setFailed] = useState<string[]>([]);
+  const failedRef = useRef<string[]>([]);
   const initial = city.trim().charAt(0).toUpperCase() || "?";
 
   useEffect(() => {
     setSrc(imageUrl?.trim() || null);
-    setFailed([]);
+    failedRef.current = [];
   }, [imageUrl, city]);
 
   if (src) {
@@ -31,13 +31,12 @@ export function CityThumb({ city, imageUrl, className = "" }: Props) {
         alt=""
         className={`h-14 w-14 shrink-0 rounded-lg object-cover ${className}`}
         onError={() => {
-          setFailed((prev) => {
-            const key = travelImageKey(src);
-            if (prev.some((u) => travelImageKey(u) === key)) return prev;
-            const nextFailed = [...prev, src];
-            setSrc(nextDefaultTravelImageUrl(nextFailed, 224));
-            return nextFailed;
-          });
+          const prev = failedRef.current;
+          const key = travelImageKey(src);
+          if (prev.some((u) => travelImageKey(u) === key)) return;
+          const nextFailed = [...prev, src];
+          failedRef.current = nextFailed;
+          setSrc(nextDefaultTravelImageUrl(nextFailed, 224));
         }}
       />
     );

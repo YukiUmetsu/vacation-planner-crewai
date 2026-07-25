@@ -436,6 +436,35 @@ def collect_day_plan_metrics(
     )
     food_only_day = 1.0 if len(places) >= 3 and non_food == 0 else 0.0
 
+    food_count = sum(
+        1
+        for place in places
+        if isinstance(place, dict)
+        and str(place.get("category") or "").strip().lower() == "food"
+    )
+    missing_meals = 1.0 if len(places) >= 3 and food_count < 2 else 0.0
+
+    overnight = str(output.get("overnight_city") or "").strip().lower()
+    expected_city = str(
+        case.expected.get("overnight_city") or case.inputs.get("overnight_city") or ""
+    ).strip().lower()
+    wrong_city = 0.0
+    if expected_city and overnight and expected_city != overnight:
+        wrong_city = 1.0
+    elif expected_city and places:
+        # Soft: majority of addresses/names mentioning a different city hint.
+        city_hint = str(case.expected.get("wrong_city_hint") or "").strip().lower()
+        if city_hint:
+            hits = 0
+            for place in places:
+                if not isinstance(place, dict):
+                    continue
+                blob = f"{place.get('name') or ''} {place.get('address') or ''}".lower()
+                if city_hint in blob and expected_city not in blob:
+                    hits += 1
+            if hits >= max(2, len(places) // 2):
+                wrong_city = 1.0
+
     return {
         "preference_relevance_score": preference_relevance_score,
         "explicit_exclusion_violation_rate": float(
@@ -443,16 +472,19 @@ def collect_day_plan_metrics(
         ),
         "duplicate_rate": float(dup > 0),
         "closed_place_rate": closed / n,
+        "closed_place_case_rate": float(closed > 0),
         "energy_overage_rate": energy_overage,
         "grounding_rate": grounded / n,
         "non_food_place_count": float(non_food),
         "food_only_day_rate": food_only_day,
+        "missing_meals_rate": missing_meals,
+        "wrong_city_rate": wrong_city,
     }
 
 
 
 def score_output(output: dict[str, Any], case: EvalCase) -> list[str]:
-    if case.crew == "day_plan":
+    if case.crew in {"day_plan", "day_plan_single"}:
         return score_day_plan(output, case)
     if case.crew == "suggest_place":
         return score_suggest_place(output, case)

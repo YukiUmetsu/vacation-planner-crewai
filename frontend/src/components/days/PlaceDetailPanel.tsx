@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { displayPhotoUrl, resolvePlacePhoto } from "../../api/places";
+import { mapsEmbedSrc, mapsHref } from "../../lib/mapsLinks";
 import { parseOpenHours } from "../../lib/openHours";
 import {
   anyStoredPhotoUrl,
@@ -13,31 +14,19 @@ type Props = {
   place: Place;
   /** Required to refresh Places CDN URLs via the owned-trip photo proxy. */
   tripId?: string | null;
+  /** Overnight / destination context for China map provider selection. */
+  overnightCity?: string;
+  destination?: string;
   previousPlaceName?: string | null;
   onClose: () => void;
 };
-
-function mapsHref(place: Place): string {
-  if (place.map_url) return place.map_url;
-  const q = encodeURIComponent(
-    place.map_embed_query ||
-      [place.name, place.address].filter(Boolean).join(", "),
-  );
-  return `https://www.google.com/maps/search/?api=1&query=${q}`;
-}
-
-function mapsEmbedSrc(place: Place): string {
-  const q = encodeURIComponent(
-    place.map_embed_query ||
-      [place.name, place.address].filter(Boolean).join(", "),
-  );
-  return `https://maps.google.com/maps?q=${q}&z=15&output=embed`;
-}
 
 /** Side panel / sheet with cost, hours, map, caveats. */
 export function PlaceDetailPanel({
   place,
   tripId,
+  overnightCity = "",
+  destination = "",
   previousPlaceName,
   onClose,
 }: Props) {
@@ -74,7 +63,7 @@ export function PlaceDetailPanel({
 
     if (skip === "use_url") {
       setPhotoLoading(false);
-      setImageUrl(storedPlacePhotoUrl(place));
+      setImageUrl(storedPlacePhotoUrl(place) || anyStoredPhotoUrl(place));
       return;
     }
     if (skip === "miss") {
@@ -319,7 +308,7 @@ export function PlaceDetailPanel({
                 Map
               </h3>
               <a
-                href={mapsHref(place)}
+                href={mapsHref(place, { overnightCity, destination })}
                 target="_blank"
                 rel="noreferrer"
                 className="text-xs font-semibold text-teal hover:underline"
@@ -328,13 +317,38 @@ export function PlaceDetailPanel({
               </a>
             </div>
             <div className="overflow-hidden rounded-xl border border-line bg-sand/40">
-              <iframe
-                title={`Map of ${place.name}`}
-                src={mapsEmbedSrc(place)}
-                className="h-48 w-full border-0"
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
+              {(() => {
+                const embed = mapsEmbedSrc(place, {
+                  overnightCity,
+                  destination,
+                });
+                if (embed) {
+                  return (
+                    <iframe
+                      title={`Map of ${place.name}`}
+                      src={embed}
+                      className="h-48 w-full border-0"
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                    />
+                  );
+                }
+                return (
+                  <div className="flex h-48 flex-col items-center justify-center gap-2 px-4 text-center">
+                    <p className="text-sm text-ink-muted">
+                      Map preview isn’t available for this region.
+                    </p>
+                    <a
+                      href={mapsHref(place, { overnightCity, destination })}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm font-semibold text-teal hover:underline"
+                    >
+                      Open in Amap →
+                    </a>
+                  </div>
+                );
+              })()}
             </div>
           </section>
         </div>

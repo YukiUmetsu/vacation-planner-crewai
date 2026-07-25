@@ -26,6 +26,12 @@ resource "aws_secretsmanager_secret" "google_places" {
   recovery_window_in_days = 0
 }
 
+resource "aws_secretsmanager_secret" "amap_web" {
+  name                    = "${local.name_prefix}/amap-web"
+  description             = "Amap (Gaode) Web Service key (plain string). Value set via CLI; API Lambda + AgentCore read at runtime."
+  recovery_window_in_days = 0
+}
+
 resource "aws_secretsmanager_secret" "product_metrics_pepper" {
   name                    = "${local.name_prefix}/product-metrics-pepper"
   description             = "Pepper for PRODUCT_METRICS user_sub hashing. Bootstrap via ephemeral write-only version when enabled."

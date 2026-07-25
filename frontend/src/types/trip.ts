@@ -67,7 +67,7 @@ export type Place = {
   notes?: string | null;
   order_in_day?: number;
   place_key: string;
-  /** Google Places place ID when known (not an internal UUID). */
+  /** Provider place id when known (Google `ChIJ…`, or `amap:…`). */
   place_id?: string;
   /** Rich detail (demo / Places enrich) */
   cost?: string;
@@ -90,6 +90,13 @@ export type Place = {
   watch_outs?: PlaceWatchOut[];
   /** Minutes to reach this place from the previous stop in the day (0 for first). */
   travel_minutes_from_previous?: number;
+  /** Optional coordinates (e.g. Amap enrich). */
+  lat?: number;
+  lng?: number;
+  /** Crew-schema alias for map_url. */
+  maps_url?: string;
+  /** google | amap when known from enrich. */
+  places_provider?: string;
 };
 
 

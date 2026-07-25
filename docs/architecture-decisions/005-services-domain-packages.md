@@ -65,8 +65,10 @@ shared/                # tiny cross-domain leaves (no orchestration)
   route_windows.py     # max_cities_for_trip, normalize windows (crews + trips)
   dates.py             # parse/validate trip dates, day_index helpers (trips + tests)
 
-places/                # Google Places + photo resolve/cache
-  client.py
+places/                # Google Places + Amap (mainland China) + photo resolve/cache
+  client.py            # Google Places API (New)
+  amap_client.py       # Amap Web Service
+  region.py            # is_mainland_china routing
   enrich.py
   photo_cache.py
   image_fallback.py

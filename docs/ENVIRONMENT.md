@@ -67,6 +67,8 @@ Demo-only UI (no API): leave `VITE_USE_DEMO_DATA` unset and `npm run dev`.
 | `AGENT_RUNTIME_ARN` | unset | unset | Required for `CREW_MODE=agentcore`. |
 | `GOOGLE_PLACES_API_KEY` | optional | unset | Local plaintext override. |
 | `GOOGLE_PLACES_SECRET_ARN` | optional | unset | Prod: SM ARN; BFF Places enrich before `place_quality`. |
+| `AMAP_WEB_KEY` | optional | unset | Amap (高德) Web Service key for mainland China enrich + research tool. |
+| `AMAP_WEB_SECRET_ARN` | optional | unset | Prod: SM ARN for Amap key. |
 | `PRODUCT_METRICS_HASH_PEPPER` | optional | code fallback (local only) | Local plaintext override. |
 | `PRODUCT_METRICS_PEPPER_SECRET_ARN` | optional | unset | Prod: SM ARN for `user_sub` hashes. |
 | `BACKEND_GIT_SHA` | optional | unset | Attached to `QUALITY_METRIC` logs when set (deploy/CI). |
@@ -101,6 +103,8 @@ Copy [`agent/.env.example`](../agent/.env.example) → `agent/.env` (gitignored)
 | --- | --- | --- |
 | `SERPER_API_KEY` | required for real search (local) | SerperDevTool. |
 | `SERPER_SECRET_ARN` | AgentCore | Runtime loads key into `SERPER_API_KEY` if unset. |
+| `AMAP_WEB_KEY` | optional | Mainland China place search (`custom:amap_place_search`). |
+| `AMAP_WEB_SECRET_ARN` | optional | Prod: SM ARN when Amap secret is provisioned. |
 | `AWS_REGION` | e.g. `us-east-1` | Bedrock region. |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / profile | your AWS creds | Bedrock invoke. |
 | `MODEL` / crew LLM ids | in crew JSONC | Often `bedrock/us.amazon.nova-pro-v1:0` (see agent crews). |
@@ -128,6 +132,7 @@ Requires Terraform **>= 1.11** (ephemeral / `secret_string_wo` for product-metri
 | `${project}-${env}/cognito/facebook` | JSON `{app_id, app_secret}` | Cognito Facebook IdP via same script |
 | `${project}-${env}/serper` | plain string (or JSON with `api_key`) | AgentCore runtime (`SERPER_SECRET_ARN`) |
 | `${project}-${env}/google-places` | plain string | API Lambda (`GOOGLE_PLACES_SECRET_ARN`) |
+| `${project}-${env}/amap-web` | plain string | API Lambda + AgentCore (`AMAP_WEB_SECRET_ARN` → `AMAP_WEB_KEY`) |
 | `${project}-${env}/product-metrics-pepper` | plain string | API Lambda (`PRODUCT_METRICS_PEPPER_SECRET_ARN`); TF bootstraps via ephemeral + `secret_string_wo` |
 
 ```bash
@@ -144,11 +149,14 @@ aws secretsmanager put-secret-value \
 aws secretsmanager put-secret-value \
   --secret-id vacation-planner-dev/google-places \
   --secret-string 'YOUR_PLACES_KEY'
+aws secretsmanager put-secret-value \
+  --secret-id vacation-planner-dev/amap-web \
+  --secret-string 'YOUR_AMAP_WEB_KEY'
 
 cd infra && ./scripts/sync_cognito_idps_from_secrets.sh
 ```
 
-Local/dev can still set plaintext `GOOGLE_PLACES_API_KEY`, `PRODUCT_METRICS_HASH_PEPPER`, or `SERPER_API_KEY` (preferred over SM when set).
+Local/dev can still set plaintext `GOOGLE_PLACES_API_KEY`, `AMAP_WEB_KEY`, `PRODUCT_METRICS_HASH_PEPPER`, or `SERPER_API_KEY` (preferred over SM when set).
 
 ### Root module variables (`infra/variables.tf`)
 
@@ -201,6 +209,7 @@ Also run `backend/scripts/build_lambda.sh` before `terraform apply`, then `./scr
 | `LOG_LEVEL` | fixed `INFO` | CloudWatch log group `/aws/lambda/${project}-${env}-api`. Search with filter `API_ERROR` (see backend README). |
 | `BEDROCK_GUARDRAIL_ID` / `BEDROCK_GUARDRAIL_VERSION` | Guardrail outputs / vars |
 | `GOOGLE_PLACES_SECRET_ARN` | secrets module (runtime fetch) |
+| `AMAP_WEB_SECRET_ARN` | secrets module (runtime fetch → `AMAP_WEB_KEY`) |
 | `PRODUCT_METRICS_PEPPER_SECRET_ARN` | secrets module (runtime fetch) |
 | `METRICS_ADMIN_SUBS` | `var.metrics_admin_subs` |
 | `AWS_LAMBDA_FUNCTION_NAME` | AWS runtime (async plan-next-day worker) |
@@ -211,6 +220,7 @@ Also run `backend/scripts/build_lambda.sh` before `terraform apply`, then `./scr
 | --- | --- |
 | `AWS_REGION` | provider region |
 | `SERPER_SECRET_ARN` | secrets module (runtime fetch → `SERPER_API_KEY`) |
+| `AMAP_WEB_KEY` / `AMAP_WEB_SECRET_ARN` | secrets module (runtime fetch → `AMAP_WEB_KEY` for `custom:amap_place_search`) |
 | `AGENT_OBSERVABILITY_ENABLED` + `OTEL_*` | when GenAI observability enabled |
 
 ---
