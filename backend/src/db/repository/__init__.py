@@ -31,6 +31,16 @@ from db.repository.days import (
     put_day_if_absent,
     replace_day_places,
 )
+from db.repository.crew_jobs import (
+    CREW_JOB_KINDS,
+    JOB_PROPOSE_CITIES,
+    JOB_SUGGEST_CITY,
+    JOB_SUGGEST_PLACE,
+    claim_crew_job,
+    clear_stale_crew_job,
+    complete_crew_job,
+    fail_crew_job,
+)
 from db.repository.planning import (
     PLANNING_STALE_SECONDS,
     apply_itinerary_edit,
@@ -39,6 +49,7 @@ from db.repository.planning import (
     clear_stale_planning_claim,
     complete_planning_after_day_write,
     fail_planning_in_progress,
+    remap_itinerary_for_route_reconfirm,
     rollback_next_day_slot,
 )
 from db.repository.profile import get_profile, promote_profile_admin, put_profile
@@ -75,6 +86,10 @@ __all__ = [
     "ConcurrentModificationError",
     "PersistenceError",
     "PLANNING_STALE_SECONDS",
+    "CREW_JOB_KINDS",
+    "JOB_PROPOSE_CITIES",
+    "JOB_SUGGEST_CITY",
+    "JOB_SUGGEST_PLACE",
     "prepare_dynamo_item",
     "prepare_dynamo_value",
     "_strip_nones",
@@ -95,12 +110,17 @@ __all__ = [
     "claim_planning_in_progress",
     "complete_planning_after_day_write",
     "fail_planning_in_progress",
+    "claim_crew_job",
+    "clear_stale_crew_job",
+    "complete_crew_job",
+    "fail_crew_job",
     "rollback_next_day_slot",
     "put_day_if_absent",
     "get_day",
     "replace_day_places",
     "delete_day",
     "apply_itinerary_edit",
+    "remap_itinerary_for_route_reconfirm",
     "persist_planned_day",
     "persist_suggested_place",
     "append_visited_place_key",

@@ -18,6 +18,10 @@ def test_day_sk_zero_padded() -> None:
     assert keys.day_sk("t1", 12) == "TRIP#t1#DAY#12"
 
 
+def test_day_remap_staging_sk() -> None:
+    assert keys.day_remap_staging_sk("t1", 4) == "TRIP#t1#DAYREMAP#04"
+
+
 def test_gsi1_keys() -> None:
     assert keys.gsi1_pk("t1") == "TRIP#t1"
     assert keys.gsi1_sk_user("abc") == "USER#abc"

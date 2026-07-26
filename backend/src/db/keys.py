@@ -19,6 +19,11 @@ def day_sk(trip_id: str, day_index: int) -> str:
     return f"TRIP#{trip_id}#DAY#{day_index:02d}"
 
 
+def day_remap_staging_sk(trip_id: str, day_index: int) -> str:
+    """Temporary DAY copy during route reconfirm remap (write-before-delete)."""
+    return f"TRIP#{trip_id}#DAYREMAP#{day_index:02d}"
+
+
 def gsi1_pk(trip_id: str) -> str:
     return f"TRIP#{trip_id}"
 
