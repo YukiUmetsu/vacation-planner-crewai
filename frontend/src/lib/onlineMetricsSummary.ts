@@ -280,7 +280,9 @@ export function formatLatencyMs(value: number | null): string {
 export function formatAcceptSeconds(ms: number | null): string {
   if (ms === null || Number.isNaN(ms)) return "—";
   const seconds = ms / 1000;
-  if (seconds >= 10) return `${seconds.toFixed(1)} s`;
+  // Threshold on rounded hundredths so 9996–9999ms → "10.0 s", not "10.00 s".
+  const roundedHundredths = Math.round(seconds * 100) / 100;
+  if (roundedHundredths >= 10) return `${seconds.toFixed(1)} s`;
   return `${seconds.toFixed(2)} s`;
 }
 

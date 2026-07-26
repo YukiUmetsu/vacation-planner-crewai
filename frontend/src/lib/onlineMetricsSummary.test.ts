@@ -161,4 +161,12 @@ describe("formatAcceptSeconds", () => {
     expect(formatAcceptSeconds(2000)).toBe("2.00 s");
     expect(formatAcceptSeconds(12_500)).toBe("12.5 s");
   });
+
+  it("uses 1 decimal when 2-decimal rounding reaches 10s", () => {
+    expect(formatAcceptSeconds(9_949)).toBe("9.95 s");
+    // 9996–9999 ms are < 10s raw but toFixed(2) rounds to "10.00"
+    expect(formatAcceptSeconds(9_996)).toBe("10.0 s");
+    expect(formatAcceptSeconds(9_999)).toBe("10.0 s");
+    expect(formatAcceptSeconds(10_000)).toBe("10.0 s");
+  });
 });
