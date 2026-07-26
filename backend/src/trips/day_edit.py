@@ -31,8 +31,15 @@ from planning_quality.place_quality import (
     profile_visited_name_keys,
     validate_suggested_place,
 )
+from planning_quality.suggest_place_retry import (
+    MAX_SUGGEST_PLACE_ATTEMPTS,
+    apply_suggest_place_retry_inputs,
+    merge_banned_labels,
+    rejected_suggest_labels,
+    should_retry_suggest_place,
+)
 from crew_io.envelope import unwrap_crew_payload
-from ops.worker_observability import log_quality_metrics
+from ops.worker_observability import log_plan_day_retry, log_quality_metrics
 from places.client import PlacesTransientError
 from places.enrich import enrich_place
 from user_profile.service import ProfileService
@@ -493,7 +500,7 @@ def _suggest_place_sync(
         }
         for p in existing
     ]
-    inputs = slim_crew_inputs(
+    base_inputs = slim_crew_inputs(
         {
             "overnight_city": overnight,
             "day_index": str(day_index),
@@ -513,60 +520,102 @@ def _suggest_place_sync(
         overnight_city=overnight,
         day_index=day_index,
     )
-    raw = runner.suggest_place(inputs)
-    if (
-        isinstance(raw, dict)
-        and "error" in raw
-        and "code" in raw
-        and "place_key" not in raw
-        and "result" not in raw
-    ):
-        code = str(raw.get("code") or "crew_failed")
-        status = 400 if code in {"invalid_payload", "invalid_crew"} else 502
-        detail = str(raw.get("error") or "suggest_place failed")
-        raise ApiError(
-            status,
-            client_facing_message(status_code=status, code=code, detail=detail),
-            code=code,
-        )
-    unwrapped, _, _ = unwrap_crew_payload(raw)
-    candidate = (
-        unwrapped.get("place")
-        if isinstance(unwrapped.get("place"), dict)
-        else unwrapped
-    )
-    if not isinstance(candidate, dict):
-        raise ApiError(422, "crew did not return a place", code="invalid_place")
 
-    try:
-        candidate = enrich_place(
-            candidate,
-            overnight_city=overnight,
-            destination=str(trip.get("destination") or ""),
+    banned: list[str] = []
+    last_quality_error: ApiError | None = None
+    validated: dict[str, Any] | None = None
+    energy_soft_tags: list[str] = []
+
+    for attempt in range(MAX_SUGGEST_PLACE_ATTEMPTS):
+        inputs = apply_suggest_place_retry_inputs(
+            base_inputs,
+            attempt=attempt,
+            failure_code=(
+                str(last_quality_error.code) if last_quality_error is not None else None
+            ),
+            plan_date=day_date,
+            banned_places=banned,
         )
-    except PlacesTransientError as exc:
-        # Soft-fail like pre-rate-limit behavior — still return the crew place.
-        logger.warning(
-            "suggest enrich rate-limited trip=%s day=%s: %s",
-            trip_id,
-            day_index,
-            exc,
+        raw = runner.suggest_place(inputs)
+        if (
+            isinstance(raw, dict)
+            and "error" in raw
+            and "code" in raw
+            and "place_key" not in raw
+            and "result" not in raw
+        ):
+            code = str(raw.get("code") or "crew_failed")
+            status = 400 if code in {"invalid_payload", "invalid_crew"} else 502
+            detail = str(raw.get("error") or "suggest_place failed")
+            raise ApiError(
+                status,
+                client_facing_message(status_code=status, code=code, detail=detail),
+                code=code,
+            )
+        unwrapped, _, _ = unwrap_crew_payload(raw)
+        candidate = (
+            unwrapped.get("place")
+            if isinstance(unwrapped.get("place"), dict)
+            else unwrapped
         )
-    validated, energy_soft_tags = validate_suggested_place(
-        candidate,
-        existing_places=existing,
-        plan_date=day_date,
-        max_comfortable_minutes=max_minutes,
-        already_visited_keys=set(visited),
-        profile_visited_names=profile_visited_name_keys(
-            list(profile.get("visited_places") or [])
-        ),
-    )
-    require_suggested_place_balance(
-        validated,
-        existing,
-        food_crawl_mode=food_crawl_mode,
-    )
+        if not isinstance(candidate, dict):
+            raise ApiError(422, "crew did not return a place", code="invalid_place")
+
+        try:
+            candidate = enrich_place(
+                candidate,
+                overnight_city=overnight,
+                destination=str(trip.get("destination") or ""),
+            )
+        except PlacesTransientError as exc:
+            # Soft-fail like pre-rate-limit behavior — still return the crew place.
+            logger.warning(
+                "suggest enrich rate-limited trip=%s day=%s: %s",
+                trip_id,
+                day_index,
+                exc,
+            )
+        try:
+            # Enforce prior closed/rejected bans in validation (not prompt-only).
+            validate_visited = set(visited) | set(banned)
+            validated, energy_soft_tags = validate_suggested_place(
+                candidate,
+                existing_places=existing,
+                plan_date=day_date,
+                max_comfortable_minutes=max_minutes,
+                already_visited_keys=validate_visited,
+                profile_visited_names=profile_visited_name_keys(
+                    list(profile.get("visited_places") or [])
+                ),
+            )
+            require_suggested_place_balance(
+                validated,
+                existing,
+                food_crawl_mode=food_crawl_mode,
+            )
+            last_quality_error = None
+            break
+        except ApiError as exc:
+            last_quality_error = exc
+            if should_retry_suggest_place(code=exc.code, attempt=attempt):
+                banned = merge_banned_labels(
+                    banned, rejected_suggest_labels(candidate)
+                )
+                log_plan_day_retry(
+                    trip_id=trip_id,
+                    day_index=day_index,
+                    attempt=attempt + 1,
+                    failure_code=str(exc.code or "unknown"),
+                    invocation={"suggest_place_attempt": attempt + 1},
+                    places_count=1,
+                )
+                continue
+            raise
+
+    if last_quality_error is not None:
+        raise last_quality_error
+    if validated is None:
+        raise ApiError(500, "suggest place missing after retries", code="internal_error")
     if energy_soft_tags:
         log_quality_metrics(
             trip_id=trip_id,

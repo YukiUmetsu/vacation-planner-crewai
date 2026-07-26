@@ -793,6 +793,103 @@ class _ClosedThenOkRunner:
         return self.inner.plan_day(inputs)
 
 
+class _WeekdayClosedSuggestRunner:
+    """First two suggest_place results are weekday-closed; third succeeds."""
+
+    def __init__(self, *, always_closed: bool = False) -> None:
+        self.inner = FakeCrewRunner()
+        self.always_closed = always_closed
+        self.suggest_calls = 0
+        self.suggest_inputs: list[dict[str, Any]] = []
+
+    def propose_cities(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        return self.inner.propose_cities(inputs)
+
+    def plan_day(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        return self.inner.plan_day(inputs)
+
+    def suggest_city(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        return self.inner.suggest_city(inputs)
+
+    def suggest_place(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        self.suggest_calls += 1
+        self.suggest_inputs.append(dict(inputs))
+        if self.always_closed or self.suggest_calls <= 2:
+            from datetime import date as date_cls
+
+            overnight = str(inputs.get("overnight_city") or "Tokyo")
+            date_str = str(inputs.get("date") or "2026-09-01")[:10]
+            weekday = date_cls.fromisoformat(date_str).weekday()
+            name = f"Closed Venue Attempt {self.suggest_calls}"
+            address = f"{self.suggest_calls} Shut St, {overnight}"
+            return {
+                "place": {
+                    "name": name,
+                    "address": address,
+                    "category": "other",
+                    "reason_to_visit": "weekday-closed fixture",
+                    "details": "Synthetic closed suggest",
+                    "estimated_minutes": 45,
+                    "closed_weekdays": [weekday],
+                    "place_key": make_place_key(name, address),
+                }
+            }
+        return self.inner.suggest_place(inputs)
+
+
+def test_suggest_place_retries_weekday_closed(dynamodb_table: Any) -> None:
+    runner = _WeekdayClosedSuggestRunner()
+    service = TripService(
+        table=dynamodb_table, runner=runner, safety=NoopSafetyGate()
+    )
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+    planned = service.plan_next_day(USER, trip_id)
+    before = len(planned["day"]["places"])
+    while before > 5:
+        service.remove_place(USER, trip_id, 1, before - 2)
+        before = before - 1
+
+    suggested = service.suggest_place(USER, trip_id, 1)
+    assert runner.suggest_calls == 3
+    assert "RETRY (place_weekday_closed)" in str(
+        runner.suggest_inputs[1].get("preferences") or ""
+    )
+    assert "FINAL RETRY" in str(runner.suggest_inputs[2].get("preferences") or "")
+    assert "Closed Venue Attempt 1" in str(
+        runner.suggest_inputs[1].get("already_visited") or ""
+    )
+    assert suggested["place"]["name"]
+    assert "Closed Venue" not in suggested["place"]["name"]
+    assert len(suggested["day"]["places"]) == before + 1
+
+
+def test_suggest_place_weekday_closed_gives_up_after_three(
+    dynamodb_table: Any,
+) -> None:
+    runner = _WeekdayClosedSuggestRunner(always_closed=True)
+    service = TripService(
+        table=dynamodb_table, runner=runner, safety=NoopSafetyGate()
+    )
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+    planned = service.plan_next_day(USER, trip_id)
+    before = len(planned["day"]["places"])
+    while before > 5:
+        service.remove_place(USER, trip_id, 1, before - 2)
+        before = before - 1
+
+    with pytest.raises(ApiError) as exc:
+        service.suggest_place(USER, trip_id, 1)
+    assert exc.value.code == "place_weekday_closed"
+    assert runner.suggest_calls == 3
+    day = repo.get_day(
+        user_sub=USER, trip_id=trip_id, day_index=1, table=dynamodb_table
+    )
+    assert day is not None
+    assert len(day["places"]) == before
+
+
 def test_plan_next_day_retries_after_quality_empty(dynamodb_table: Any) -> None:
     runner = _ClosedThenOkRunner()
     service = TripService(

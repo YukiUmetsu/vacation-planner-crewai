@@ -30,6 +30,10 @@ const API_ERROR_MESSAGES: Record<string, string> = {
     "That day was all restaurants. Please try again so the plan includes at least one non-food stop.",
   quality_hard_fail:
     "That day plan did not meet quality checks. Please try again.",
+  place_weekday_closed:
+    "That place is closed on this day of the week. Please try suggesting again.",
+  place_closed: "That place is permanently closed. Please try suggesting again.",
+  place_duplicate: "That place is already on your trip. Please try suggesting again.",
 };
 
 export function messageForApiError(

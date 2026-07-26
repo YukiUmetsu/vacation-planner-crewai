@@ -78,6 +78,13 @@ _PUBLIC_BY_CODE: dict[str, str] = {
     "excluded_category": (
         "That day plan included a place type you asked to avoid. Please try again."
     ),
+    "place_weekday_closed": (
+        "That place is closed on this day of the week. Please try suggesting again."
+    ),
+    "place_closed": "That place is permanently closed. Please try suggesting again.",
+    "place_duplicate": (
+        "That place is already on your trip. Please try suggesting again."
+    ),
 }
 
 _DEFAULT_5XX = "Something went wrong. Please try again."
