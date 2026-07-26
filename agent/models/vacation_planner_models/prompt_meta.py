@@ -10,7 +10,8 @@ PROMPT_VERSIONS: dict[str, str] = {
     "day_plan": "2026-07-25.2",
     "day_plan_single": "2026-07-25.1",
     "city_route": "2026-07-24.0",
-    "suggest_place": "2026-07-25.1",
+    "suggest_place": "2026-07-26.1",
+    "suggest_city": "2026-07-26.1",
 }
 
 

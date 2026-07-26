@@ -99,6 +99,22 @@ class CityStop(BaseModel):
         return self
 
 
+class CitySuggestion(BaseModel):
+    """Guidance-only city candidate (no confirmed day windows)."""
+
+    city: str = Field(min_length=1)
+    country: str = ""
+    reason: str = ""
+    highlights: list[str] = Field(default_factory=list)
+    recommended_nights: int = Field(default=1, ge=1)
+
+
+class CitySuggestionResult(BaseModel):
+    """Array-ready suggest_city crew output (default count=1)."""
+
+    candidates: list[CitySuggestion] = Field(min_length=1, max_length=3)
+
+
 class CityRoute(BaseModel):
     destination_type: DestinationType
     cities: list[CityStop] = Field(min_length=1)

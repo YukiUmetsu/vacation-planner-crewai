@@ -19,13 +19,20 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-CrewName = Literal["day_plan", "day_plan_single", "city_route", "suggest_place"]
+CrewName = Literal[
+    "day_plan",
+    "day_plan_single",
+    "city_route",
+    "suggest_place",
+    "suggest_city",
+]
 
 _CREW_MODEL_ATTR: dict[CrewName, str] = {
     "day_plan": "DayPlanWithQuality",
     "day_plan_single": "DayPlanWithQuality",
     "city_route": "CityRoute",
     "suggest_place": "Place",
+    "suggest_city": "CitySuggestionResult",
 }
 
 # BFF may attach this key; stripped before crew kickoff.
@@ -377,12 +384,19 @@ def extract_pydantic_dict(result: Any, model_cls: type) -> dict[str, Any]:
 
 
 def _model_class(crew_name: CrewName) -> type:
-    from vacation_planner_models import CityRoute, DayPlanWithQuality, Place
+    from vacation_planner_models import (
+        CityRoute,
+        CitySuggestionResult,
+        DayPlanWithQuality,
+        Place,
+    )
 
     if crew_name in {"day_plan", "day_plan_single"}:
         return DayPlanWithQuality
     if crew_name == "suggest_place":
         return Place
+    if crew_name == "suggest_city":
+        return CitySuggestionResult
     return CityRoute
 
 
@@ -708,12 +722,29 @@ def _cli() -> int:
             "day_index": "1",
             "date": "2026-09-01",
             "preferences": "culture, food, moderate pace",
+            "hint": "",
             "interests": "",
             "energy_level": "3",
             "remaining_minutes": "120",
             "already_visited": "",
             "current_places_json": "[]",
             "next_order_in_day": "4",
+            **inputs,
+        }
+    elif args.crew == "suggest_city":
+        inputs = {
+            "destination": "Japan",
+            "destination_type": "country",
+            "origin": "San Francisco",
+            "day_count": "7",
+            "start_date": "2026-09-01",
+            "end_date": "2026-09-07",
+            "preferences": "culture, food, moderate pace",
+            "interests": "",
+            "hint": "",
+            "count": "1",
+            "already_listed_cities": "Tokyo, Kyoto",
+            "current_cities_json": "[]",
             **inputs,
         }
 

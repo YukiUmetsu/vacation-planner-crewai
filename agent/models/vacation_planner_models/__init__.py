@@ -15,6 +15,8 @@ from vacation_planner_models.quality import (
 from vacation_planner_models.trip import (
     CityRoute,
     CityStop,
+    CitySuggestion,
+    CitySuggestionResult,
     DayPlan,
     DestinationType,
     Place,
@@ -29,6 +31,8 @@ __all__ = [
     "SOFT_FAILURE_TAGS",
     "CityRoute",
     "CityStop",
+    "CitySuggestion",
+    "CitySuggestionResult",
     "CrewEnvelope",
     "DayPlan",
     "DayPlanWithQuality",

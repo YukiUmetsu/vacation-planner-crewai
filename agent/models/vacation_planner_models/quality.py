@@ -33,7 +33,6 @@ HARD_FAILURE_TAGS: frozenset[FailureTag] = frozenset(
         FailureTag.wrong_city,
         FailureTag.closed_place,
         FailureTag.excluded_category,
-        FailureTag.missing_meals,
         FailureTag.food_only_day,
     }
 )
@@ -47,6 +46,7 @@ SOFT_FAILURE_TAGS: frozenset[FailureTag] = frozenset(
         FailureTag.weak_day_balance,
         FailureTag.too_packed,
         FailureTag.energy_overload,
+        FailureTag.missing_meals,
     }
 )
 

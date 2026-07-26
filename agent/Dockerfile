@@ -36,10 +36,11 @@ COPY pyproject.toml uv.lock ./
 COPY models ./models
 
 # Entrypoint + crew assets (.dockerignore strips .venv, Phoenix, smoke tests, evals).
-COPY main.py crew_kickoff.py invoke_payload.py entrypoint.sh ./
+COPY main.py crew_kickoff.py invoke_payload.py runtime_secrets.py entrypoint.sh ./
 COPY crews/day_plan ./crews/day_plan
 COPY crews/city_route ./crews/city_route
 COPY crews/suggest_place ./crews/suggest_place
+COPY crews/suggest_city ./crews/suggest_city
 
 RUN chmod +x /app/entrypoint.sh \
     && uv sync --frozen --no-dev \
@@ -47,11 +48,16 @@ RUN chmod +x /app/entrypoint.sh \
       /app/crews/day_plan/logs \
       /app/crews/city_route/logs \
       /app/crews/suggest_place/logs \
+      /app/crews/suggest_city/logs \
     && test -f /app/crews/day_plan/crew.jsonc \
     && test -f /app/crews/city_route/crew.jsonc \
     && test -f /app/crews/suggest_place/crew.jsonc \
+    && test -f /app/crews/suggest_city/crew.jsonc \
+    && test -f /app/crews/suggest_city/agents/suggest_city_agent.jsonc \
+    && test -f /app/runtime_secrets.py \
     && test -f /app/crews/day_plan/day_models.py \
     && test -f /app/crews/city_route/city_models.py \
-    && test -f /app/crews/suggest_place/suggest_models.py
+    && test -f /app/crews/suggest_place/suggest_models.py \
+    && test -f /app/crews/suggest_city/suggest_city_models.py
 
 CMD ["./entrypoint.sh"]

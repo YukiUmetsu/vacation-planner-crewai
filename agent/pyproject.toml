@@ -1,6 +1,6 @@
 [project]
 name = "vacation-planner-agent-runtime"
-version = "0.1.7"
+version = "0.1.9"
 description = "AgentCore Runtime entrypoint for Vacation Planner crews"
 requires-python = ">=3.10,<3.14"
 dependencies = [
@@ -52,6 +52,10 @@ only-include = [
     "crews/suggest_place/suggest_models.py",
     "crews/suggest_place/agents",
     "crews/suggest_place/tools",
+    "crews/suggest_city/crew.jsonc",
+    "crews/suggest_city/suggest_city_models.py",
+    "crews/suggest_city/agents",
+    "crews/suggest_city/tools",
 ]
 
 [tool.uv.sources]

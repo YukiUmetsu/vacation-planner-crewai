@@ -1,0 +1,33 @@
+{
+  "name": "suggest_city",
+  "agents": ["suggest_city_agent"],
+  "tasks": [
+    {
+      "name": "suggest_city_task",
+      "description": "Research and emit exactly {count} additional overnight base(s) to append to an existing city route — do not redesign the whole route. Return structured CitySuggestionResult in one shot.\n\nContext:\n- destination: {destination}\n- destination_type: {destination_type}\n- origin: {origin}\n- day_count: {day_count}\n- start_date: {start_date}\n- end_date: {end_date}\n- preferences: {preferences}\n- interests: {interests}\n- hint (optional free-text steer; empty if none): {hint}\n- count (how many NEW cities to propose): {count}\n- already_listed_cities (FORBIDDEN — never suggest these): {already_listed_cities}\n- current_cities_json (existing draft stops): {current_cities_json}\n\nFind real overnight bases inside {destination} that travelers commonly stay in. Prefer cities that fit preferences/interests and the hint when provided.\n\nHard rules:\n- Every candidate.city must NOT appear in already_listed_cities (case-insensitive)\n- Candidates must be unique among themselves\n- recommended_nights >= 1 for each, and must still fit remaining nights given day_count and current stops\n- No arrival_day_index / departure_day_index fields\n- Honor hint={hint} when non-empty\n- Fill city, country (when known), reason, highlights (0–3), recommended_nights\n- Concrete city names only (not neighborhoods)\n- No full day itineraries\n\nOutput structured CitySuggestionResult with exactly {count} candidates — no Markdown essay.",
+      "expected_output": "CitySuggestionResult with exactly {count} unique new city candidates (not already listed), each with reason, highlights, and recommended_nights.",
+      "agent": "suggest_city_agent",
+      "output_pydantic": { "python": "suggest_city_models.CitySuggestionResult" }
+    }
+  ],
+  "process": "sequential",
+  "verbose": false,
+  "memory": false,
+  "output_log_file": "logs/crew.log",
+  "stream": false,
+  "tracing": false,
+  "inputs": {
+    "destination": "Japan",
+    "destination_type": "country",
+    "origin": "San Francisco",
+    "day_count": "7",
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-07",
+    "preferences": "culture, food, moderate pace",
+    "interests": "temples, food",
+    "hint": "",
+    "count": "1",
+    "already_listed_cities": "Tokyo, Kyoto",
+    "current_cities_json": "[]"
+  }
+}

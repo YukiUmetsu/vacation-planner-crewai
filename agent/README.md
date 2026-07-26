@@ -90,7 +90,7 @@ Local Phoenix tracing (`run_with_phoenix.py`) is unchanged for crew development;
 `crew_kickoff.py` loads `crews/<name>/crew.jsonc` relative to this package root (`Path(__file__).parent / "crews"`). The wheel therefore includes:
 
 - `main.py`, `crew_kickoff.py`, `invoke_payload.py`
-- `crews/day_plan/`, `crews/day_plan_single/`, `crews/city_route/`, `crews/suggest_place/` runtime assets (`crew.jsonc`, `*_models.py`, `agents/`, `tools/`, …)
+- `crews/day_plan/`, `crews/day_plan_single/`, `crews/city_route/`, `crews/suggest_place/`, `crews/suggest_city/` runtime assets (`crew.jsonc`, `*_models.py`, `agents/`, `tools/`, …)
 
 Shared Pydantic models install via the **`vacation-planner-models`** dependency (`models/`). Local-only files are **not** packaged: `.venv/`, `logs/`, `uv.lock`, `run_with_phoenix.py`, `smoke_test.py`, crew `pyproject.toml` / README.
 
