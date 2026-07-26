@@ -160,8 +160,10 @@ backend/src/
   routes/admin_metrics.py # require admin via profile.role
   trips/crud.py           # create_trip → limits.trips
   trips/city_route.py     # consume GenAI action
-  trips/plan_day.py       # consume once on sync/async start (not worker)
-  trips/day_edit.py       # suggest_place consume
+  trips/plan_day_jobs.py            # consume on async claim (start)
+  trips/plan_day_agent_pipeline.py  # consume on sync plan-next-day (not worker re-entry)
+  trips/suggest_place.py            # suggest_place consume (sync + async start)
+  trips/city_suggest.py             # suggest_city consume
 ```
 
 Frontend: map `free_trip_limit` / `genai_quota_exceeded` to clear copy; optional

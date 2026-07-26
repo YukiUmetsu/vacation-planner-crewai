@@ -5,7 +5,7 @@ Implementation is split by concern:
 
 - ``common`` — errors, table helpers, sanitizer re-exports
 - ``trips`` — trip meta, routes, bundles, visited keys
-- ``planning`` — plan-next-day locks and itinerary cursors
+- ``planning`` — plan-next-day locks and itinerary edit cursors (remap orchestration is ``trips.route_reconfirm``)
 - ``days`` — day rows and suggest-place writes
 - ``profile`` — traveler profile
 - ``metrics`` — offline eval + online quality/product (dedicated metrics DynamoDB table)
@@ -49,7 +49,6 @@ from db.repository.planning import (
     clear_stale_planning_claim,
     complete_planning_after_day_write,
     fail_planning_in_progress,
-    remap_itinerary_for_route_reconfirm,
     rollback_next_day_slot,
 )
 from db.repository.profile import get_profile, promote_profile_admin, put_profile
@@ -120,7 +119,6 @@ __all__ = [
     "replace_day_places",
     "delete_day",
     "apply_itinerary_edit",
-    "remap_itinerary_for_route_reconfirm",
     "persist_planned_day",
     "persist_suggested_place",
     "append_visited_place_key",

@@ -45,7 +45,7 @@ def test_reorder_place_moves_and_reindexes(monkeypatch: pytest.MonkeyPatch) -> N
         return {**day, "places": kwargs["places"]}
 
     monkeypatch.setattr(
-        "trips.day_edit._load_owned_bundle",
+        "trips.day_mutations._load_owned_bundle",
         lambda **_k: (trip, None, [day]),
     )
     monkeypatch.setattr(repo, "replace_day_places", _replace)
@@ -73,7 +73,7 @@ def test_reorder_place_rejects_bad_index(monkeypatch: pytest.MonkeyPatch) -> Non
     }
     day = {"day_index": 1, "places": [{"name": "A", "place_key": "a"}]}
     monkeypatch.setattr(
-        "trips.day_edit._load_owned_bundle",
+        "trips.day_mutations._load_owned_bundle",
         lambda **_k: (trip, None, [day]),
     )
     with pytest.raises(ApiError) as exc:

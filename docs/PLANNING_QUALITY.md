@@ -69,7 +69,7 @@ Example: energy **3** → warn after **510** min. Day with **540** min → cauti
 | Check | Layer |
 | --- | --- |
 | Dedupe places across days (`place_key`) | Backend `dedupe_places` + crew `already_visited` prompt |
-| Crew input size (token proxy) | BFF `crew_context_budget.slim_crew_inputs` — only when over `CREW_INPUT_MAX_CHARS`; cut order: `already_visited` → `prior_days_summary` → `city_route_json` → `preferences`. Full visited list still used for dedupe / quality. Large context fields (`already_visited`, `preferences`, `interests`) are interpolated once in the research task; later tasks remind without re-listing. |
+| Crew input size (token proxy) | BFF `crew_io.context_budget.slim_crew_inputs` — only when over `CREW_INPUT_MAX_CHARS`; cut order: `already_visited` → `prior_days_summary` → `city_route_json` → `preferences`. Full visited list still used for dedupe / quality. Large context fields (`already_visited`, `preferences`, `interests`) are interpolated once in the research task; later tasks remind without re-listing. |
 | Place count 3–7 / schema | Agent `DayPlan` Pydantic + eval scorers |
 | Permanently closed / weekday-closed | Crew reviewer + **Places BFF enrich** (Google outside mainland China; Amap for mainland) + `place_quality` + scorers |
 | Energy budget | Crew prompts + `place_quality` / `validate_suggested_place` + scorers |

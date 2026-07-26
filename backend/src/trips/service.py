@@ -1,9 +1,16 @@
 """Trip orchestration entrypoint (ADR 005): thin `TripService`.
 
 Public API is unchanged; behavior lives in `trips.crud`, `trips.city_route`,
-`trips.plan_day`, and `trips.day_edit`, each of which takes `table` /
-`runner` / `safety` / `enqueue_plan_day` as explicit args and never imports
-this module (see docs/architecture-decisions/005-services-domain-packages.md).
+`trips.plan_day_api` (plan-next-day), and `trips.day_edit` (facade over
+suggest/mutations). Each submodule takes `table` / `runner` / `safety` /
+`enqueue_plan_day` as explicit args and never imports this module (see
+docs/architecture-decisions/005-services-domain-packages.md).
+
+Plan-next-day layout:
+
+- ``plan_day_api`` — public entrypoints (what this class calls)
+- ``plan_day_jobs`` — claim / enqueue / sync-vs-async
+- ``plan_day_agent_pipeline`` — crew → quality → persist
 """
 
 from __future__ import annotations
@@ -15,7 +22,7 @@ from db.protocols import DynamoDBTable
 from models.api import ConfirmCitiesRequest
 from safety.gate import SafetyGate, get_safety_gate
 
-from trips import city_route, crud, day_edit, plan_day
+from trips import city_route, crud, day_edit, plan_day_api
 from trips.city_route import (  # noqa: F401 — re-export surface for callers/tests
     assert_route_fits_window,
     overnight_city_for_day,
@@ -132,7 +139,7 @@ class TripService:
         self, user_sub: str, trip_id: str, *, email: str | None = None
     ) -> dict[str, Any]:
         """Plan the next day — sync 200 body, or async 202 body when agentcore."""
-        return plan_day.plan_next_day(
+        return plan_day_api.plan_next_day(
             user_sub=user_sub,
             trip_id=trip_id,
             table=self._table,
@@ -146,7 +153,7 @@ class TripService:
         self, user_sub: str, trip_id: str, *, email: str | None = None
     ) -> dict[str, Any]:
         """Claim planning slot and enqueue worker; returns async response shape."""
-        return plan_day.start_plan_next_day(
+        return plan_day_api.start_plan_next_day(
             user_sub=user_sub,
             trip_id=trip_id,
             table=self._table,
@@ -160,7 +167,7 @@ class TripService:
         self, user_sub: str, trip_id: str, day_index: int
     ) -> dict[str, Any]:
         """Worker path: run crew + enrich + persist for an already-claimed day."""
-        return plan_day.execute_plan_next_day(
+        return plan_day_api.execute_plan_next_day(
             user_sub=user_sub,
             trip_id=trip_id,
             day_index=day_index,

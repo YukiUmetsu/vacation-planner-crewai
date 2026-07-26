@@ -9,7 +9,9 @@ refactors can be checked with the same command:
 
 from __future__ import annotations
 
+import ast
 import importlib
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -19,6 +21,45 @@ from safety.gate import NoopSafetyGate
 from trips.service import TripService
 
 USER = "migration-suite-user"
+
+_SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
+
+
+def _forbidden_imports(path: Path) -> list[str]:
+    """Return human-readable import lines that violate ADR 005 boundaries."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    rel = path.relative_to(_SRC_ROOT)
+    parts = rel.parts
+    package = parts[0] if parts else ""
+    is_trips_leaf = package == "trips" and path.name != "service.py"
+    is_db = package == "db"
+
+    hits: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                name = alias.name
+                if is_trips_leaf and (
+                    name == "trips.service" or name.startswith("trips.service.")
+                ):
+                    hits.append(f"{rel}: import {name}")
+                if is_db and (name == "trips" or name.startswith("trips.")):
+                    hits.append(f"{rel}: import {name}")
+        elif isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            if is_trips_leaf and (
+                mod == "trips.service" or mod.startswith("trips.service.")
+            ):
+                hits.append(f"{rel}: from {mod} import ...")
+            if is_db and (mod == "trips" or mod.startswith("trips.")):
+                hits.append(f"{rel}: from {mod} import ...")
+            # ``from trips import service`` also pulls the service module.
+            if is_trips_leaf and mod == "trips":
+                for alias in node.names:
+                    if alias.name == "service":
+                        hits.append(f"{rel}: from trips import service")
+    return hits
+
 
 # Canonical domain import paths used by routes/, handler.py, and peers.
 DOMAIN_IMPORT_PATHS: tuple[str, ...] = (
@@ -81,6 +122,21 @@ def test_domain_import_paths_resolve() -> None:
         except Exception as exc:  # noqa: BLE001 — collect all failures
             missing.append(f"{path}: {type(exc).__name__}: {exc}")
     assert not missing, "broken domain imports:\n" + "\n".join(missing)
+
+
+@pytest.mark.migration
+def test_adr005_import_boundaries() -> None:
+    """trips/* (except service.py) must not import trips.service; db/* must not import trips."""
+    violations: list[str] = []
+    for path in sorted(_SRC_ROOT.joinpath("trips").rglob("*.py")):
+        if path.name == "service.py":
+            continue
+        violations.extend(_forbidden_imports(path))
+    for path in sorted(_SRC_ROOT.joinpath("db").rglob("*.py")):
+        violations.extend(_forbidden_imports(path))
+    assert not violations, "ADR 005 import boundary violations:\n" + "\n".join(
+        violations
+    )
 
 
 @pytest.mark.migration

@@ -1,7 +1,7 @@
-"""Pure day-index helpers shared by plan-day and day-edit.
+"""Pure day-index helpers shared by plan-day and day edits.
 
-Kept out of `plan_day.py` so `day_edit` does not import the plan-day
-orchestration graph (and so a future plan_day → day_edit edge cannot cycle).
+Kept out of the plan-day jobs/pipeline modules so suggest/mutations/status do
+not import the plan-next-day orchestration graph.
 """
 
 from __future__ import annotations

@@ -34,7 +34,11 @@ src/
   auth.py             # AUTH_MODE=dev | cognito (APIGW JWT claims)
   http_utils.py
   routes/             # HTTP handlers
-  trips/              # TripService + CRUD / route / plan-day / day-edit
+  trips/              # TripService facade + domain modules:
+                      #   crud, city_route, city_suggest,
+                      #   plan_day_api / plan_day_jobs / plan_day_agent_pipeline,
+                      #   suggest_place, day_mutations, day_status, route_reconfirm,
+                      #   day_edit + plan_day (compat re-exports), prompts, day_index
   places/             # Google / Amap enrich + photo cache
   planning_quality/   # post-generation quality policy
   shared/             # energy, route_windows, dates

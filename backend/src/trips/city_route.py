@@ -18,6 +18,7 @@ from crew_io.envelope import unwrap_crew_payload
 from safety.gate import SafetyGate
 from shared.route_windows import normalize_route_windows
 from ops.worker_observability import WorkerTimer, log_crew_duration
+from trips.route_reconfirm import remap_itinerary_for_route_reconfirm
 
 
 def synthetic_city_route(*, destination: str, day_count: int) -> dict[str, Any]:
@@ -479,7 +480,7 @@ def confirm_cities(
     kept_days: list[dict[str, Any]] = []
     if needs_itinerary_remap:
         try:
-            kept_days, trip_out = repo.remap_itinerary_for_route_reconfirm(
+            kept_days, trip_out = remap_itinerary_for_route_reconfirm(
                 user_sub=user_sub,
                 trip_id=trip_id,
                 route=route_data,

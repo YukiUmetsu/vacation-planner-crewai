@@ -48,9 +48,16 @@ trips/                 # product orchestration
   service.py           # TripService (thin; public API unchanged; delegates to modules below)
   crud.py
   city_route.py        # uses shared.route_windows; owns propose/confirm + synthetic route
-  day_index.py         # first_missing / resolve helpers (shared by plan_day + day_edit)
-  plan_day.py          # claim / async / sync / _run_plan_day_and_persist
-  day_edit.py          # suggest / remove / delete_day
+  day_index.py         # first_missing / resolve helpers (shared by plan_day + day edits)
+  plan_day_api.py      # public plan-next-day entrypoints (TripService)
+  plan_day_jobs.py     # claim / enqueue / sync-vs-async orchestration
+  plan_day_agent_pipeline.py  # crew → quality → persist
+  plan_day.py          # compat re-export of plan_day_api
+  day_edit.py          # facade re-exports suggest / remove / delete
+  suggest_place.py     # suggest one place (sync + async job)
+  day_mutations.py     # remove / reorder place, delete day
+  day_status.py        # status_after_day_edit
+  route_reconfirm.py   # remap itinerary when cities reconfirmed
   prompts.py           # prefs/meals/prior-days; visited_keys_from_days (reads place_key)
 
 planning_quality/      # deterministic post-generation policy
@@ -136,9 +143,16 @@ flowchart TB
 | --- | --- |
 | `trips/crud.py` | `create_trip`, `update_trip`, `list_trips`, `get_trip`, `delete_trip`, `_require_trip`, `_load_owned_bundle`, `_split_bundle`, `_json_safe`, `_validate` |
 | `trips/city_route.py` | `synthetic_city_route`, `propose_cities`, `confirm_cities`, `_route_payload`, `_sync_total_nights`, `_assert_route_fits_window`, `overnight_city_for_day` (imports `shared.route_windows`; does not own it) |
-| `trips/plan_day.py` | `plan_next_day`, `start_plan_next_day`, `execute_plan_next_day`, `_plan_next_day_sync`, `_run_plan_day_and_persist`, `_persist_async_planned_day`, `_finalize_existing_planned_day`, `_day_exists`, `_cursors_from_existing_day` (day-index helpers live in `day_index.py`) |
-| `trips/day_edit.py` | `suggest_place`, `remove_place`, `delete_day`, `status_after_day_edit` |
-| `trips/day_index.py` | `first_missing_day_index`, `resolve_plan_day_index` (shared by plan_day + day_edit; no orchestration imports) |
+| `trips/plan_day_api.py` | Public entrypoints: `plan_next_day`, `start_plan_next_day`, `execute_plan_next_day`, `plan_next_day_sync` |
+| `trips/plan_day_jobs.py` | Claim / enqueue / sync-vs-async + `_finalize_existing_planned_day`, `_day_exists` |
+| `trips/plan_day_agent_pipeline.py` | `_run_plan_day_and_persist`, `_persist_async_planned_day`, `_cursors_from_existing_day` |
+| `trips/plan_day.py` | Compat re-export of `plan_day_api` |
+| `trips/day_edit.py` | Facade re-exporting suggest / remove / reorder / delete / `status_after_day_edit` |
+| `trips/suggest_place.py` | `suggest_place`, `start_suggest_place`, `execute_suggest_place`, `_suggest_place_sync` |
+| `trips/day_mutations.py` | `remove_place`, `reorder_place`, `delete_day` |
+| `trips/day_status.py` | `status_after_day_edit` |
+| `trips/route_reconfirm.py` | `remap_itinerary_for_route_reconfirm` (moved out of `db` so db does not import trips) |
+| `trips/day_index.py` | `first_missing_day_index`, `resolve_plan_day_index` (shared by plan_day + day edits; no orchestration imports) |
 | `trips/prompts.py` | `_merge_preferences`, `_meal_guidance`, `prior_day_summary_line`, `append_prior_day_summary_line`, `rebuild_prior_days_summary`, `visited_keys_from_days` (reads stored `place_key`; no dedupe import), `_profile_visited_keys` |
 | `trips/service.py` | `TripService` class: `__init__`, `runner`/`safety`, delegates to modules above |
 
@@ -172,7 +186,7 @@ Allowed leaves today: **`energy`**, **`route_windows`**, **`dates`** — all pur
 
 ### Note on `dedupe.py`
 
-**Decision:** `planning_quality/dedupe.py`. It is already used by `place_quality`, `plan_day_retry`, and `trips/plan_day` as place-key ensure/dedupe — not trip identity. Trip-side `visited_keys_from_days` stays in `trips/prompts.py` and only collects already-stored `place_key` values (no duplicate key-normalize logic). Do not move key ensure/dedupe under `trips/`.
+**Decision:** `planning_quality/dedupe.py`. It is already used by `place_quality`, `plan_day_retry`, and `trips/plan_day_agent_pipeline` as place-key ensure/dedupe — not trip identity. Trip-side `visited_keys_from_days` stays in `trips/prompts.py` and only collects already-stored `place_key` values (no duplicate key-normalize logic). Do not move key ensure/dedupe under `trips/`.
 
 ## Migration phases (safe order)
 
@@ -193,10 +207,11 @@ Each phase ends with **green** `./scripts/run_migration_suite.sh`. Prefer small 
 
 Circular imports are the main failure mode. Enforce in the **first plan-day extract PR (phase 4)**:
 
-1. **Submodules never import `TripService`.** `plan_day`, `crud`, `city_route`, `day_edit`, `prompts` take `table` / `runner` / `safety` (and any other deps) as **function or constructor args** from `trips/service.py`. Only `service.py` may construct/own `TripService`.
+1. **Submodules never import `TripService`.** `plan_day_api`, `plan_day_jobs`, `plan_day_agent_pipeline`, `suggest_place`, `day_mutations`, `day_status`, `route_reconfirm`, `crud`, `city_route`, `day_edit` / `plan_day` (facades), `prompts` take `table` / `runner` / `safety` (and any other deps) as **function or constructor args** from `trips/service.py`. Only `service.py` may construct/own `TripService`.
 2. **No `from trips.service import TripService` (or relative equivalent) inside other `trips/*` modules.** Reject the PR if that appears.
-3. **Private helpers used by tests** — e.g. `_assert_route_fits_window` imported by `test_route_windows.py` — **promote to a public name or re-export from `shared.route_windows` / `trips.city_route` in the same phase** that moves them. Do not leave tests reaching into private `_` symbols across packages.
-4. Prefer a short comment in `trips/plan_day.py` / `trips/service.py` pointing at this ADR section so the rule stays visible.
+3. **Private helpers used by tests** — e.g. `_assert_route_fits_window` imported by `test_route_windows.py` — **promote to a public name or re-export from `shared.route_windows` / `trips.city_route` in the same phase** that moves them. Do not leave tests reaching into private `_` symbols across packages. After further splits, monkeypatch the **implementation** module (`day_mutations`, `suggest_place`, `plan_day_jobs`, `plan_day_agent_pipeline`), not only the facade.
+4. Prefer a short comment in `trips/plan_day_api.py` / `trips/service.py` pointing at this ADR section so the rule stays visible.
+5. **`db` must not import `trips`.** Itinerary remap orchestration lives in `trips/route_reconfirm.py`; `db/repository/planning.py` keeps claim/lock/cursor Dynamo helpers only.
 
 ### Shim pattern (phases 1–5 only)
 
@@ -251,7 +266,7 @@ Contract test import paths were updated from `LEGACY_IMPORT_PATHS` to `DOMAIN_IM
 - [x] Package boundaries match product language (trips / quality / places / …)
 - [x] Dependency rule forbids `places → trips`, `planning_quality → trips`, and **`crews → trips`**
 - [x] `energy`, `route_windows`, `dates` live in `shared/`; `user_profile` does not import `planning_quality`
-- [x] `dedupe` lives in `planning_quality/`; `trips/plan_day` calls it; `visited_keys_from_days` only reads stored keys (no duplicate ensure/dedupe)
+- [x] `dedupe` lives in `planning_quality/`; `trips/plan_day_agent_pipeline` calls it; `visited_keys_from_days` only reads stored keys (no duplicate ensure/dedupe)
 - [x] `TripService` public methods unchanged (see `TRIP_SERVICE_PUBLIC_METHODS` in contract test)
 - [x] Phase-4 PR: trip submodules take deps as args; **never import `TripService`**
 - [x] Private test helpers promoted/re-exported in the same phase they move
@@ -262,6 +277,8 @@ Contract test import paths were updated from `LEGACY_IMPORT_PATHS` to `DOMAIN_IM
 - [x] Option A vs B chosen and consistent with hatch/`pythonpath`
 - [x] Hatch build packages list updated when new top-level packages are added (`pyproject.toml` / wheel packages) — still `packages = ["src"]`
 - [x] `shared/` stays limited to pure helpers (`energy`, `route_windows`, `dates` unless a clear peer leaf appears)
+- [x] Further `trips/` splits (`plan_day_api` / `plan_day_jobs` / `plan_day_agent_pipeline`, `suggest_place`, `day_mutations`, `day_status`, `route_reconfirm`): facades keep `TripService` stable; **`db` does not import `trips`**
+- [x] Import-boundary regression: `test_adr005_import_boundaries` (trips leaves ↛ `trips.service`; `db` ↛ `trips`)
 
 ## Hatch / packaging note
 
@@ -276,5 +293,6 @@ Today hatch builds `packages = ["src"]` with `pythonpath = ["src"]` for tests. N
 | Phase 1 `places/` | Done |
 | Phase 2 `planning_quality/` + `shared/` | Done |
 | Phase 3 `crew_io/` / `safety/` / `user_profile/` / `ops/` | Done (`ops` not `platform`; `user_profile` not `profile` — stdlib clash) |
-| Phases 4–5 `trips/` split | Done (`service.py` ~177 LOC; submodules never import `TripService`) |
+| Phases 4–5 `trips/` split | Done (`service.py` thin facade; submodules never import `TripService`) |
+| Further `trips/` module splits | Done — `plan_day_api` / `plan_day_jobs` / `plan_day_agent_pipeline`, `suggest_place`, `day_mutations`, `day_status`, `route_reconfirm`; `day_edit` / `plan_day` remain compatibility facades |
 | Phases 6–7 retarget + delete `services/` | Done — no dual import paths |
