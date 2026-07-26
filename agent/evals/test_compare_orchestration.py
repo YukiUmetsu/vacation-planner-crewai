@@ -20,11 +20,17 @@ def test_estimate_cost_usd_from_tokens() -> None:
 
 
 def test_model_class_day_plan_single() -> None:
-    from vacation_planner_models import CityRoute, DayPlanWithQuality, Place
+    from vacation_planner_models import (
+        CityRoute,
+        CitySuggestionResult,
+        DayPlanWithQuality,
+        Place,
+    )
 
     assert _model_class("day_plan") is DayPlanWithQuality
     assert _model_class("day_plan_single") is DayPlanWithQuality
     assert _model_class("suggest_place") is Place
+    assert _model_class("suggest_city") is CitySuggestionResult
     assert _model_class("city_route") is CityRoute
 
 
@@ -250,9 +256,50 @@ def test_format_orchestration_summary_table() -> None:
         },
     }
     text = format_orchestration_summary(report)
-    assert "keep 3-agent = **True**" in text
+    assert "Preliminary signal:** three-agent favored" in text
+    assert "final decision pending full repeated evaluation" in text
+    assert "keep_three_agent=True" in text
     assert "| Hard-constraint pass |" in text
     assert "**+25 pp**" in text
+
+
+def test_format_orchestration_summary_full_suite_uses_decision() -> None:
+    from evals.compare_orchestration import format_orchestration_summary
+
+    report = {
+        "case_count": 31,
+        "decision": {
+            "keep_three_agent": True,
+            "reasons": ["hard_constraint_pass_rate +25.0 pp (≥ 10.0)"],
+        },
+        "arms": {
+            "day_plan": {
+                "passed": 28,
+                "failed": 3,
+                "aggregates": {
+                    "hard_constraint_pass_rate": 1.0,
+                    "schema_valid_rate": 1.0,
+                    "preference_relevance_score": 0.875,
+                    "latency_ms": 36000,
+                    "cost_usd": 0.027,
+                },
+            },
+            "day_plan_single": {
+                "passed": 20,
+                "failed": 11,
+                "aggregates": {
+                    "hard_constraint_pass_rate": 0.75,
+                    "schema_valid_rate": 0.75,
+                    "preference_relevance_score": 0.93,
+                    "latency_ms": 26000,
+                    "cost_usd": 0.025,
+                },
+            },
+        },
+    }
+    text = format_orchestration_summary(report)
+    assert "keep 3-agent = **True**" in text
+    assert "Preliminary signal" not in text
 
 
 def test_format_orchestration_markdown_includes_progress() -> None:

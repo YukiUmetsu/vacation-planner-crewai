@@ -70,17 +70,39 @@ def _judge_model_id(preference_judge: str) -> str:
     return raw.removeprefix("bedrock/")
 
 
+def _load_prompt_meta():
+    """Import prompt helpers from this repo's ``agent/models`` package.
+
+    Prefer the in-repo path over any other ``vacation_planner_models`` already on
+    ``sys.path`` / ``sys.modules`` (editable installs in CI can otherwise make
+    the first fingerprint call fail and the second succeed — unstable keys).
+    """
+    agent_root = Path(__file__).resolve().parents[1]
+    models_root = str(agent_root / "models")
+    if models_root not in sys.path:
+        sys.path.insert(0, models_root)
+
+    cached = sys.modules.get("vacation_planner_models")
+    cached_file = (getattr(cached, "__file__", "") or "").replace("\\", "/")
+    if cached is not None and models_root.replace("\\", "/") not in cached_file:
+        for key in list(sys.modules):
+            if key == "vacation_planner_models" or key.startswith(
+                "vacation_planner_models."
+            ):
+                del sys.modules[key]
+
+    from vacation_planner_models.prompt_meta import (  # noqa: WPS433
+        PROMPT_VERSIONS,
+        prompt_hash_for_crew,
+    )
+
+    return agent_root, PROMPT_VERSIONS, prompt_hash_for_crew
+
+
 def _prompt_fingerprint(crew_names: set[str]) -> tuple[str, str]:
     """Return (prompt_version, prompt_hash) for crews in the suite."""
     try:
-        agent_root = Path(__file__).resolve().parents[1]
-        models_root = str(agent_root / "models")
-        if models_root not in sys.path:
-            sys.path.insert(0, models_root)
-        from vacation_planner_models.prompt_meta import (  # noqa: WPS433
-            PROMPT_VERSIONS,
-            prompt_hash_for_crew,
-        )
+        agent_root, prompt_versions, prompt_hash_for_crew = _load_prompt_meta()
     except Exception:  # noqa: BLE001
         return "", ""
 
@@ -88,11 +110,12 @@ def _prompt_fingerprint(crew_names: set[str]) -> tuple[str, str]:
     hashes: list[str] = []
     crews_root = agent_root / "crews"
     for name in sorted(crew_names):
-        versions.append(f"{name}:{PROMPT_VERSIONS.get(name, '')}")
+        versions.append(f"{name}:{prompt_versions.get(name, '')}")
         hashes.append(f"{name}:{prompt_hash_for_crew(crews_root / name)}")
     version = hashlib.sha256("|".join(versions).encode()).hexdigest()[:12]
     prompt_hash = hashlib.sha256("|".join(hashes).encode()).hexdigest()[:12]
     return version, prompt_hash
+
 
 
 def build_experiment_dimensions(

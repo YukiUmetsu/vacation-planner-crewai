@@ -650,8 +650,20 @@ def test_cli_prints_aggregate_and_writes_report(tmp_path: Path) -> None:
     assert "aggregates" in data
 
 
-def test_experiment_key_stable_for_same_dimensions(tmp_path: Path) -> None:
+def test_experiment_key_stable_for_same_dimensions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from evals import persist
     from evals.persist import build_experiment_dimensions, experiment_key_for
+
+    # Pin env / fingerprint so CI path order or git availability cannot flake.
+    monkeypatch.setenv("GIT_SHA", "testsha1")
+    monkeypatch.delenv("BACKEND_GIT_SHA", raising=False)
+    monkeypatch.delenv("CREW_MODEL_ID", raising=False)
+    monkeypatch.delenv("EVAL_JUDGE_MODEL_ID", raising=False)
+    monkeypatch.setattr(
+        persist, "_prompt_fingerprint", lambda _crews: ("pv1", "ph1")
+    )
 
     case_path = tmp_path / "c.json"
     case_path.write_text(
@@ -674,6 +686,7 @@ def test_experiment_key_stable_for_same_dimensions(tmp_path: Path) -> None:
     )
     d1 = build_experiment_dimensions([case], preference_judge="heuristic", live=False)
     d2 = build_experiment_dimensions([case], preference_judge="heuristic", live=False)
+    assert d1 == d2
     assert experiment_key_for(d1) == experiment_key_for(d2)
     assert len(experiment_key_for(d1)) == 16
     d3 = build_experiment_dimensions([case], preference_judge="llm", live=False)

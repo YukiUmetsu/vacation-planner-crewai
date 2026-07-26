@@ -37,6 +37,22 @@ FAILURE_BUNDLE_RELATIVE_DROP = 0.25
 PREF_SCORE_DELTA = 0.10
 MAX_LATENCY_RATIO = 2.5
 MAX_COST_RATIO = 3.0
+# Product lock only after a full fixture suite; smaller runs are preliminary.
+FULL_SUITE_MIN_CASES = 31
+
+
+def format_keep_three_agent_headline(*, keep: bool, case_count: int) -> str:
+    """Headline for orchestration reports.
+
+    Sub-full samples must not read as a shipped product decision.
+    """
+    if int(case_count) < FULL_SUITE_MIN_CASES:
+        signal = "three-agent favored" if keep else "three-agent not favored"
+        return (
+            f"**Preliminary signal:** {signal}; "
+            "final decision pending full repeated evaluation."
+        )
+    return f"**Decision:** keep 3-agent = **{keep}**"
 
 
 @dataclass(frozen=True)
@@ -182,7 +198,17 @@ def format_orchestration_summary(report: dict[str, Any]) -> str:
     lat_ratio_s = f"{lat_ratio:.2f}×" if s_lat > 0 else "—"
 
     lines = [
-        f"**Decision:** keep 3-agent = **{keep}**",
+        format_keep_three_agent_headline(keep=bool(keep), case_count=cases),
+        "",
+        (
+            f"_Pre-declared rule outcome on this sample (`n={cases}`): "
+            f"`keep_three_agent={keep}`"
+            + (
+                " — not a product lock._"
+                if cases < FULL_SUITE_MIN_CASES
+                else "._"
+            )
+        ),
         "",
         "| Check | Multi (`day_plan`) | Single (`day_plan_single`) | Result |",
         "| --- | --- | --- | --- |",
