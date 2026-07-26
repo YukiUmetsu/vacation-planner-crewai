@@ -21,6 +21,22 @@ def test_parse_poi_does_not_invent_operational() -> None:
     assert result.provider == "amap"
     assert result.lat == 31.227
     assert result.lng == 121.492
+    assert result.maps_url is not None
+    assert "poiid=B000A7U3X0" in result.maps_url
+
+
+def test_amap_maps_url_prefers_poiid() -> None:
+    from places.amap_client import amap_maps_url
+
+    url = amap_maps_url(
+        name="豫园",
+        lng=121.0,
+        lat=31.0,
+        place_id="amap:B000A7U3X0",
+    )
+    assert url is not None
+    assert "poiid=B000A7U3X0" in url
+    assert "position=" not in url
 
 
 def test_amap_open_time_from_biz_ext() -> None:

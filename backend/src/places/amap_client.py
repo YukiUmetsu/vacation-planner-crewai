@@ -39,16 +39,43 @@ def is_amap_place_id(place_id: str | None) -> bool:
     return raw.startswith(AMAP_ID_PREFIX) and len(raw) > len(AMAP_ID_PREFIX)
 
 
-def amap_maps_url(*, name: str, lng: float | None, lat: float | None) -> str | None:
-    """Web URI suitable for link + simple embed query."""
+def amap_poi_id(place_id: str | None) -> str | None:
+    """Strip ``amap:`` prefix for URI ``poiid``."""
+    raw = str(place_id or "").strip()
+    if not raw.lower().startswith(AMAP_ID_PREFIX):
+        return None
+    poi = raw[len(AMAP_ID_PREFIX) :].strip()
+    return poi or None
+
+
+def amap_maps_url(
+    *,
+    name: str,
+    lng: float | None,
+    lat: float | None,
+    place_id: str | None = None,
+    city: str | None = None,
+) -> str | None:
+    """Web URI: poiid → position → keyword search (optional city)."""
     label = urllib.parse.quote(name.strip() or "place")
+    poi = amap_poi_id(place_id)
+    if poi:
+        return (
+            f"https://uri.amap.com/marker?poiid={urllib.parse.quote(poi)}"
+            f"&name={label}&src=vacation_planner&callnative=0"
+        )
     if lng is not None and lat is not None:
         return (
             f"https://uri.amap.com/marker?position={lng},{lat}"
-            f"&name={label}&coordinate=gaode&callnative=0"
+            f"&name={label}&coordinate=gaode&src=vacation_planner&callnative=0"
         )
     if name.strip():
-        return f"https://uri.amap.com/search?keyword={label}&callnative=0"
+        city_q = urllib.parse.quote((city or "").strip())
+        city_param = f"&city={city_q}" if city_q else ""
+        return (
+            f"https://uri.amap.com/search?keyword={label}"
+            f"{city_param}&src=vacation_planner&callnative=0"
+        )
     return None
 
 
@@ -121,7 +148,13 @@ def _parse_poi(raw: dict[str, Any]) -> PlacesLookupResult | None:
         lat=lat,
         lng=lng,
         provider="amap",
-        maps_url=amap_maps_url(name=name or "", lng=lng, lat=lat),
+        maps_url=amap_maps_url(
+            name=name or "",
+            lng=lng,
+            lat=lat,
+            place_id=place_id,
+            city=city or None,
+        ),
         open_hours_text=hours_text,
         raw_extra=None,
     )

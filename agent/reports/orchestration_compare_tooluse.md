@@ -6,7 +6,9 @@ parallel_arms: `True`
 
 ## Summary
 
-**Decision:** keep 3-agent = **True**
+**Preliminary signal:** three-agent favored; final decision pending full repeated evaluation.
+
+_Pre-declared rule outcome on this sample (`n=4`): `keep_three_agent=True` — not a product lock._
 
 | Check | Multi (`day_plan`) | Single (`day_plan_single`) | Result |
 | --- | --- | --- | --- |
@@ -20,6 +22,8 @@ parallel_arms: `True`
 ### Decision reasons
 
 - preference_relevance_score +0.25 (≥ 0.1)
+
+**Caveat:** multi-agent `energy_overage_rate` was **0.75** vs **0.25** on single-call — preference gain on four cases does not outweigh that load risk until a full repeated suite confirms.
 
 ## Progress
 

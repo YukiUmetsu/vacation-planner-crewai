@@ -108,6 +108,8 @@ export AWS_REGION="${AWS_REGION:-us-east-1}"
 export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 export AUTH_MODE="${AUTH_MODE:-dev}"
 export CREW_MODE="${CREW_MODE:-fake}"
+# Propose / suggest-* are async by default; keep explicit for local DX clarity.
+export CREW_LLM_ASYNC="${CREW_LLM_ASYNC:-on}"
 export SAFETY_MODE="${SAFETY_MODE:-off}"
 # Local: allow the default X-Dev-User-Sub so /metrics works without Cognito.
 export METRICS_ADMIN_SUBS="${METRICS_ADMIN_SUBS:-local-dev-user}"

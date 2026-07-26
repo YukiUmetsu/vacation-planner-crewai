@@ -6,7 +6,9 @@ parallel_arms: `True`
 
 ## Summary
 
-**Decision:** keep 3-agent = **True**
+**Preliminary signal:** three-agent favored; final decision pending full repeated evaluation.
+
+_Pre-declared rule outcome on this sample (`n=20`): `keep_three_agent=True` — not a product lock._
 
 | Check | Multi (`day_plan`) | Single (`day_plan_single`) | Result |
 | --- | --- | --- | --- |
