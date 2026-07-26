@@ -56,7 +56,9 @@ async function postFinalizeOrReclaim(
       started.status === 202 &&
       started.planning_day_index === resumeDayIndex
     ) {
-      return pollUntilDayReady(id, resumeDayIndex);
+      return pollUntilDayReady(id, resumeDayIndex, {
+        startedAt: started.trip.planning_started_at,
+      });
     }
   } catch {
     // Fall through — caller polls.
@@ -114,7 +116,9 @@ export async function executePlanDayRequest(
     if (claim != null && Number(claim) === resumeDayIndex) {
       options?.onAsyncStarted?.(bundle.trip);
     }
-    return pollUntilDayReady(id, resumeDayIndex);
+    return pollUntilDayReady(id, resumeDayIndex, {
+      startedAt: bundle.trip.planning_started_at,
+    });
   }
 
   const started = await planNextDay(id);
@@ -122,5 +126,7 @@ export async function executePlanDayRequest(
     return { day: started.day, trip: started.trip };
   }
   options?.onAsyncStarted?.(started.trip);
-  return pollUntilDayReady(id, started.planning_day_index);
+  return pollUntilDayReady(id, started.planning_day_index, {
+    startedAt: started.trip.planning_started_at,
+  });
 }

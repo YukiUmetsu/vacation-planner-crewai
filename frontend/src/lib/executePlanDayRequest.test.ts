@@ -72,7 +72,9 @@ describe("executePlanDayRequest", () => {
     const onAsyncStarted = vi.fn();
     const result = await executePlanDayRequest("t1", { onAsyncStarted });
     expect(onAsyncStarted).toHaveBeenCalledWith(asyncTrip);
-    expect(pollMock).toHaveBeenCalledWith("t1", 1);
+    expect(pollMock).toHaveBeenCalledWith("t1", 1, {
+      startedAt: asyncTrip.planning_started_at,
+    });
     expect(result.day.day_index).toBe(1);
   });
 
@@ -106,7 +108,9 @@ describe("executePlanDayRequest", () => {
     });
     expect(planNextDayMock).not.toHaveBeenCalled();
     expect(onAsyncStarted).toHaveBeenCalledWith(inFlight);
-    expect(pollMock).toHaveBeenCalledWith("t1", 1);
+    expect(pollMock).toHaveBeenCalledWith("t1", 1, {
+      startedAt: inFlight.planning_started_at,
+    });
   });
 
   it("on resume with cleared claim does not POST", async () => {
@@ -121,7 +125,9 @@ describe("executePlanDayRequest", () => {
     });
     await executePlanDayRequest("t1", { resumeDayIndex: 1 });
     expect(planNextDayMock).not.toHaveBeenCalled();
-    expect(pollMock).toHaveBeenCalledWith("t1", 1);
+    expect(pollMock).toHaveBeenCalledWith("t1", 1, {
+      startedAt: undefined,
+    });
   });
 
   it("on resume with stuck DAY POSTs to finalize", async () => {
@@ -197,6 +203,8 @@ describe("executePlanDayRequest", () => {
     });
     await executePlanDayRequest("t1", { resumeDayIndex: 1 });
     expect(planNextDayMock).toHaveBeenCalledWith("t1");
-    expect(pollMock).toHaveBeenCalledWith("t1", 1);
+    expect(pollMock).toHaveBeenCalledWith("t1", 1, {
+      startedAt: undefined,
+    });
   });
 });

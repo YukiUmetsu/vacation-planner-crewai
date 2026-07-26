@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { pollUntilDayReady } from "./pollPlanDay";
+import { PLAN_DAY_POLL } from "./asyncPoll";
 import type { TripBundle } from "../types/trip";
 
 vi.mock("../api/trips", () => ({
@@ -63,8 +64,10 @@ describe("pollUntilDayReady", () => {
         }),
       );
 
-    const pending = pollUntilDayReady("t1", 1, { maxMs: 10_000 });
-    await vi.advanceTimersByTimeAsync(1000);
+    const pending = pollUntilDayReady("t1", 1, { maxMs: 60_000 });
+    // Quiet window, then first GET (still planning), then minDelay, then ready.
+    await vi.advanceTimersByTimeAsync(PLAN_DAY_POLL.quietBeforeFirstMs);
+    await vi.advanceTimersByTimeAsync(PLAN_DAY_POLL.minDelayMs);
     const result = await pending;
     expect(result.day.day_index).toBe(1);
     expect(getTripMock).toHaveBeenCalledTimes(2);
@@ -103,8 +106,9 @@ describe("pollUntilDayReady", () => {
         }),
       );
 
-    const pending = pollUntilDayReady("t1", 1, { maxMs: 10_000 });
-    await vi.advanceTimersByTimeAsync(1000);
+    const pending = pollUntilDayReady("t1", 1, { maxMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(PLAN_DAY_POLL.quietBeforeFirstMs);
+    await vi.advanceTimersByTimeAsync(PLAN_DAY_POLL.minDelayMs);
     const result = await pending;
     expect(result.trip.next_day_index).toBe(2);
     expect(getTripMock).toHaveBeenCalledTimes(2);
@@ -120,8 +124,10 @@ describe("pollUntilDayReady", () => {
       }),
     );
 
-    const pending = pollUntilDayReady("t1", 1, { maxMs: 10_000 });
-    await expect(pending).rejects.toThrow(/crew_failed/);
+    const pending = pollUntilDayReady("t1", 1, { maxMs: 60_000 });
+    const expectation = expect(pending).rejects.toThrow(/crew_failed/);
+    await vi.advanceTimersByTimeAsync(PLAN_DAY_POLL.quietBeforeFirstMs);
+    await expectation;
   });
 
   it("rewrites legacy quality_empty planning_error copy", async () => {
@@ -135,8 +141,10 @@ describe("pollUntilDayReady", () => {
       }),
     );
 
-    const pending = pollUntilDayReady("t1", 1, { maxMs: 10_000 });
-    await expect(pending).rejects.toThrow(/Not enough open places/);
+    const pending = pollUntilDayReady("t1", 1, { maxMs: 60_000 });
+    const expectation = expect(pending).rejects.toThrow(/Not enough open places/);
+    await vi.advanceTimersByTimeAsync(PLAN_DAY_POLL.quietBeforeFirstMs);
+    await expectation;
   });
 
   it("pauses timeout while the tab is hidden and fetches on visible", async () => {
@@ -162,13 +170,14 @@ describe("pollUntilDayReady", () => {
       }),
     );
 
-    const pending = pollUntilDayReady("t1", 1, { maxMs: 5_000 });
-    // Wall clock advances while hidden — must not timeout.
-    await vi.advanceTimersByTimeAsync(6_000);
+    const pending = pollUntilDayReady("t1", 1, { maxMs: 60_000 });
+    // Wall clock advances while hidden — must not timeout or GET.
+    await vi.advanceTimersByTimeAsync(20_000);
     expect(getTripMock).not.toHaveBeenCalled();
 
     visibility = "visible";
     document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(PLAN_DAY_POLL.quietBeforeFirstMs);
     const result = await pending;
     expect(result.day.day_index).toBe(1);
     expect(getTripMock).toHaveBeenCalledTimes(1);

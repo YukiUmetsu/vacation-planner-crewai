@@ -161,7 +161,9 @@ export function useLiveTripActions({
               return { ...prev, trip: started.trip };
             });
           }
-          const data = await pollUntilProposeReady(id);
+          const data = await pollUntilProposeReady(id, {
+            startedAt: started.trip.crew_job_started_at,
+          });
           return { data, epoch, id, ok: true as const };
         }
         return {
@@ -354,6 +356,7 @@ export function useLiveTripActions({
           id,
           started.day_index,
           started.baseline_place_count,
+          { startedAt: started.trip.crew_job_started_at },
         );
       }
       return {
@@ -503,7 +506,9 @@ export function useLiveTripActions({
             return { ...prev, trip: started.trip };
           });
         }
-        return pollUntilSuggestCityReady(id);
+        return pollUntilSuggestCityReady(id, {
+          startedAt: started.trip.crew_job_started_at,
+        });
       }
       return {
         candidates: started.candidates,
@@ -580,7 +585,9 @@ export function useLiveTripActions({
     }
     const job = bundle.trip.crew_job_kind;
     if (job === "propose_cities" && !proposeMutation.isPending) {
-      void pollUntilProposeReady(id).then(
+      void pollUntilProposeReady(id, {
+        startedAt: bundle.trip.crew_job_started_at,
+      }).then(
         (data) => {
           if (hydrateEpochRef.current !== epoch) return;
           if (tripId !== id) return;
@@ -607,7 +614,9 @@ export function useLiveTripActions({
       const dayIndex = Number(bundle.trip.crew_job_day_index);
       const baseline = Number(bundle.trip.crew_job_baseline_place_count ?? 0);
       if (Number.isFinite(dayIndex) && dayIndex >= 1) {
-        void pollUntilSuggestPlaceReady(id, dayIndex, baseline).then(
+        void pollUntilSuggestPlaceReady(id, dayIndex, baseline, {
+          startedAt: bundle.trip.crew_job_started_at,
+        }).then(
           (data) => {
             if (hydrateEpochRef.current !== epoch) return;
             if (tripId !== id) return;
@@ -635,7 +644,9 @@ export function useLiveTripActions({
         bundle.trip.suggest_city_candidates.length > 0
       )
     ) {
-      void pollUntilSuggestCityReady(id).then(
+      void pollUntilSuggestCityReady(id, {
+        startedAt: bundle.trip.crew_job_started_at,
+      }).then(
         (data) => {
           if (hydrateEpochRef.current !== epoch) return;
           if (tripId !== id) return;
