@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatAcceptSeconds,
   formatRate,
   summarizeProductEvents,
   summarizeQualityEvents,
@@ -151,5 +152,13 @@ describe("formatRate", () => {
   it("formats null and percents", () => {
     expect(formatRate(null)).toBe("—");
     expect(formatRate(0.5)).toBe("50%");
+  });
+});
+
+describe("formatAcceptSeconds", () => {
+  it("formats ms as seconds", () => {
+    expect(formatAcceptSeconds(null)).toBe("—");
+    expect(formatAcceptSeconds(2000)).toBe("2.00 s");
+    expect(formatAcceptSeconds(12_500)).toBe("12.5 s");
   });
 });

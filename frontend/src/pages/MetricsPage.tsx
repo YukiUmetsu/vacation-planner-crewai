@@ -21,6 +21,7 @@ import {
   StatCard,
 } from "../components/metrics/OnlineMetricCharts";
 import {
+  formatAcceptSeconds,
   formatLatencyMs,
   formatNumber,
   formatRate,
@@ -402,11 +403,7 @@ function MetricsDashboard() {
               />
               <StatCard
                 label="Mean time to accept"
-                value={
-                  productSummary.meanAcceptMs !== null
-                    ? `${Math.round(productSummary.meanAcceptMs)} ms`
-                    : "—"
-                }
+                value={formatAcceptSeconds(productSummary.meanAcceptMs)}
                 hint={
                   productSummary.acceptSampleSize
                     ? `${productSummary.acceptSampleSize} timed accepts`

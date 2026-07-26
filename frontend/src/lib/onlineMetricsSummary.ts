@@ -276,6 +276,14 @@ export function formatLatencyMs(value: number | null): string {
   return `${Math.round(value)} ms`;
 }
 
+/** Wall-clock accept latency for product metrics — always seconds. */
+export function formatAcceptSeconds(ms: number | null): string {
+  if (ms === null || Number.isNaN(ms)) return "—";
+  const seconds = ms / 1000;
+  if (seconds >= 10) return `${seconds.toFixed(1)} s`;
+  return `${seconds.toFixed(2)} s`;
+}
+
 export function formatTokenCount(value: number | null): string {
   if (value === null || Number.isNaN(value)) return "—";
   if (value >= 10_000) return `${(value / 1000).toFixed(1)}k`;
