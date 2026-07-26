@@ -39,19 +39,58 @@ def _meal_guidance(*, include_breakfast: bool) -> str:
     return f"{base} Skip breakfast unless the traveler preferences ask for it."
 
 
+def prior_day_summary_line(
+    *,
+    day_index: int,
+    theme: str,
+    overnight_city: str,
+    places: list[Any] | None = None,
+) -> str:
+    """One prior-days line: theme @ city, plus up to 8 place names for brand avoidance."""
+    line = f"Day {day_index}: {theme} @ {overnight_city}".strip()
+    if line.endswith("@"):
+        line = line[:-1].strip()
+    names: list[str] = []
+    for place in places or []:
+        if not isinstance(place, dict):
+            continue
+        name = str(place.get("name") or "").strip()
+        if name and name not in names:
+            names.append(name)
+        if len(names) >= 8:
+            break
+    if names:
+        return f"{line} — {', '.join(names)}"
+    return line
+
+
+def append_prior_day_summary_line(prior: str, line: str) -> str:
+    prior = prior.strip()
+    line = line.strip()
+    if not line:
+        return prior
+    return f"{prior}\n{line}".strip() if prior else line
+
+
 def rebuild_prior_days_summary(days: list[dict[str, Any]]) -> str:
-    """One-line-per-day summary matching plan-next-day cursor updates."""
+    """One-line-per-day summary matching plan-next-day cursor updates.
+
+    Includes place names so crews can avoid repeating the same brand/chain
+    across cities (keys alone are easy to miss when city-suffixed).
+    """
     lines: list[str] = []
     for day in sorted(days, key=lambda d: int(d.get("day_index") or 0)):
         index = int(day.get("day_index") or 0)
         if index < 1:
             continue
-        theme = str(day.get("theme") or f"Day {index}")
-        overnight = str(day.get("overnight_city") or "")
-        line = f"Day {index}: {theme} @ {overnight}".strip()
-        if line.endswith("@"):
-            line = line[:-1].strip()
-        lines.append(line)
+        lines.append(
+            prior_day_summary_line(
+                day_index=index,
+                theme=str(day.get("theme") or f"Day {index}"),
+                overnight_city=str(day.get("overnight_city") or ""),
+                places=list(day.get("places") or []),
+            )
+        )
     return "\n".join(lines)
 
 

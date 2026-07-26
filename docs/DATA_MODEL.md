@@ -102,7 +102,7 @@ In DynamoDB this is stored as one `ROUTE` item on the trip (city and multi-city 
 | `preferences` | string | Budget, pace, interests |
 | `city_route` | CityRoute \| null | Always present after create for city destinations (synthetic confirmed route). For country/region: set after propose/confirm; null only before the first route write |
 | `visited_place_keys` | string[] | Keys already used (dedupe) |
-| `prior_days_summary` | string | Compact context for the next crew call |
+| `prior_days_summary` | string | Compact context for the next crew call (theme @ city plus place names for brand avoidance) |
 | `days` | DayPlan[] | Assembled from DAY items on read |
 
 ---

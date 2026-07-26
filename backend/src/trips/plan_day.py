@@ -60,7 +60,13 @@ from ops.worker_observability import log_plan_day_retry, log_quality_metrics
 from trips.city_route import _route_payload, overnight_city_for_day
 from trips.crud import _load_owned_bundle, _require_trip, _json_safe
 from trips.day_index import first_missing_day_index, resolve_plan_day_index
-from trips.prompts import _meal_guidance, _merge_preferences, _profile_visited_keys
+from trips.prompts import (
+    _meal_guidance,
+    _merge_preferences,
+    _profile_visited_keys,
+    append_prior_day_summary_line,
+    prior_day_summary_line,
+)
 
 
 def _day_exists(
@@ -95,10 +101,13 @@ def _cursors_from_existing_day(
     theme = str(day_item.get("theme") or f"Day {next_index}")
     overnight = str(day_item.get("overnight_city") or "")
     prior = str(trip.get("prior_days_summary") or "").strip()
-    line = f"Day {next_index}: {theme} @ {overnight}".strip()
-    if line.endswith("@"):
-        line = line[:-1].strip()
-    summary = f"{prior}\n{line}".strip() if prior else line
+    line = prior_day_summary_line(
+        day_index=next_index,
+        theme=theme,
+        overnight_city=overnight,
+        places=places,
+    )
+    summary = append_prior_day_summary_line(prior, line)
     return visited, summary or fallback_summary
 
 
@@ -500,8 +509,13 @@ def _run_plan_day_and_persist(
     updated_visited = trip_visited + [k for k in new_keys if k not in trip_visited]
     theme = str(day_data.get("theme") or f"Day {next_index}")
     prior = str(trip.get("prior_days_summary") or "").strip()
-    line = f"Day {next_index}: {theme} @ {overnight}"
-    prior_summary = f"{prior}\n{line}".strip() if prior else line
+    line = prior_day_summary_line(
+        day_index=next_index,
+        theme=theme,
+        overnight_city=overnight,
+        places=filtered,
+    )
+    prior_summary = append_prior_day_summary_line(prior, line)
 
     next_day_index = next_index + 1
     new_status = "complete" if next_day_index > day_count else "planning"

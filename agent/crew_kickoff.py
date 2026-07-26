@@ -727,6 +727,7 @@ def _cli() -> int:
             "energy_level": "3",
             "remaining_minutes": "120",
             "already_visited": "",
+            "prior_days_summary": "",
             "current_places_json": "[]",
             "next_order_in_day": "4",
             **inputs,

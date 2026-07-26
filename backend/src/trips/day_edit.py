@@ -516,6 +516,7 @@ def _suggest_place_sync(
             "energy_level": str(energy_level),
             "remaining_minutes": str(remaining),
             "already_visited": ",".join(visited),
+            "prior_days_summary": str(trip.get("prior_days_summary") or ""),
             "current_places_json": json.dumps(_json_safe(slim_current)),
             "next_order_in_day": str(len(existing) + 1),
         },

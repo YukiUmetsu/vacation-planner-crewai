@@ -139,7 +139,7 @@ flowchart TB
 | `trips/plan_day.py` | `plan_next_day`, `start_plan_next_day`, `execute_plan_next_day`, `_plan_next_day_sync`, `_run_plan_day_and_persist`, `_persist_async_planned_day`, `_finalize_existing_planned_day`, `_day_exists`, `_cursors_from_existing_day` (day-index helpers live in `day_index.py`) |
 | `trips/day_edit.py` | `suggest_place`, `remove_place`, `delete_day`, `status_after_day_edit` |
 | `trips/day_index.py` | `first_missing_day_index`, `resolve_plan_day_index` (shared by plan_day + day_edit; no orchestration imports) |
-| `trips/prompts.py` | `_merge_preferences`, `_meal_guidance`, `rebuild_prior_days_summary`, `visited_keys_from_days` (reads stored `place_key`; no dedupe import), `_profile_visited_keys` |
+| `trips/prompts.py` | `_merge_preferences`, `_meal_guidance`, `prior_day_summary_line`, `append_prior_day_summary_line`, `rebuild_prior_days_summary`, `visited_keys_from_days` (reads stored `place_key`; no dedupe import), `_profile_visited_keys` |
 | `trips/service.py` | `TripService` class: `__init__`, `runner`/`safety`, delegates to modules above |
 
 Do **not** pull `places_enrich` / quality / retry back into `TripService` — call existing (then packaged) modules.

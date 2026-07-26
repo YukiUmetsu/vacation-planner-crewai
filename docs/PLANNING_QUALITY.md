@@ -244,7 +244,7 @@ uv run python -m evals --live --compare-orchestration \
 
 **Takeaway:** Single-call can match or beat multi on **schema validity** once prompts are explicit; multi still tends to win on **hard-constraint / preference** when both arms complete. Verdict is **sample-size sensitive** — use full ~31 for a product lock; smoke / tool-heavy / partial runs are **preliminary signals only** (report headline: “final decision pending full repeated evaluation”).
 
-Prompt versions (bump in `agent/models/vacation_planner_models/prompt_meta.py` when agent/task text changes): `day_plan` **2026-07-25.2** (schema allowlist + unique keys + fill-to-target), `day_plan_single` **2026-07-25.1** (same schema/meal harden). Invocation also records `prompt_hash` of `crew.jsonc` + `agents/*.jsonc`.
+Prompt versions (bump in `agent/models/vacation_planner_models/prompt_meta.py` when agent/task text changes): `day_plan` **2026-07-26.0** (theme prefs + avoid same brand/chain across cities; prior summary includes place names), `day_plan_single` **2026-07-26.0** (same brand framing), `suggest_place` **2026-07-26.3** (same brand framing; BFF also passes `prior_days_summary`). Invocation also records `prompt_hash` of `crew.jsonc` + `agents/*.jsonc`.
 
 #### Cost & latency (Nova Pro, parallel arms)
 
