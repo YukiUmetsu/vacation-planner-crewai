@@ -286,15 +286,26 @@ paths:
     post:
       tags: [trips]
       summary: Propose a city route via crew
-      description: Counts as one GenAI action toward hour/day caps (`genai_quota_exceeded`).
+      description: |
+        Sync mode returns 200 with `{ trip, route }`.
+        Async mode (default when `CREW_LLM_ASYNC` is on / AgentCore) returns 202 with
+        `{ trip, job }` while a worker runs; poll `GET /trips/{trip_id}` until
+        `crew_job_kind` clears and route status is `proposed`.
+        Counts as one GenAI action toward hour/day caps (`genai_quota_exceeded`).
       operationId: proposeCities
       responses:
         "200":
-          description: Proposed route on trip
+          description: Proposed route on trip (sync)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/TripBundle"
+        "202":
+          description: Propose-cities job accepted (async)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CrewJobAccepted"
         "429":
           description: GenAI hour/day cap (`genai_quota_exceeded`)
           content:
@@ -373,6 +384,77 @@ paths:
         default:
           $ref: "#/components/responses/Error"
 
+  /trips/{trip_id}/suggest-city:
+    parameters:
+      - $ref: "#/components/parameters/TripId"
+    post:
+      tags: [trips]
+      summary: Suggest overnight city candidate(s) for the draft route
+      description: |
+        Optional body: `cities` (current FE draft), `hint` (free text), `count`
+        (default 1, max 3). Sync returns `{ candidates, trip }`. Async (default when
+        `CREW_LLM_ASYNC` is on) returns 202 `{ trip, job }`; poll `GET /trips/{id}`
+        until `crew_job_kind` clears and `suggest_city_candidates` is set.
+        Does not mutate the confirmed route. Counts as one GenAI action
+        (`genai_quota_exceeded`).
+      operationId: suggestCity
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              properties:
+                cities:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                hint:
+                  type: string
+                count:
+                  type: integer
+                  minimum: 1
+                  maximum: 3
+                  default: 1
+      responses:
+        "200":
+          description: City suggestion candidates (sync)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [candidates]
+                properties:
+                  candidates:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  trip:
+                    $ref: "#/components/schemas/Trip"
+        "202":
+          description: Suggest-city job accepted (async)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CrewJobAccepted"
+        "429":
+          description: GenAI hour/day cap (`genai_quota_exceeded`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: City pace cap (`city_cap`) or trip deleting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
   /trips/{trip_id}/days/{day_index}/suggest-place:
     parameters:
       - $ref: "#/components/parameters/TripId"
@@ -380,16 +462,26 @@ paths:
     post:
       tags: [trips]
       summary: Suggest an additional place for a day
-      description: Counts as one GenAI action toward hour/day caps (`genai_quota_exceeded`).
+      description: |
+        Sync returns `{ place, day, trip }`. Async (default when `CREW_LLM_ASYNC` is on)
+        returns 202 `{ trip, job, day_index, baseline_place_count }`; poll
+        `GET /trips/{id}` until `crew_job_kind` clears and the day has more places
+        than `baseline_place_count`. Counts as one GenAI action (`genai_quota_exceeded`).
       operationId: suggestPlace
       responses:
         "200":
-          description: Updated day / trip
+          description: Updated day / trip (sync)
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: true
+        "202":
+          description: Suggest-place job accepted (async)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuggestPlaceJobAccepted"
         "429":
           description: GenAI hour/day cap (`genai_quota_exceeded`)
           content:
@@ -410,6 +502,39 @@ paths:
       responses:
         "200":
           description: Day deleted; trip cursor updated
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default:
+          $ref: "#/components/responses/Error"
+
+  /trips/{trip_id}/days/{day_index}/places/reorder:
+    parameters:
+      - $ref: "#/components/parameters/TripId"
+      - $ref: "#/components/parameters/DayIndex"
+    post:
+      tags: [trips]
+      summary: Reorder places within a day
+      operationId: reorderPlace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_index, to_index]
+              properties:
+                from_index:
+                  type: integer
+                  minimum: 0
+                to_index:
+                  type: integer
+                  minimum: 0
+      responses:
+        "200":
+          description: Day with places reordered
           content:
             application/json:
               schema:
@@ -811,10 +936,63 @@ components:
         planning_error:
           type: string
           nullable: true
+        crew_job_kind:
+          type: string
+          nullable: true
+          description: In-flight GenAI job — propose_cities | suggest_city | suggest_place
+        crew_job_started_at:
+          type: string
+          nullable: true
+        crew_job_error:
+          type: string
+          nullable: true
+        crew_job_day_index:
+          type: integer
+          nullable: true
+        crew_job_baseline_place_count:
+          type: integer
+          nullable: true
+        suggest_city_candidates:
+          type: array
+          nullable: true
+          items:
+            type: object
+            additionalProperties: true
         created_at:
           type: string
         updated_at:
           type: string
+
+    CrewJobAccepted:
+      type: object
+      required: [trip, job]
+      properties:
+        trip:
+          $ref: "#/components/schemas/Trip"
+        job:
+          type: string
+          description: propose_cities | suggest_city | suggest_place
+        async:
+          type: boolean
+
+    SuggestPlaceJobAccepted:
+      type: object
+      required: [trip, job, day_index, baseline_place_count]
+      properties:
+        trip:
+          $ref: "#/components/schemas/Trip"
+        job:
+          type: string
+          enum: [suggest_place]
+        day_index:
+          type: integer
+          minimum: 1
+        baseline_place_count:
+          type: integer
+          minimum: 0
+          description: Place count before the worker appends; poll until day grows past this.
+        async:
+          type: boolean
 
     CityStop:
       type: object

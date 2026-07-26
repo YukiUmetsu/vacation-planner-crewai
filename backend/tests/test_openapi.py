@@ -23,11 +23,13 @@ EXPECTED_OPERATIONS: set[tuple[str, str]] = {
     ("/trips/{trip_id}", "put"),
     ("/trips/{trip_id}", "delete"),
     ("/trips/{trip_id}/propose-cities", "post"),
+    ("/trips/{trip_id}/suggest-city", "post"),
     ("/trips/{trip_id}/cities", "put"),
     ("/trips/{trip_id}/plan-next-day", "post"),
     ("/trips/{trip_id}/days/{day_index}/suggest-place", "post"),
     ("/trips/{trip_id}/days/{day_index}", "delete"),
     ("/trips/{trip_id}/days/{day_index}/places/{place_index}", "delete"),
+    ("/trips/{trip_id}/days/{day_index}/places/reorder", "post"),
 }
 
 
@@ -68,3 +70,19 @@ def test_places_photo_documents_refresh() -> None:
     assert "trip_id" in names
     assert "refresh" in names
     assert {"place_key", "place_id", "photo_name"} <= names
+
+
+def test_async_crew_jobs_document_202() -> None:
+    doc = yaml.safe_load(OPENAPI_PATH.read_text(encoding="utf-8"))
+    paths = doc["paths"]
+    assert "202" in paths["/trips/{trip_id}/propose-cities"]["post"]["responses"]
+    assert "202" in paths["/trips/{trip_id}/suggest-city"]["post"]["responses"]
+    assert (
+        "202"
+        in paths["/trips/{trip_id}/days/{day_index}/suggest-place"]["post"]["responses"]
+    )
+    schemas = doc["components"]["schemas"]
+    assert "CrewJobAccepted" in schemas
+    assert "SuggestPlaceJobAccepted" in schemas
+    assert "crew_job_kind" in schemas["Trip"]["properties"]
+    assert "suggest_city_candidates" in schemas["Trip"]["properties"]

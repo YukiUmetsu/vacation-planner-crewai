@@ -413,6 +413,46 @@ def test_handler_worker_swallows_when_claim_already_cleared(
     assert result == {"ok": False, "terminal": True}
 
 
+def test_handler_worker_swallows_terminal_quality_empty_even_if_claim_held(
+    async_service: TripService,
+    dynamodb_table: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """quality_empty is not Event-retryable — do not re-raise when claim stuck."""
+    from handler import handler
+
+    trip_id = _create_country(async_service)
+    _confirm_country(async_service, trip_id)
+    async_service.start_plan_next_day(USER, trip_id)
+    monkeypatch.setattr("handler.TripService", lambda: async_service)
+
+    def _boom(*_a: Any, **_k: Any) -> dict[str, Any]:
+        raise ApiError(
+            422,
+            "Not enough open places remained after quality checks. Please try again.",
+            code="quality_empty",
+            retryable=False,
+        )
+
+    monkeypatch.setattr(async_service, "execute_plan_next_day", _boom)
+
+    result = handler(
+        {
+            "worker": "plan_next_day",
+            "user_sub": USER,
+            "trip_id": trip_id,
+            "day_index": 1,
+        }
+    )
+    assert result == {"ok": False, "terminal": True}
+    trip = repo.get_trip_meta(user_sub=USER, trip_id=trip_id, table=dynamodb_table)
+    assert trip is not None
+    # Handler force-clears a stuck claim on terminal quality failures.
+    assert trip.get("planning_day_index") is None
+    assert trip.get("status") == "failed"
+    assert "Not enough open places" in str(trip.get("planning_error") or "")
+
+
 def test_execute_preserves_claim_on_retryable_agent_error(
     async_service: TripService,
     dynamodb_table: Any,
@@ -626,3 +666,117 @@ def test_handler_worker_log_keeps_api_retryable_separate_from_outcome(
     assert "outcome=retry" in joined
     assert "retryable=true" not in joined
     assert "error_type=RuntimeError" in joined
+
+
+def test_local_enqueue_starts_thread_without_lambda(
+    dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """local_api has no AWS_LAMBDA_FUNCTION_NAME — daemon thread must run the worker."""
+    import time
+
+    from ops.plan_day_worker import enqueue_plan_next_day_worker
+
+    monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+    monkeypatch.setenv("CREW_MODE", "fake")
+    monkeypatch.setenv("PLAN_NEXT_DAY_ASYNC", "on")
+
+    service = TripService(
+        table=dynamodb_table,
+        runner=FakeCrewRunner(),
+        safety=NoopSafetyGate(),
+        enqueue_plan_day=enqueue_plan_next_day_worker,
+    )
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+
+    started = service.start_plan_next_day(USER, trip_id)
+    assert started["async"] is True
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        bundle = service.get_trip(USER, trip_id)
+        if len(bundle["days"]) == 1 and bundle["trip"].get("planning_day_index") is None:
+            break
+        time.sleep(0.05)
+    else:
+        pytest.fail("local plan_next_day thread did not finish within timeout")
+
+    assert bundle["days"][0]["day_index"] == 1
+
+
+def test_handler_http_202_when_x_crew_mode_agentcore(
+    dynamodb_table: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dev UI X-Crew-Mode=agentcore must return 202 even when env CREW_MODE=fake."""
+    import json
+
+    from handler import handler
+
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    monkeypatch.setenv("CREW_MODE", "fake")
+    monkeypatch.delenv("PLAN_NEXT_DAY_ASYNC", raising=False)
+    enqueued: list[tuple[str, str, int]] = []
+
+    service = TripService(
+        table=dynamodb_table,
+        runner=FakeCrewRunner(),
+        safety=NoopSafetyGate(),
+        enqueue_plan_day=lambda u, t, d: enqueued.append((u, t, d)),
+    )
+
+    def _svc(**_kwargs: Any) -> TripService:
+        return service
+
+    monkeypatch.setattr("routes.trips._service", _svc)
+
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+
+    event = {
+        "requestContext": {"http": {"method": "POST"}},
+        "rawPath": f"/trips/{trip_id}/plan-next-day",
+        "headers": {"x-dev-user-sub": USER, "x-crew-mode": "agentcore"},
+        "body": "{}",
+    }
+    resp = handler(event)
+    assert resp["statusCode"] == 202
+    body = json.loads(resp["body"])
+    assert body["planning_day_index"] == 1
+    assert enqueued == [(USER, trip_id, 1)]
+
+
+def test_handler_worker_applies_crew_mode_from_payload(
+    async_service: TripService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from crews import runner as crew_runner
+    from handler import handler
+
+    trip_id = _create_country(async_service)
+    _confirm_country(async_service, trip_id)
+    async_service.start_plan_next_day(USER, trip_id)
+    monkeypatch.setattr("handler.TripService", lambda: async_service)
+    monkeypatch.setenv("CREW_MODE", "fake")
+
+    seen: dict[str, str] = {}
+
+    def _capture(*_a: Any, **_k: Any) -> dict[str, Any]:
+        seen["mode"] = crew_runner.crew_mode()
+        return {
+            "day": {"day_index": 1},
+            "trip": {"trip_id": trip_id, "next_day_index": 2},
+        }
+
+    monkeypatch.setattr(async_service, "execute_plan_next_day", _capture)
+
+    result = handler(
+        {
+            "worker": "plan_next_day",
+            "user_sub": USER,
+            "trip_id": trip_id,
+            "day_index": 1,
+            "crew_mode": "agentcore",
+        }
+    )
+    assert result == {"ok": True}
+    assert seen["mode"] == "agentcore"
+    assert crew_runner.crew_mode() == "fake"

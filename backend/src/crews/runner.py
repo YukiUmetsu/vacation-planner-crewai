@@ -22,6 +22,8 @@ class CrewRunner(Protocol):
 
     def suggest_place(self, inputs: dict[str, Any]) -> dict[str, Any]: ...
 
+    def suggest_city(self, inputs: dict[str, Any]) -> dict[str, Any]: ...
+
 
 def set_crew_mode_override(mode: str | None) -> Token[str | None]:
     """Set request-scoped CREW_MODE override; returns a reset token."""

@@ -77,7 +77,11 @@ def suggest_place(
     **kwargs: Any,
 ) -> dict[str, Any]:
     return _service(**kwargs).suggest_place(
-        user_sub, trip_id, day_index, email=get_user_email(event)
+        user_sub,
+        trip_id,
+        day_index,
+        parse_body(event),
+        email=get_user_email(event),
     )
 
 
@@ -91,6 +95,38 @@ def remove_place(
 ) -> dict[str, Any]:
     return _service(**kwargs).remove_place(
         user_sub, trip_id, day_index, place_index
+    )
+
+
+def reorder_place(
+    event: dict[str, Any],
+    user_sub: str,
+    trip_id: str,
+    day_index: int,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    body = parse_body(event)
+    try:
+        from_index = int(body.get("from_index"))
+        to_index = int(body.get("to_index"))
+    except (TypeError, ValueError) as exc:
+        from http_utils import ApiError
+
+        raise ApiError(
+            400,
+            "from_index and to_index are required integers",
+            code="invalid_place_index",
+        ) from exc
+    return _service(**kwargs).reorder_place(
+        user_sub, trip_id, day_index, from_index, to_index
+    )
+
+
+def suggest_city(
+    event: dict[str, Any], user_sub: str, trip_id: str, **kwargs: Any
+) -> dict[str, Any]:
+    return _service(**kwargs).suggest_city(
+        user_sub, trip_id, parse_body(event), email=get_user_email(event)
     )
 
 

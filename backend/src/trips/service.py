@@ -45,11 +45,13 @@ class TripService:
         runner: CrewRunner | None = None,
         safety: SafetyGate | None = None,
         enqueue_plan_day: Callable[[str, str, int], None] | None = None,
+        enqueue_crew_job: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self._table = table
         self._runner = runner
         self._safety = safety
         self._enqueue_plan_day = enqueue_plan_day
+        self._enqueue_crew_job = enqueue_crew_job
 
     @property
     def runner(self) -> CrewRunner:
@@ -103,6 +105,16 @@ class TripService:
             runner=self.runner,
             safety=self.safety,
             email=email,
+            enqueue_crew_job=self._enqueue_crew_job,
+        )
+
+    def execute_propose_cities(self, user_sub: str, trip_id: str) -> dict[str, Any]:
+        return city_route.execute_propose_cities(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            table=self._table,
+            runner=self.runner,
+            safety=self.safety,
         )
 
     def confirm_cities(self, user_sub: str, trip_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -158,7 +170,13 @@ class TripService:
         )
 
     def suggest_place(
-        self, user_sub: str, trip_id: str, day_index: int, *, email: str | None = None
+        self,
+        user_sub: str,
+        trip_id: str,
+        day_index: int,
+        body: dict[str, Any] | None = None,
+        *,
+        email: str | None = None,
     ) -> dict[str, Any]:
         """Research and append one place to an existing planned day."""
         return day_edit.suggest_place(
@@ -169,6 +187,20 @@ class TripService:
             runner=self.runner,
             safety=self.safety,
             email=email,
+            enqueue_crew_job=self._enqueue_crew_job,
+            body=body,
+        )
+
+    def execute_suggest_place(
+        self, user_sub: str, trip_id: str, day_index: int
+    ) -> dict[str, Any]:
+        return day_edit.execute_suggest_place(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            day_index=day_index,
+            table=self._table,
+            runner=self.runner,
+            safety=self.safety,
         )
 
     def remove_place(
@@ -181,6 +213,57 @@ class TripService:
             day_index=day_index,
             place_index=place_index,
             table=self._table,
+        )
+
+    def reorder_place(
+        self,
+        user_sub: str,
+        trip_id: str,
+        day_index: int,
+        from_index: int,
+        to_index: int,
+    ) -> dict[str, Any]:
+        """Move one place within a day and reindex order_in_day."""
+        return day_edit.reorder_place(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            day_index=day_index,
+            from_index=from_index,
+            to_index=to_index,
+            table=self._table,
+        )
+
+    def suggest_city(
+        self,
+        user_sub: str,
+        trip_id: str,
+        body: dict[str, Any] | None = None,
+        *,
+        email: str | None = None,
+    ) -> dict[str, Any]:
+        """Return city suggestion candidates without mutating the route."""
+        from trips import city_suggest
+
+        return city_suggest.suggest_city(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            body=body,
+            table=self._table,
+            runner=self.runner,
+            safety=self.safety,
+            email=email,
+            enqueue_crew_job=self._enqueue_crew_job,
+        )
+
+    def execute_suggest_city(self, user_sub: str, trip_id: str) -> dict[str, Any]:
+        from trips import city_suggest
+
+        return city_suggest.execute_suggest_city(
+            user_sub=user_sub,
+            trip_id=trip_id,
+            table=self._table,
+            runner=self.runner,
+            safety=self.safety,
         )
 
     def delete_day(

@@ -19,6 +19,7 @@ from http_utils import (
     json_response,
     parse_day_action,
     parse_day_place,
+    parse_day_places_reorder,
     parse_day_resource,
     parse_route,
     request_method,
@@ -31,8 +32,19 @@ from routes import events as event_routes
 from routes import places as places_routes
 from routes import admin_metrics as admin_metrics_routes
 from ops.plan_day_worker import is_plan_next_day_worker_event
+from ops.crew_job_worker import is_crew_job_worker_event
+from db.repository.crew_jobs import (
+    JOB_PROPOSE_CITIES,
+    JOB_SUGGEST_CITY,
+    JOB_SUGGEST_PLACE,
+)
 from trips.service import TripService
 from ops.worker_observability import WorkerTimer, log_worker_outcome
+from crews.runner import (
+    DEV_CREW_MODE_OVERRIDE_VALUES,
+    reset_crew_mode_override,
+    set_crew_mode_override,
+)
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -100,57 +112,179 @@ def _handle_plan_next_day_worker(event: dict[str, Any]) -> dict[str, Any]:
     If ``execute_plan_next_day`` already cleared the claim (terminal
     ``fail_planning_in_progress``), return without raising so Lambda does not burn
     useless retries — client/BFF reclaim paths own recovery from there.
+
+    Optional ``crew_mode`` on the payload restores the mode that claimed the day
+    (dev ``X-Crew-Mode`` does not survive Event self-invoke).
     """
     user_sub = str(event["user_sub"])
     trip_id = str(event["trip_id"])
     day_index = int(event["day_index"])
+    raw_mode = event.get("crew_mode")
+    mode = str(raw_mode).strip().lower() if raw_mode else ""
+    override_token = None
+    if mode in DEV_CREW_MODE_OVERRIDE_VALUES:
+        override_token = set_crew_mode_override(mode)
+
     service = TripService()
     timer = WorkerTimer()
     try:
-        service.execute_plan_next_day(user_sub, trip_id, day_index)
-    except Exception as exc:
-        duration_ms = timer.duration_ms()
-        retryable = isinstance(exc, ApiError) and bool(exc.retryable)
-        claim_held = _planning_claim_held(
-            user_sub=user_sub,
-            trip_id=trip_id,
-            day_index=day_index,
-            table=getattr(service, "_table", None),
-        )
-        # Prefer claim_held for Event retry: non-ApiError transients also retry.
-        will_retry = claim_held
-        logger.exception(
-            "plan_next_day worker failed trip_id=%s day_index=%s",
-            trip_id,
-            day_index,
-        )
+        try:
+            service.execute_plan_next_day(user_sub, trip_id, day_index)
+        except Exception as exc:
+            duration_ms = timer.duration_ms()
+            retryable = isinstance(exc, ApiError) and bool(exc.retryable)
+            claim_held = _planning_claim_held(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                day_index=day_index,
+                table=getattr(service, "_table", None),
+            )
+            # Terminal ApiErrors (quality_empty, missing_meals, …) must not
+            # Event-retry even if fail_planning lost the race and claim looks held.
+            will_retry = claim_held and (
+                not isinstance(exc, ApiError) or bool(exc.retryable)
+            )
+            if (
+                not will_retry
+                and claim_held
+                and isinstance(exc, ApiError)
+                and not exc.retryable
+            ):
+                # Safety net: clear a stuck claim so FE/hydrate cannot resume forever.
+                repo.fail_planning_in_progress(
+                    user_sub=user_sub,
+                    trip_id=trip_id,
+                    planned_day_index=day_index,
+                    error_message=client_facing_message(
+                        status_code=exc.status_code,
+                        code=exc.code,
+                        detail=exc.message,
+                    ),
+                    table=getattr(service, "_table", None),
+                )
+            logger.exception(
+                "plan_next_day worker failed trip_id=%s day_index=%s",
+                trip_id,
+                day_index,
+            )
+            log_worker_outcome(
+                trip_id=trip_id,
+                day_index=day_index,
+                outcome="retry" if will_retry else "terminal",
+                duration_ms=duration_ms,
+                # ApiError.retryable only — do not OR with claim_held (outcome already says retry).
+                retryable=retryable if isinstance(exc, ApiError) else None,
+                error_code=getattr(exc, "code", None) if isinstance(exc, ApiError) else None,
+                error_type=type(exc).__name__,
+            )
+            if will_retry:
+                raise
+            return {"ok": False, "terminal": True}
+
         log_worker_outcome(
             trip_id=trip_id,
             day_index=day_index,
-            outcome="retry" if will_retry else "terminal",
-            duration_ms=duration_ms,
-            # ApiError.retryable only — do not OR with claim_held (outcome already says retry).
-            retryable=retryable if isinstance(exc, ApiError) else None,
-            error_code=getattr(exc, "code", None) if isinstance(exc, ApiError) else None,
-            error_type=type(exc).__name__,
+            outcome="success",
+            duration_ms=timer.duration_ms(),
         )
-        if will_retry:
-            raise
-        return {"ok": False, "terminal": True}
+        return {"ok": True}
+    finally:
+        if override_token is not None:
+            reset_crew_mode_override(override_token)
 
-    log_worker_outcome(
-        trip_id=trip_id,
-        day_index=day_index,
-        outcome="success",
-        duration_ms=timer.duration_ms(),
-    )
-    return {"ok": True}
+
+def _crew_job_claim_held(
+    *,
+    user_sub: str,
+    trip_id: str,
+    kind: str,
+    table: Any | None = None,
+) -> bool:
+    trip = repo.get_trip_meta(user_sub=user_sub, trip_id=trip_id, table=table)
+    if not trip:
+        return False
+    return str(trip.get("crew_job_kind") or "") == kind
+
+
+def _apply_worker_crew_mode(event: dict[str, Any]):
+    raw_mode = event.get("crew_mode")
+    mode = str(raw_mode).strip().lower() if raw_mode else ""
+    if mode in DEV_CREW_MODE_OVERRIDE_VALUES:
+        return set_crew_mode_override(mode)
+    return None
+
+
+def _handle_crew_job_worker(event: dict[str, Any]) -> dict[str, Any]:
+    """Event/local worker for propose-cities / suggest-city / suggest-place."""
+    kind = str(event.get("worker") or "")
+    user_sub = str(event["user_sub"])
+    trip_id = str(event["trip_id"])
+    day_index: int | None = None
+    override_token = _apply_worker_crew_mode(event)
+    service = TripService()
+    timer = WorkerTimer()
+    try:
+        try:
+            if kind == JOB_PROPOSE_CITIES:
+                service.execute_propose_cities(user_sub, trip_id)
+                day_index = None
+            elif kind == JOB_SUGGEST_CITY:
+                service.execute_suggest_city(user_sub, trip_id)
+                day_index = None
+            elif kind == JOB_SUGGEST_PLACE:
+                day_index = int(event["day_index"])
+                service.execute_suggest_place(user_sub, trip_id, day_index)
+            else:
+                return {"ok": False, "terminal": True, "error": "unknown_worker"}
+        except Exception as exc:
+            duration_ms = timer.duration_ms()
+            retryable = isinstance(exc, ApiError) and bool(exc.retryable)
+            claim_held = _crew_job_claim_held(
+                user_sub=user_sub,
+                trip_id=trip_id,
+                kind=kind,
+                table=getattr(service, "_table", None),
+            )
+            # Same as plan_next_day: terminal ApiErrors must not Event-retry.
+            will_retry = claim_held and (
+                not isinstance(exc, ApiError) or bool(exc.retryable)
+            )
+            logger.exception(
+                "crew worker failed kind=%s trip_id=%s",
+                kind,
+                trip_id,
+            )
+            log_worker_outcome(
+                trip_id=trip_id,
+                day_index=day_index if kind == JOB_SUGGEST_PLACE else 0,
+                outcome="retry" if will_retry else "terminal",
+                duration_ms=duration_ms,
+                retryable=retryable if isinstance(exc, ApiError) else None,
+                error_code=getattr(exc, "code", None) if isinstance(exc, ApiError) else None,
+                error_type=type(exc).__name__,
+            )
+            if will_retry:
+                raise
+            return {"ok": False, "terminal": True}
+
+        log_worker_outcome(
+            trip_id=trip_id,
+            day_index=int(event["day_index"]) if kind == JOB_SUGGEST_PLACE else 0,
+            outcome="success",
+            duration_ms=timer.duration_ms(),
+        )
+        return {"ok": True}
+    finally:
+        if override_token is not None:
+            reset_crew_mode_override(override_token)
 
 
 def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     configure_logging()
     if is_plan_next_day_worker_event(event):
         return _handle_plan_next_day_worker(event)
+    if is_crew_job_worker_event(event):
+        return _handle_crew_job_worker(event)
 
     method = "-"
     path = "-"
@@ -228,7 +362,24 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
 
         if trip_id and action == "propose-cities":
             if method == "POST":
-                return json_response(200, trip_routes.propose_cities(event, user_sub, trip_id))
+                result = trip_routes.propose_cities(event, user_sub, trip_id)
+                if result.get("async"):
+                    return json_response(
+                        202,
+                        {"trip": result["trip"], "job": result["job"]},
+                    )
+                return json_response(200, result)
+            raise ApiError(405, f"method {method} not allowed")
+
+        if trip_id and action == "suggest-city":
+            if method == "POST":
+                result = trip_routes.suggest_city(event, user_sub, trip_id)
+                if result.get("async"):
+                    return json_response(
+                        202,
+                        {"trip": result["trip"], "job": result["job"]},
+                    )
+                return json_response(200, result)
             raise ApiError(405, f"method {method} not allowed")
 
         if trip_id and action == "cities":
@@ -258,12 +409,22 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
             day_trip_id, day_index, day_action = day_route
             if day_action == "suggest-place":
                 if method == "POST":
-                    return json_response(
-                        200,
-                        trip_routes.suggest_place(
-                            event, user_sub, day_trip_id, day_index
-                        ),
+                    result = trip_routes.suggest_place(
+                        event, user_sub, day_trip_id, day_index
                     )
+                    if result.get("async"):
+                        return json_response(
+                            202,
+                            {
+                                "trip": result["trip"],
+                                "job": result["job"],
+                                "day_index": result["day_index"],
+                                "baseline_place_count": result[
+                                    "baseline_place_count"
+                                ],
+                            },
+                        )
+                    return json_response(200, result)
                 raise ApiError(405, f"method {method} not allowed")
 
         day_place = parse_day_place(path)
@@ -274,6 +435,18 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
                     200,
                     trip_routes.remove_place(
                         event, user_sub, day_trip_id, day_index, place_index
+                    ),
+                )
+            raise ApiError(405, f"method {method} not allowed")
+
+        day_reorder = parse_day_places_reorder(path)
+        if day_reorder:
+            day_trip_id, day_index = day_reorder
+            if method == "POST":
+                return json_response(
+                    200,
+                    trip_routes.reorder_place(
+                        event, user_sub, day_trip_id, day_index
                     ),
                 )
             raise ApiError(405, f"method {method} not allowed")

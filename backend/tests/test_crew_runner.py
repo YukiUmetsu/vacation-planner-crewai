@@ -50,20 +50,40 @@ def test_request_override_beats_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert crew_runner.has_crew_mode_override() is False
 
 
-def test_async_plan_disabled_while_override_active(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_async_plan_follows_effective_crew_mode_with_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from ops.plan_day_worker import plan_next_day_async_enabled
 
-    monkeypatch.setenv("CREW_MODE", "agentcore")
+    monkeypatch.setenv("CREW_MODE", "fake")
     monkeypatch.delenv("PLAN_NEXT_DAY_ASYNC", raising=False)
-    assert plan_next_day_async_enabled() is True
+    monkeypatch.delenv("CREW_LLM_ASYNC", raising=False)
+    assert plan_next_day_async_enabled() is False
 
+    token = crew_runner.set_crew_mode_override("agentcore")
+    try:
+        # Dev UI X-Crew-Mode=agentcore must still be async (worker gets crew_mode).
+        assert plan_next_day_async_enabled() is True
+    finally:
+        crew_runner.reset_crew_mode_override(token)
+    assert plan_next_day_async_enabled() is False
+
+    monkeypatch.setenv("CREW_MODE", "agentcore")
     token = crew_runner.set_crew_mode_override("fake")
     try:
-        # Dev UI override must stay sync so the worker cannot use a different mode.
         assert plan_next_day_async_enabled() is False
     finally:
         crew_runner.reset_crew_mode_override(token)
     assert plan_next_day_async_enabled() is True
+
+
+def test_propose_suggest_async_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ops.crew_async import llm_async_enabled
+
+    monkeypatch.delenv("CREW_LLM_ASYNC", raising=False)
+    assert llm_async_enabled() is True
+    monkeypatch.setenv("CREW_LLM_ASYNC", "off")
+    assert llm_async_enabled() is False
 
 
 def test_dev_header_override_only_when_auth_dev(monkeypatch: pytest.MonkeyPatch) -> None:

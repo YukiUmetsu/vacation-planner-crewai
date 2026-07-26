@@ -73,3 +73,6 @@ class LocalCrewRunner:
 
     def suggest_place(self, inputs: dict[str, Any]) -> dict[str, Any]:
         return self._run("suggest_place", inputs)
+
+    def suggest_city(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        return self._run("suggest_city", inputs)

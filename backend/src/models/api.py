@@ -49,6 +49,62 @@ class ConfirmCitiesRequest(BaseModel):
     status: Literal["proposed", "confirmed"] = "confirmed"
 
 
+class SuggestCityDraftStop(BaseModel):
+    """Client draft overnight stop (non-persisting context for suggest_city)."""
+
+    city: str = Field(min_length=1, max_length=200)
+    country: str = Field(default="", max_length=200)
+    nights: int = Field(default=1, ge=0, le=30)
+    reason: str = Field(default="", max_length=500)
+    highlights: list[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("city", "country", "reason", mode="before")
+    @classmethod
+    def strip_draft_strings(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("highlights", mode="before")
+    @classmethod
+    def clean_highlights(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return []
+        out: list[str] = []
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                out.append(item.strip()[:200])
+        return out[:3]
+
+
+class SuggestCityRequest(BaseModel):
+    """Optional draft overlay + hint for non-persisting city suggestions."""
+
+    cities: list[SuggestCityDraftStop] | None = Field(default=None, max_length=10)
+    hint: str = Field(default="", max_length=500)
+    count: int = Field(default=1, ge=1, le=3)
+
+    @field_validator("hint", mode="before")
+    @classmethod
+    def strip_hint(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class SuggestPlaceRequest(BaseModel):
+    """Optional preference hint for suggest-place (steers the next stop)."""
+
+    hint: str = Field(default="", max_length=500)
+
+    @field_validator("hint", mode="before")
+    @classmethod
+    def strip_hint(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
 class VisitedPlaceIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     city: str = Field(default="", max_length=200)

@@ -16,6 +16,15 @@ def _dev_auth_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTH_MODE", "dev")
 
 
+@pytest.fixture(autouse=True)
+def _sync_crew_jobs_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep propose/suggest sync in unit tests unless a test opts into async.
+
+    Runtime default for these endpoints is async (``CREW_LLM_ASYNC`` unset → on).
+    """
+    monkeypatch.setenv("CREW_LLM_ASYNC", "off")
+
+
 @pytest.fixture()
 def dynamodb_table(monkeypatch: pytest.MonkeyPatch):
     """Create the vacation planner table in moto; yield a boto3 Table resource."""

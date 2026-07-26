@@ -124,6 +124,125 @@ def test_suggest_place_route(wired: TripService) -> None:
     assert len(body["day"]["places"]) == before + 1
 
 
+def test_suggest_city_route(wired: TripService) -> None:
+    create = handler(
+        _event(
+            "POST",
+            "/trips",
+            body={
+                "origin": "Chicago",
+                "destination": "Japan",
+                "destination_type": "country",
+                "start_date": "2026-09-01",
+                "end_date": "2026-09-07",
+            },
+        )
+    )
+    trip_id = json.loads(create["body"])["trip"]["trip_id"]
+    propose = handler(_event("POST", f"/trips/{trip_id}/propose-cities"))
+    assert propose["statusCode"] == 200
+    route = json.loads(propose["body"])["route"]
+    # Leave room under pace cap (7-day → max 3); keep two stops.
+    slim_cities = [
+        {
+            **route["cities"][0],
+            "nights": 3,
+            "arrival_day_index": 1,
+            "departure_day_index": 3,
+        },
+        {
+            **route["cities"][1],
+            "nights": 3,
+            "arrival_day_index": 4,
+            "departure_day_index": 7,
+        },
+    ]
+    confirmed = handler(
+        _event(
+            "PUT",
+            f"/trips/{trip_id}/cities",
+            body={
+                "destination_type": route["destination_type"],
+                "cities": slim_cities,
+                "rationale": route.get("rationale") or "",
+                "total_nights": 6,
+                "status": "confirmed",
+            },
+        )
+    )
+    assert confirmed["statusCode"] == 200
+    route_before = json.loads(confirmed["body"])["route"]
+
+    suggested = handler(
+        _event(
+            "POST",
+            f"/trips/{trip_id}/suggest-city",
+            body={"hint": "somewhere coastal", "count": 1},
+        )
+    )
+    assert suggested["statusCode"] == 200, suggested.get("body")
+    body = json.loads(suggested["body"])
+    assert body["candidates"]
+    assert body["candidates"][0]["city"]
+
+    # Non-persisting: route cities unchanged.
+    again = handler(_event("GET", f"/trips/{trip_id}"))
+    route_after = json.loads(again["body"])["route"]
+    assert [c["city"] for c in route_after["cities"]] == [
+        c["city"] for c in route_before["cities"]
+    ]
+
+
+def test_reorder_place_route(wired: TripService) -> None:
+    create = handler(
+        _event(
+            "POST",
+            "/trips",
+            body={
+                "origin": "Chicago",
+                "destination": "Japan",
+                "destination_type": "country",
+                "start_date": "2026-09-01",
+                "end_date": "2026-09-07",
+            },
+        )
+    )
+    trip_id = json.loads(create["body"])["trip"]["trip_id"]
+    propose = handler(_event("POST", f"/trips/{trip_id}/propose-cities"))
+    route = json.loads(propose["body"])["route"]
+    handler(
+        _event(
+            "PUT",
+            f"/trips/{trip_id}/cities",
+            body={
+                "destination_type": route["destination_type"],
+                "cities": route["cities"],
+                "rationale": route.get("rationale") or "",
+                "total_nights": route["total_nights"],
+                "status": "confirmed",
+            },
+        )
+    )
+    plan = handler(_event("POST", f"/trips/{trip_id}/plan-next-day"))
+    assert plan["statusCode"] == 200
+    places = json.loads(plan["body"])["day"]["places"]
+    assert len(places) >= 2
+    first = places[0]["place_key"]
+    second = places[1]["place_key"]
+
+    reordered = handler(
+        _event(
+            "POST",
+            f"/trips/{trip_id}/days/1/places/reorder",
+            body={"from_index": 0, "to_index": 1},
+        )
+    )
+    assert reordered["statusCode"] == 200
+    next_places = json.loads(reordered["body"])["day"]["places"]
+    assert next_places[0]["place_key"] == second
+    assert next_places[1]["place_key"] == first
+
+
 def test_update_trip_route(wired: TripService) -> None:
     create = handler(
         _event(

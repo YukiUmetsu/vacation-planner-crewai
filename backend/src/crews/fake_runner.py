@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from db.place_keys import make_place_key
@@ -68,6 +69,7 @@ class FakeCrewRunner:
     def __init__(self) -> None:
         self.last_plan_day_inputs: dict[str, Any] | None = None
         self.last_suggest_place_inputs: dict[str, Any] | None = None
+        self.last_suggest_city_inputs: dict[str, Any] | None = None
 
     def propose_cities(self, inputs: dict[str, Any]) -> dict[str, Any]:
         day_count = max(1, int(inputs.get("day_count") or 7))
@@ -206,3 +208,63 @@ class FakeCrewRunner:
             "place_key": make_place_key(name, address),
         }
         return {"place": place}
+
+    def suggest_city(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        self.last_suggest_city_inputs = dict(inputs)
+        try:
+            count = max(1, min(int(inputs.get("count") or 1), 3))
+        except (TypeError, ValueError):
+            count = 1
+        banned_raw = str(inputs.get("already_listed_cities") or "")
+        banned = {
+            re.sub(r"\s+", " ", part.strip().casefold())
+            for part in banned_raw.split(",")
+            if part.strip()
+        }
+        hint = str(inputs.get("hint") or "").strip()
+        destination = str(inputs.get("destination") or "Japan")
+        pool = [
+            ("Osaka", "Street food and nightlife", ["Dotonbori"]),
+            ("Hiroshima", "History and nearby islands", ["Peace Park"]),
+            ("Nara", "Parks and early capitals", ["Todai-ji"]),
+            ("Hakone", "Onsen and mountain views", ["Lake Ashi"]),
+            ("Kanazawa", "Gardens and crafts", ["Kenroku-en"]),
+            ("Shanghai", "Bund skyline and food", ["The Bund"]),
+            ("Hangzhou", "West Lake calm", ["West Lake"]),
+            ("Chengdu", "Pandas and Sichuan food", ["Jinli"]),
+        ]
+        reason_suffix = f" ({hint})" if hint else ""
+        candidates: list[dict[str, Any]] = []
+        for name, reason, highlights in pool:
+            key = re.sub(r"\s+", " ", name.casefold())
+            if key in banned:
+                continue
+            candidates.append(
+                {
+                    "city": name,
+                    "country": destination,
+                    "reason": f"{reason}{reason_suffix}",
+                    "highlights": list(highlights),
+                    "recommended_nights": 1,
+                }
+            )
+            if len(candidates) >= count:
+                break
+        if not candidates:
+            # Deterministic unique fallback not in banned.
+            for i in range(1, 10):
+                name = f"Side Trip {i}"
+                key = re.sub(r"\s+", " ", name.casefold())
+                if key in banned:
+                    continue
+                candidates.append(
+                    {
+                        "city": name,
+                        "country": destination,
+                        "reason": f"Extra overnight base{reason_suffix}",
+                        "highlights": [],
+                        "recommended_nights": 1,
+                    }
+                )
+                break
+        return {"candidates": candidates}

@@ -24,3 +24,10 @@ class AgentCoreRunner():
             "crew": "suggest_place",
             "inputs": inputs,
         })
+
+    def suggest_city(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Suggest one or more overnight cities (non-persisting)."""
+        return invoke_agent({
+            "crew": "suggest_city",
+            "inputs": inputs,
+        })

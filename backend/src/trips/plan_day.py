@@ -435,6 +435,12 @@ def _run_plan_day_and_persist(
                 places_count=len(filtered) if filtered else 0,
             ):
                 continue
+            # After retries, still return a usable day when meals are incomplete.
+            if exc.code == "missing_meals" and filtered:
+                if "missing_meals" not in energy_soft_tags:
+                    energy_soft_tags = [*energy_soft_tags, "missing_meals"]
+                last_quality_error = None
+                break
             tag = {
                 "quality_empty": "closed_place",
                 "missing_meals": "missing_meals",

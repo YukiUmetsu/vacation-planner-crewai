@@ -45,6 +45,8 @@ def _create_country(service: TripService) -> str:
 
 def _confirm_country(service: TripService, trip_id: str) -> None:
     proposed = service.propose_cities(USER, trip_id)
+    if proposed.get("async"):
+        proposed = service.execute_propose_cities(USER, trip_id)
     service.confirm_cities(
         USER,
         trip_id,
@@ -111,6 +113,83 @@ def test_full_country_flow(service: TripService) -> None:
     assert len(bundle["days"]) == 1
 
 
+def test_confirm_cities_from_planning_remaps_days(service: TripService) -> None:
+    """Reorder/reconfirm keeps places, moving them onto new day_index keys."""
+    from trips.day_remap import overnight_schedule
+
+    trip_id = _create_country(service)
+    proposed = service.propose_cities(USER, trip_id)
+    cities = [dict(c) for c in proposed["route"]["cities"]]
+    assert len(cities) >= 2
+    service.confirm_cities(
+        USER,
+        trip_id,
+        {
+            "destination_type": "country",
+            "cities": cities,
+            "rationale": proposed["route"]["rationale"],
+            "total_nights": proposed["route"]["total_nights"],
+            "status": "confirmed",
+        },
+    )
+    planned = service.plan_next_day(USER, trip_id)
+    assert planned["trip"]["status"] == "planning"
+    original_overnight = planned["day"]["overnight_city"]
+    original_places = list(planned["day"]["places"])
+    assert original_places
+
+    # Reverse city order and rebuild contiguous windows (frontend recompute).
+    cities = list(reversed(cities))
+    cursor = 1
+    day_count = 7
+    for i, stop in enumerate(cities):
+        stop = dict(stop)
+        stop["arrival_day_index"] = cursor
+        is_last = i == len(cities) - 1
+        nights = int(stop["nights"])
+        if is_last:
+            stop["departure_day_index"] = day_count
+            stop["nights"] = day_count - cursor
+        else:
+            stop["departure_day_index"] = (
+                cursor if nights == 0 else cursor + nights - 1
+            )
+        cursor = int(stop["departure_day_index"]) + 1
+        cities[i] = stop
+
+    confirmed = service.confirm_cities(
+        USER,
+        trip_id,
+        {
+            "destination_type": "country",
+            "cities": cities,
+            "rationale": "reordered after planning started",
+            "total_nights": sum(int(c["nights"]) for c in cities),
+            "status": "confirmed",
+        },
+    )
+    assert len(confirmed["days"]) == 1
+    kept = confirmed["days"][0]
+    assert kept["overnight_city"] == original_overnight
+    assert kept["places"] == original_places
+    expected_index = next(
+        i
+        for i, city in enumerate(
+            overnight_schedule(
+                {"cities": cities}, day_count=day_count, destination="Japan"
+            ),
+            start=1,
+        )
+        if city == original_overnight
+    )
+    assert kept["day_index"] == expected_index
+    assert confirmed["trip"]["status"] == "planning"
+    assert confirmed["trip"]["next_day_index"] == 1
+    bundle = service.get_trip(USER, trip_id)
+    assert len(bundle["days"]) == 1
+    assert bundle["days"][0]["day_index"] == expected_index
+
+
 def test_suggest_place_appends_to_day(service: TripService) -> None:
     trip_id = _create_country(service)
     proposed = service.propose_cities(USER, trip_id)
@@ -142,9 +221,18 @@ def test_suggest_place_appends_to_day(service: TripService) -> None:
     assert "remaining_minutes" in service.runner.last_suggest_place_inputs
 
     # Second suggest must not collide on the fake runner's place_key.
-    suggested2 = service.suggest_place(USER, trip_id, 1)
+    suggested2 = service.suggest_place(
+        USER, trip_id, 1, {"hint": "quiet park near the station"}
+    )
     assert suggested2["place"]["place_key"] != suggested["place"]["place_key"]
     assert len(suggested2["day"]["places"]) == before + 2
+    assert service.runner.last_suggest_place_inputs is not None
+    assert service.runner.last_suggest_place_inputs.get("hint") == (
+        "quiet park near the station"
+    )
+    assert "Suggestion preference: quiet park near the station" in str(
+        service.runner.last_suggest_place_inputs.get("preferences") or ""
+    )
 
 
 def test_suggest_place_atomic_when_transact_fails(
