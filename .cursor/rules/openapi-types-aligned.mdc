@@ -1,0 +1,14 @@
+---
+description: Keep OpenAPI, backend routes/models, and FE trip types/clients aligned.
+globs: backend/openapi.yaml,backend/src/routes/**/*.py,backend/src/models/**/*.py,frontend/src/api/**/*.{ts,tsx},frontend/src/types/**/*.ts
+alwaysApply: false
+---
+
+# OpenAPI and types stay aligned
+
+When adding or changing trip/profile HTTP behavior:
+
+1. Update `backend/openapi.yaml` (status codes, 202 async shapes, request/response fields).
+2. Update backend route handlers + `models/api.py` as needed.
+3. Update FE `frontend/src/types/trip.ts` (and related types) plus `frontend/src/api/trips.ts` (or profile client) in the **same** change.
+4. Document new async job fields (`crew_job_*`, `planning_day_index`, suggest payloads) on both sides — do not leave the SPA guessing from ad-hoc JSON.

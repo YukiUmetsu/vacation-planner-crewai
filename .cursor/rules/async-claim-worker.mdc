@@ -1,0 +1,14 @@
+---
+description: Terminal plan/crew failures must clear claims and must not Event-retry.
+globs: backend/src/handler.py,backend/src/trips/**/*.py,backend/src/ops/**/*.py,backend/src/db/repository/**/*.py
+alwaysApply: false
+---
+
+# Async claim / worker contract
+
+Plan-next-day and crew-job Event workers:
+
+- `ApiError.retryable=True` (transport blips): keep the claim so Lambda Event can retry.
+- `ApiError.retryable=False` / terminal quality codes (`quality_empty`, `dedupe_empty`, …): clear the claim (`fail_planning_in_progress` / crew-job fail), return terminal — **do not** re-raise for Event retry even if the claim looks held.
+- Non-`ApiError` with claim still held may Event-retry; after success or terminal fail, claim fields must be cleared.
+- FE must not auto-restart day planning on `status=failed`; require an explicit user action.

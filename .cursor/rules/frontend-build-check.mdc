@@ -1,0 +1,16 @@
+---
+description: After any frontend code change, run the TypeScript/Vite build and fix errors before finishing.
+globs: frontend/**/*.{ts,tsx,js,jsx,css,html,json}
+alwaysApply: false
+---
+
+# Frontend build gate
+
+Whenever you create or edit frontend code under `frontend/`:
+
+1. Run a typecheck/build before considering the task done:
+   - Prefer: `cd frontend && npx tsc -b --pretty false`
+   - Or the project’s production build path if that is what deploy uses (`npm run build`).
+2. If the build fails, fix the errors in this turn — do not leave broken TS for the user to discover on deploy.
+3. Re-run the build (or the failing tests) until it is clean.
+4. Do not claim frontend work is complete while `tsc`/build still reports errors.

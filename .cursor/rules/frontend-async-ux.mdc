@@ -1,0 +1,15 @@
+---
+description: Disable conflicting FE actions while day/crew jobs are in flight; refresh trip on failure.
+globs: frontend/src/lib/liveTrip*,frontend/src/lib/poll*,frontend/src/hooks/useTripWizard*,frontend/src/components/days/**
+alwaysApply: false
+---
+
+# Frontend async UX
+
+While a trip has an in-flight plan or crew job:
+
+- Treat `planning_day_index` / `crew_job_kind` (or matching mutation `isPending`) as locked.
+- Disable conflicting actions (e.g. suggest-place during day planning) — do not rely on the API 409 alone.
+- On async failure, refresh from `GET /trips/:id` so stale claim fields from `onAsyncStarted` do not stick in local state.
+- Do not auto-start `plan-next-day` when `status === "failed"`; user must click Plan next day.
+- Prefer surfacing `planning_error` / mapped API codes over generic timeouts when the server already failed.

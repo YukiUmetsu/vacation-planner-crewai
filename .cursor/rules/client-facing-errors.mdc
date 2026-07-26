@@ -1,0 +1,14 @@
+---
+description: Keep API and planning errors client-safe via codes and public message maps.
+globs: backend/src/**/*.py,frontend/src/api/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Client-facing errors
+
+Never leak internal/SDK detail to HTTP JSON, `planning_error`, or the UI.
+
+- Raise `ApiError` with a stable `code=` (e.g. `quality_empty`). Put diagnostics in logs, not in the client string when a public map entry exists.
+- Backend: add/update `_PUBLIC_BY_CODE` in `http_utils.py` and persist via `client_facing_message(...)`.
+- Frontend: map known codes in `messageForApiError` / `API_ERROR_MESSAGES`; prefer code-based copy over raw `error` bodies for 4xx quality failures.
+- Do not surface strings like “fewer than 3 open places…”, stack traces, boto/AgentCore exceptions, or filesystem paths to users.

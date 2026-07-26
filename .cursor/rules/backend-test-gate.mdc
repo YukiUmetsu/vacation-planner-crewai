@@ -1,0 +1,15 @@
+---
+description: After backend code changes, run relevant pytest and fix failures before finishing.
+globs: backend/**/*.{py,yaml}
+alwaysApply: false
+---
+
+# Backend test gate
+
+Whenever you create or edit code under `backend/`:
+
+1. Run the relevant tests with the project venv before considering the task done:
+   - `cd backend && .venv/bin/pytest <focused-tests> -q --tb=short`
+2. Prefer the smallest focused suite that covers the change (e.g. `tests/test_plan_next_day_async.py`, `tests/test_crew_jobs_async.py`). Broaden only if the change is cross-cutting.
+3. If tests fail, fix them in this turn — do not leave red CI for the user to discover.
+4. Do not claim backend work is complete while the targeted pytest still fails.
