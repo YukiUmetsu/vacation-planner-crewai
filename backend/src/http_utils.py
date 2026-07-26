@@ -11,7 +11,7 @@ from typing import Any
 
 
 _TRIP_ID_RE = re.compile(
-    r"^/trips(?:/(?P<trip_id>[^/]+))?(?:/(?P<action>propose-cities|cities|plan-next-day))?/?$"
+    r"^/trips(?:/(?P<trip_id>[^/]+))?(?:/(?P<action>propose-cities|cities|plan-next-day|suggest-city))?/?$"
 )
 _DAY_ACTION_RE = re.compile(
     r"^/trips/(?P<trip_id>[^/]+)/days/(?P<day_index>\d+)/(?P<action>suggest-place)/?$"
@@ -21,6 +21,9 @@ _DAY_RESOURCE_RE = re.compile(
 )
 _DAY_PLACE_RE = re.compile(
     r"^/trips/(?P<trip_id>[^/]+)/days/(?P<day_index>\d+)/places/(?P<place_index>\d+)/?$"
+)
+_DAY_PLACES_REORDER_RE = re.compile(
+    r"^/trips/(?P<trip_id>[^/]+)/days/(?P<day_index>\d+)/places/reorder/?$"
 )
 
 
@@ -65,6 +68,12 @@ _PUBLIC_BY_CODE: dict[str, str] = {
         "at least one non-food stop (museum, park, shrine, shopping, etc.)."
     ),
     "quality_hard_fail": "That day plan did not meet quality checks. Please try again.",
+    "quality_empty": (
+        "Not enough open places remained after quality checks. Please try again."
+    ),
+    "dedupe_empty": (
+        "All suggested places were already visited. Please try again."
+    ),
     "wrong_city": "That day plan did not match the overnight city. Please try again.",
     "excluded_category": (
         "That day plan included a place type you asked to avoid. Please try again."
@@ -141,6 +150,14 @@ def parse_day_place(path: str) -> tuple[str, int, int] | None:
         int(match.group("day_index")),
         int(match.group("place_index")),
     )
+
+
+def parse_day_places_reorder(path: str) -> tuple[str, int] | None:
+    """Return (trip_id, day_index) for /trips/{id}/days/{n}/places/reorder."""
+    match = _DAY_PLACES_REORDER_RE.match(path)
+    if not match:
+        return None
+    return match.group("trip_id"), int(match.group("day_index"))
 
 
 def parse_body(event: dict[str, Any]) -> dict[str, Any]:

@@ -13,7 +13,6 @@ HARD_FAILURE_TAGS = frozenset(
         "wrong_city",
         "closed_place",
         "excluded_category",
-        "missing_meals",
         "food_only_day",
     }
 )
@@ -26,6 +25,8 @@ SOFT_FAILURE_TAGS = frozenset(
         "weak_day_balance",
         "too_packed",
         "energy_overload",
+        # Soft: still persist the day after retries; UI can warn.
+        "missing_meals",
     }
 )
 

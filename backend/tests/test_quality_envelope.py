@@ -80,5 +80,10 @@ def test_merge_quality_reports_unions_tags() -> None:
         {"failure_tags": ["missing_meals"], "relevance_score": 2},
     )
     assert merged["failure_tags"] == ["weak_reason", "missing_meals"]
-    assert merged["passes_relevance"] is False
+    # missing_meals is soft — does not flip passes_relevance.
+    assert merged["passes_relevance"] is True
     assert merged["relevance_score"] == 2
+
+
+def test_missing_meals_soft_tag_does_not_block() -> None:
+    enforce_hard_quality({"failure_tags": ["missing_meals", "energy_overload"]})

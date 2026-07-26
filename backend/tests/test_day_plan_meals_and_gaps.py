@@ -127,6 +127,61 @@ def test_plan_next_day_heals_missing_day_one(
     assert any("Dinner" in str(p.get("name") or "") for p in food)
 
 
+def test_plan_next_day_persists_when_meals_missing_after_retries(
+    dynamodb_table: Any,
+) -> None:
+    """Missing lunch/dinner soft-fails: still save the day after retries."""
+
+    class NoMealRunner(FakeCrewRunner):
+        def plan_day(self, inputs: dict[str, Any]) -> dict[str, Any]:
+            self.last_plan_day_inputs = dict(inputs)
+            day_index = int(inputs.get("day_index") or 1)
+            overnight = str(inputs.get("overnight_city") or "Tokyo")
+            date_str = str(inputs.get("date") or "2026-09-01")
+            places = []
+            for i in range(3):
+                name = f"{overnight} Museum{i + 1} D{day_index}"
+                address = f"{i + 1} Culture St, {overnight}"
+                places.append(
+                    {
+                        "name": name,
+                        "address": address,
+                        "category": "museum",
+                        "reason_to_visit": "Sightseeing",
+                        "details": "No meals on purpose",
+                        "estimated_minutes": 60,
+                        "order_in_day": i + 1,
+                        "has_bathroom": True,
+                        "place_key": f"{name.lower()}|{address.lower()}",
+                    }
+                )
+            return {
+                "day_index": day_index,
+                "date": date_str,
+                "theme": f"Day in {overnight}",
+                "overnight_city": overnight,
+                "places": places,
+            }
+
+    service = TripService(
+        table=dynamodb_table,
+        runner=NoMealRunner(),
+        safety=NoopSafetyGate(),
+    )
+    trip_id = _ready_trip(service)
+    planned = service.plan_next_day(USER, trip_id)
+    assert planned["day"]["day_index"] == 1
+    assert len(planned["day"]["places"]) >= 3
+    food = [
+        p
+        for p in planned["day"]["places"]
+        if str(p.get("category") or "") == "food"
+    ]
+    assert food == []
+    bundle = service.get_trip(USER, trip_id)
+    assert len(bundle["days"]) == 1
+
+
 def test_plan_next_day_includes_breakfast_when_profile_asks(
     service: TripService, dynamodb_table: Any
 ) -> None:

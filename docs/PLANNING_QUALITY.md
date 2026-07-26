@@ -109,7 +109,8 @@ Unless the traveler explicitly asked for a **food crawl / restaurant tour / tast
 
 | Tag | Class | MVP behavior |
 | --- | --- | --- |
-| `duplicate_place`, `wrong_city`, `closed_place`, `excluded_category`, `missing_meals`, `food_only_day` | **Hard** | Fail / regenerate; log `QUALITY_METRIC` |
+| `duplicate_place`, `wrong_city`, `closed_place`, `excluded_category`, `food_only_day` | **Hard** | Fail / regenerate; log `QUALITY_METRIC` |
+| `missing_meals` | **Soft** | Retry for better meals; if still incomplete, **persist the day** and log `missing_meals` |
 | `preference_mismatch`, `too_far`, `weak_reason`, `ungrounded_place`, `weak_day_balance`, `too_packed`, `energy_overload` | **Soft** | Log only; still persist if hard gates pass (no energy auto-trim) |
 
 ### Metric catalog
@@ -142,7 +143,7 @@ Preference fixtures: `day_plan_preference_food`, `day_plan_preference_exclusion`
 
 **Online dual-write:** `QUALITY_METRIC` / `RETRY_METRIC` / `PRODUCT_METRIC` still emit CloudWatch log lines **and** append to the same metrics table (`ONLINE#QUALITY` / `ONLINE#PRODUCT`). Distinguish quality vs retry via payload `event` (`plan_day_quality` vs `plan_day_retry`). Dynamo failures soft-fail so planning/`POST /events` never break. List via `GET /admin/metrics/online?kind=quality|product`. The private `/metrics` SPA shows **aggregates** (pass rate, retry counts, stacked day bars, fail/retry code charts) over the latest 200 events per kind; raw rows stay under collapsible “Recent …” sections.
 
-**Online product (`PRODUCT_METRIC` via `POST /events`)** — allowlisted names: `proposal_accepted`, `proposal_accepted_without_edit`, `manual_edit`, `time_to_accept` (payload `ms`), `plan_regenerated`, `place_deleted`, `suggestion_accepted`, `place_reordered` (reserved until reorder UX). No PII; `user_sub_hash` is peppered SHA-256.
+**Online product (`PRODUCT_METRIC` via `POST /events`)** — allowlisted names: `proposal_accepted`, `proposal_accepted_without_edit`, `manual_edit`, `time_to_accept` (payload `ms`), `plan_regenerated`, `place_deleted`, `suggestion_accepted`, `place_reordered` (payload `from_index`/`to_index`). No PII; `user_sub_hash` is peppered SHA-256.
 
 ### CloudWatch Logs Insights (examples)
 
@@ -185,6 +186,8 @@ fields @timestamp, event_name, payload.ms
 1. [x] Persist profile (prefs, energy, interests) in DynamoDB; inject into `plan-next-day`.
 2. [x] Enforce energy caps + closed / weekday-closed checks in offline scorers **and** API post-crew `place_quality` filter; reviewer crew task (brief-only swaps, no new research tools).
 3. [x] Suggest one more place: `suggest_place` crew + `POST /trips/{id}/days/{n}/suggest-place` with `validate_suggested_place` + offline scorer.
+3b. [x] Suggest a city (draft candidate): single-agent `suggest_city` crew + `POST /trips/{id}/suggest-city` → `{ candidates }` (default count 1); FE inserts via `addCityStop`; confirm still required. Optional `hint`; server + FE dedupe; FE add gate mirrors `max_cities_for_trip`.
+3c. [x] Reorder places (handle-only DnD) + `POST .../places/reorder` + `place_reordered` product event; reorder cities on draft route only.
 4. [x] Venue open status via Places enrich when Serper is not enough (BFF: Google Places API New by default; **Amap** for mainland China) before `place_quality`; tool-assisted discovery remains soft.
 5. [x] Runtime QualityReport envelope (hard block / soft log) + invocation metadata + POST /events (ADR 004).
 6. [x] Offline graded metrics + preference fixtures (heuristic `preference_relevance_score`).
@@ -232,14 +235,14 @@ uv run python -m evals --live --compare-orchestration \
 
 #### Correctness (multi vs single)
 
-| Run | Cases | Multi pass | Single pass | Keep 3-agent? | Notes |
+| Run | Cases | Multi pass | Single pass | Signal | Notes |
 | --- | --- | --- | --- | --- | --- |
 | Full (`20260725T212347Z`) | 31 | ~90% hard-pass | ~52% hard-pass | **True** (+39 pp) | Early single prompts; many single ValidationErrors |
 | Mid (`--max-cases 15`-ish) | 15 | 13/15 | 15/15 | **False** | After single prompt tighten; multi thin-day / dup keys |
-| Partial 20 (`20260725T234623Z`) | 20 | 19/20 (95%) | 15/20 (75%) | **True** (+20 pp) | After porting schema rules into 3-agent; report: [`orchestration_compare_smoke.md`](../agent/reports/orchestration_compare_smoke.md) |
-| Tool-heavy (`20260726T001322Z`) | 4 | 4/4 | 4/4 | **True** (pref +0.25) | Post–Nova ToolUse mitigations; [`orchestration_compare_tooluse.md`](../agent/reports/orchestration_compare_tooluse.md) |
+| Partial 20 (`20260725T234623Z`) | 20 | 19/20 (95%) | 15/20 (75%) | Preliminary: 3-agent favored (+20 pp) | After porting schema rules into 3-agent; report: [`orchestration_compare_smoke.md`](../agent/reports/orchestration_compare_smoke.md) |
+| Tool-heavy (`20260726T001322Z`) | 4 | 4/4 | 4/4 | Preliminary: 3-agent favored (pref +0.25) | Preference-only rule hit; multi had much higher `energy_overage_rate` (0.75 vs 0.25). Not a product lock — [`orchestration_compare_tooluse.md`](../agent/reports/orchestration_compare_tooluse.md) |
 
-**Takeaway:** Single-call can match or beat multi on **schema validity** once prompts are explicit; multi still tends to win on **hard-constraint / preference** when both arms complete. Verdict is **sample-size sensitive** — use full ~31 for a product lock; smoke/partial runs for iteration only.
+**Takeaway:** Single-call can match or beat multi on **schema validity** once prompts are explicit; multi still tends to win on **hard-constraint / preference** when both arms complete. Verdict is **sample-size sensitive** — use full ~31 for a product lock; smoke / tool-heavy / partial runs are **preliminary signals only** (report headline: “final decision pending full repeated evaluation”).
 
 Prompt versions (bump in `agent/models/vacation_planner_models/prompt_meta.py` when agent/task text changes): `day_plan` **2026-07-25.2** (schema allowlist + unique keys + fill-to-target), `day_plan_single` **2026-07-25.1** (same schema/meal harden). Invocation also records `prompt_hash` of `crew.jsonc` + `agents/*.jsonc`.
 

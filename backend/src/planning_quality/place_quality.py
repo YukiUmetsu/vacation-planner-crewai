@@ -230,8 +230,7 @@ def filter_quality_places(
     if len(kept) < 3:
         raise ApiError(
             422,
-            "fewer than 3 open places remain after closed/visited filters; "
-            "retry plan-next-day",
+            "Not enough open places remained after quality checks. Please try again.",
             code="quality_empty",
         )
 
