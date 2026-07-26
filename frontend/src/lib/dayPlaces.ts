@@ -40,6 +40,43 @@ export function removePlaceFromDays(
   );
 }
 
+/** Move one place within a day; reindex order_in_day. */
+export function movePlaceAt(
+  day: DayPlan,
+  fromIndex: number,
+  toIndex: number,
+): DayPlan {
+  const n = day.places.length;
+  if (
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= n ||
+    toIndex >= n ||
+    fromIndex === toIndex
+  ) {
+    return day;
+  }
+  const places = [...day.places];
+  const [moved] = places.splice(fromIndex, 1);
+  if (!moved) return day;
+  places.splice(toIndex, 0, moved);
+  return {
+    ...day,
+    places: places.map((place, i) => ({ ...place, order_in_day: i + 1 })),
+  };
+}
+
+export function movePlaceInDays(
+  days: DayPlan[],
+  dayIndex: number,
+  fromIndex: number,
+  toIndex: number,
+): DayPlan[] {
+  return days.map((day) =>
+    day.day_index !== dayIndex ? day : movePlaceAt(day, fromIndex, toIndex),
+  );
+}
+
 /** Drop an entire day plan (does not renumber remaining day_index values). */
 export function removeDayFromDays(days: DayPlan[], dayIndex: number): DayPlan[] {
   return days.filter((day) => day.day_index !== dayIndex);

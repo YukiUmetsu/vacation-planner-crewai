@@ -55,6 +55,25 @@ function isAmapPlaceId(placeId: string | null | undefined): boolean {
   return typeof placeId === "string" && placeId.trim().startsWith("amap:");
 }
 
+/** Strip `amap:` prefix for URI poiid. */
+export function amapPoiId(placeId: string | null | undefined): string | null {
+  const raw = (placeId || "").trim();
+  if (!raw.toLowerCase().startsWith("amap:")) return null;
+  const poi = raw.slice("amap:".length).trim();
+  return poi || null;
+}
+
+export function isAmapWebUrl(url: string | null | undefined): boolean {
+  const raw = (url || "").trim().toLowerCase();
+  if (!raw) return false;
+  try {
+    const host = new URL(raw).hostname;
+    return host === "uri.amap.com" || host === "www.amap.com" || host === "amap.com";
+  } catch {
+    return /(?:^|\/\/)(?:uri\.)?amap\.com\b/i.test(raw);
+  }
+}
+
 /**
  * Prefer explicit enrich signals + trip geography — never infer from place name alone
  * (e.g. "Shanghai Dumpling House" in Chicago must stay on Google Maps).
@@ -69,26 +88,43 @@ export function usesAmapMaps(
   return isMainlandChina(ctx.overnightCity, ctx.destination);
 }
 
+/** Build an Amap URI: poiid → position → keyword search. */
+export function buildAmapHref(
+  place: MapPlace,
+  ctx: MapContext = {},
+): string {
+  const name = encodeURIComponent(place.name?.trim() || "place");
+  const poi = amapPoiId(place.place_id);
+  if (poi) {
+    return `https://uri.amap.com/marker?poiid=${encodeURIComponent(poi)}&name=${name}&src=vacation_planner&callnative=0`;
+  }
+  if (
+    typeof place.lng === "number" &&
+    typeof place.lat === "number" &&
+    Number.isFinite(place.lng) &&
+    Number.isFinite(place.lat)
+  ) {
+    return `https://uri.amap.com/marker?position=${place.lng},${place.lat}&name=${name}&coordinate=gaode&src=vacation_planner&callnative=0`;
+  }
+  const q = encodeURIComponent(queryText(place) || place.name || "");
+  const city = encodeURIComponent((ctx.overnightCity || "").trim());
+  const cityParam = city ? `&city=${city}` : "";
+  return `https://uri.amap.com/search?keyword=${q}${cityParam}&src=vacation_planner&callnative=0`;
+}
+
 export function mapsHref(place: MapPlace, ctx: MapContext = {}): string {
   const overnightCity = ctx.overnightCity || "";
   const destination = ctx.destination || "";
+  const amapCtx = { overnightCity, destination };
   const stored = (place.map_url || place.maps_url || "").trim();
-  if (stored) return stored;
 
-  if (usesAmapMaps(place, { overnightCity, destination })) {
-    const name = encodeURIComponent(place.name?.trim() || "place");
-    if (
-      typeof place.lng === "number" &&
-      typeof place.lat === "number" &&
-      Number.isFinite(place.lng) &&
-      Number.isFinite(place.lat)
-    ) {
-      return `https://uri.amap.com/marker?position=${place.lng},${place.lat}&name=${name}&coordinate=gaode&callnative=0`;
-    }
-    const q = encodeURIComponent(queryText(place) || place.name || "");
-    return `https://uri.amap.com/search?keyword=${q}&callnative=0`;
+  if (usesAmapMaps(place, amapCtx)) {
+    // Crews often stash Google maps_url — ignore unless already an Amap URI.
+    if (stored && isAmapWebUrl(stored)) return stored;
+    return buildAmapHref(place, amapCtx);
   }
 
+  if (stored) return stored;
   const q = encodeURIComponent(queryText(place));
   return `https://www.google.com/maps/search/?api=1&query=${q}`;
 }

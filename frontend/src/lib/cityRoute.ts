@@ -5,6 +5,7 @@ export type CityStopInput = {
   country?: string;
   nights?: number;
   reason?: string;
+  highlights?: string[];
   client_id?: string;
 };
 
@@ -57,6 +58,25 @@ export function expectedOvernightNights(dayCount: number): number {
 }
 
 /**
+ * Pace cap for overnight cities — mirrors backend ``max_cities_for_trip``.
+ *
+ * total_nights = day_count - 1:
+ * - 1–3 nights → 1 city
+ * - 4 nights → 2 cities
+ * - 5–8 nights → 3 cities
+ * - 9–13 nights → 4 cities
+ * - 14+ nights → 5 cities
+ */
+export function maxCitiesForTrip(dayCount: number): number {
+  const nights = Math.max(0, Math.floor(dayCount) - 1);
+  if (nights <= 3) return 1;
+  if (nights <= 4) return 2;
+  if (nights <= 8) return 3;
+  if (nights <= 13) return 4;
+  return 5;
+}
+
+/**
  * Max nights the traveler can set on ``index`` without pushing later cities
  * past the trip window. Last stop is auto-pinned — returns its current nights.
  */
@@ -77,13 +97,13 @@ export function maxEditableNights(
   return Math.max(0, expected - otherNonLast);
 }
 
-/** Each city needs ≥1 calendar day, so city count cannot exceed dayCount. */
+/** True when another overnight stop can be added under the trip pace cap. */
 export function canAddCityStop(
   cities: CityStop[],
   dayCount: number | null | undefined,
 ): boolean {
   if (typeof dayCount !== "number" || dayCount < 1) return true;
-  return cities.length < Math.floor(dayCount);
+  return cities.length < maxCitiesForTrip(dayCount);
 }
 
 /**
@@ -101,8 +121,10 @@ export function routeWindowIssue(
     return null;
   }
   const window = Math.floor(dayCount);
-  if (cities.length > window) {
-    return `A ${window}-day trip can include at most ${window} cities. Remove a stop.`;
+  const cityCap = maxCitiesForTrip(window);
+  if (cities.length > cityCap) {
+    const noun = cityCap === 1 ? "city" : "cities";
+    return `A ${window}-day trip can include at most ${cityCap} ${noun}. Remove a stop.`;
   }
 
   const recomputed = recomputeCityDayRanges(cities, window);
@@ -154,6 +176,7 @@ export function addCityStop(
     arrival_day_index: 1,
     departure_day_index: 1,
     reason: input.reason,
+    highlights: input.highlights,
     client_id: input.client_id,
   };
   return recomputeCityDayRanges([...cities, next], dayCount);
@@ -208,6 +231,39 @@ export function removeCityAtIndex(
     cities.filter((_, i) => i !== index),
     dayCount,
   );
+}
+
+/** Move a city stop within the draft route and recompute day windows. */
+export function moveCityAtIndex(
+  cities: CityStop[],
+  fromIndex: number,
+  toIndex: number,
+  dayCount?: number | null,
+): CityStop[] {
+  if (
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= cities.length ||
+    toIndex >= cities.length ||
+    fromIndex === toIndex
+  ) {
+    return cities;
+  }
+  const next = [...cities];
+  const [moved] = next.splice(fromIndex, 1);
+  if (!moved) return cities;
+  next.splice(toIndex, 0, moved);
+  return recomputeCityDayRanges(next, dayCount);
+}
+
+/** Case-insensitive duplicate check for draft inserts. */
+export function cityAlreadyListed(
+  cities: CityStop[],
+  cityName: string,
+): boolean {
+  const key = cityName.trim().toLowerCase();
+  if (!key) return false;
+  return cities.some((c) => c.city.trim().toLowerCase() === key);
 }
 
 export function overnightCityForDay(

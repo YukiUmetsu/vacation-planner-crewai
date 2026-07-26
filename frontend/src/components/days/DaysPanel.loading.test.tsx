@@ -66,4 +66,19 @@ describe("DaysPanel loading", () => {
     expect(screen.getByText("Suggesting a place")).toBeInTheDocument();
     expect(screen.getByText(/Finding a spot in Tokyo/i)).toBeInTheDocument();
   });
+
+  it("disables suggest while day planning is in progress", () => {
+    render(
+      <DaysPanel
+        days={[day1]}
+        dayCount={5}
+        destination="Japan"
+        pending
+        onSuggestPlace={() => undefined}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /Suggest a place/i }),
+    ).toBeDisabled();
+  });
 });

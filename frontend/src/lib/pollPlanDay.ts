@@ -1,6 +1,7 @@
 /** Poll GET /trips/:id until a planned day appears or planning fails. */
 
 import { getTrip } from "../api/trips";
+import { messageForApiError } from "../api/http";
 import type { DayPlan, Trip } from "../types/trip";
 
 const DEFAULT_MAX_MS = 4 * 60 * 1000;
@@ -102,7 +103,11 @@ export async function pollUntilDayReady(
       (bundle.trip.status === "failed" || Boolean(bundle.trip.planning_error));
 
     if (failed) {
-      throw new Error("Day planning failed. Please try again.");
+      const detail = String(bundle.trip.planning_error || "").trim();
+      throw new Error(
+        messageForApiError(422, undefined, detail) ||
+          "Day planning failed. Please try again.",
+      );
     }
 
     await sleep(delay, signal);

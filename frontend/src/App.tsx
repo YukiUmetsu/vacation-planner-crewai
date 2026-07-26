@@ -144,6 +144,9 @@ function TripApp({ demoMode }: { demoMode: boolean }) {
           onNightsChange={wizard.handleNightsChange}
           onRemoveCity={wizard.handleRemoveCity}
           onAddCity={wizard.handleAddCity}
+          onSuggestCity={(hint) => void wizard.handleSuggestCity(hint)}
+          suggestCityPending={wizard.suggestCityPending}
+          onMoveCity={wizard.handleMoveCity}
           onPropose={wizard.handlePropose}
           onConfirm={() => void wizard.handleConfirm()}
           onBackToDetails={wizard.goToDetails}
@@ -169,13 +172,18 @@ function TripApp({ demoMode }: { demoMode: boolean }) {
             wizard.destination
           }
           energyLevel={wizard.profile.energyLevel}
-          pending={wizard.planPending}
+          pending={
+            wizard.planPending ||
+            (!wizard.demoMode &&
+              wizard.liveTrip?.planning_day_index != null)
+          }
           complete={wizard.days.length >= wizard.dayCount}
           suggestPendingDay={wizard.suggestPendingDay}
           onPlanNextDay={() => void wizard.handlePlanNextDay()}
           onAddPlace={demoMode ? wizard.handleAddPlace : undefined}
           onSuggestPlace={wizard.handleSuggestPlace}
           onRemovePlace={wizard.handleRemovePlace}
+          onMovePlace={wizard.handleMovePlace}
           onRemoveDay={wizard.handleRemoveDay}
         />
       )}

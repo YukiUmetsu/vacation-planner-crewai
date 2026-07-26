@@ -22,6 +22,34 @@ describe("mapsLinks", () => {
     expect(href).toContain("uri.amap.com");
   });
 
+  it("ignores stored Google maps_url for Amap places", () => {
+    const href = mapsHref(
+      {
+        name: "Yu Garden",
+        place_id: "amap:B000A8UIN8",
+        places_provider: "amap",
+        maps_url: "https://www.google.com/maps/search/?api=1&query=Yu+Garden",
+      },
+      { overnightCity: "Tokyo", destination: "Japan" },
+    );
+    expect(href).toContain("uri.amap.com");
+    expect(href).toContain("poiid=B000A8UIN8");
+    expect(href).not.toContain("google.com");
+  });
+
+  it("prefers poiid over coordinates when amap place_id is set", () => {
+    const href = mapsHref(
+      {
+        name: "Spot",
+        place_id: "amap:B000A7U3X0",
+        lat: 31.2,
+        lng: 121.5,
+      },
+      { overnightCity: "Shanghai", destination: "China" },
+    );
+    expect(href).toContain("poiid=B000A7U3X0");
+  });
+
   it("returns null embed for mainland China (Amap URI not iframeable)", () => {
     expect(
       mapsEmbedSrc(

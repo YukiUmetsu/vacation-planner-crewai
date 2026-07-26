@@ -25,6 +25,23 @@ const DESTINATION_SCENES: { match: RegExp; scenes: TravelScene[] }[] = [
     ],
   },
   {
+    match:
+      /china|shanghai|beijing|hangzhou|chengdu|guangzhou|shenzhen|xi'?an|xian|nanjing|suzhou|chongqing|wuhan|中国|中國|北京|上海|杭州|成都|广州|廣州|深圳|西安|南京|苏州/,
+    scenes: [
+      { imageUrl: U("photo-1548919973-5cef591cdbc9"), caption: "Shanghai Bund skyline" },
+      { imageUrl: U("photo-1508804185872-d7badad00f7d"), caption: "Beijing hutong light" },
+      { imageUrl: U("photo-1599571234909-29ed5d1321d6"), caption: "West Lake calm" },
+      { imageUrl: U("photo-1537531383198-c1fc642df4c8"), caption: "Chengdu street life" },
+    ],
+  },
+  {
+    match: /korea|seoul|busan|jeju|한국|서울/,
+    scenes: [
+      { imageUrl: U("photo-1538485399081-7191377e8241"), caption: "Seoul city pulse" },
+      { imageUrl: U("photo-1517154421773-0529f29ea451"), caption: "Korean street night" },
+    ],
+  },
+  {
     match: /italy|rome|florence|venice|milan|tuscany/,
     scenes: [
       { imageUrl: U("photo-1516483638261-f4dbaf036963"), caption: "Coastal Italy" },
@@ -86,6 +103,16 @@ const CITY_IMAGE_OVERRIDES: Record<string, string> = {
   osaka: U("photo-1590559899731-a382839e5549", 224),
   hiroshima: U("photo-1528164344705-47542687000d", 224),
   nara: U("photo-1490806843957-31f4c9a91c65", 224),
+  shanghai: U("photo-1548919973-5cef591cdbc9", 224),
+  beijing: U("photo-1508804185872-d7badad00f7d", 224),
+  hangzhou: U("photo-1599571234909-29ed5d1321d6", 224),
+  chengdu: U("photo-1537531383198-c1fc642df4c8", 224),
+  guangzhou: U("photo-1548919973-5cef591cdbc9", 224),
+  shenzhen: U("photo-1548919973-5cef591cdbc9", 224),
+  "xi'an": U("photo-1508804185872-d7badad00f7d", 224),
+  xian: U("photo-1508804185872-d7badad00f7d", 224),
+  nanjing: U("photo-1508804185872-d7badad00f7d", 224),
+  suzhou: U("photo-1599571234909-29ed5d1321d6", 224),
   paris: U("photo-1502602898657-3e91760cbb34", 224),
   // Replaces broken photo-1552832230-c0197dc311b5 (404).
   rome: U("photo-1531572753322-ad063cecc140", 224),
@@ -97,6 +124,7 @@ const CITY_IMAGE_OVERRIDES: Record<string, string> = {
   bangkok: U("photo-1508009603885-50cf7c579365", 224),
   singapore: U("photo-1525625293386-3f8f99389edd", 224),
   seoul: U("photo-1538485399081-7191377e8241", 224),
+  busan: U("photo-1517154421773-0529f29ea451", 224),
   sydney: U("photo-1506973035872-a4ec16b8e8d9", 224),
   athens: U("photo-1555993539-1732b0258235", 224),
   santorini: U("photo-1613395877344-13d4a8e0d49e", 224),

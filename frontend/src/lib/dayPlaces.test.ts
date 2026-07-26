@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   allocateUniquePlaceKey,
   appendPlaceToDay,
+  movePlaceAt,
   removeDayFromDays,
   removePlaceAt,
   removePlaceFromDays,
@@ -56,6 +57,19 @@ describe("removePlaceAt", () => {
     const before = day([{ name: "A", place_key: "a", order_in_day: 1 }]);
     expect(removePlaceAt(before, 3)).toBe(before);
     expect(removePlaceAt(before, -1)).toBe(before);
+  });
+});
+
+describe("movePlaceAt", () => {
+  it("moves and reindexes order_in_day", () => {
+    const before = day([
+      { name: "A", place_key: "a", order_in_day: 1 },
+      { name: "B", place_key: "b", order_in_day: 2 },
+      { name: "C", place_key: "c", order_in_day: 3 },
+    ]);
+    const after = movePlaceAt(before, 0, 2);
+    expect(after.places.map((p) => p.name)).toEqual(["B", "C", "A"]);
+    expect(after.places.map((p) => p.order_in_day)).toEqual([1, 2, 3]);
   });
 });
 

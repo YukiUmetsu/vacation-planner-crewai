@@ -16,10 +16,14 @@ type Props = {
   destination?: string;
   /** Append a place the user typed */
   onAdd?: (place: PlaceDraft) => void;
-  /** Request a place suggestion (demo or API) */
-  onSuggest?: () => void;
+  /** Request a place suggestion (demo or API); optional preference hint. */
+  onSuggest?: (hint?: string) => void;
   suggestPending?: boolean;
+  /** True while plan-next-day is in flight — suggest is blocked server-side. */
+  dayPlanningPending?: boolean;
 };
+
+type Panel = "closed" | "add" | "suggest";
 
 const fieldClass =
   "mt-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-teal focus:ring-2 focus:ring-teal-soft";
@@ -36,14 +40,17 @@ export function AddPlaceForm({
   onAdd,
   onSuggest,
   suggestPending,
+  dayPlanningPending,
 }: Props) {
-  const [open, setOpen] = useState(false);
+  const [panel, setPanel] = useState<Panel>("closed");
   const [name, setName] = useState("");
   const [category, setCategory] = useState("other");
   const [reason, setReason] = useState("");
+  const [hint, setHint] = useState("");
   const [elapsedSec, setElapsedSec] = useState(0);
 
   const cityLabel = city.trim() || "this day";
+  const suggestBlocked = Boolean(suggestPending || dayPlanningPending);
 
   useEffect(() => {
     if (!suggestPending) {
@@ -57,7 +64,19 @@ export function AddPlaceForm({
     return () => window.clearInterval(id);
   }, [suggestPending]);
 
-  if (!open) {
+  useEffect(() => {
+    if (dayPlanningPending && panel === "suggest") {
+      setHint("");
+      setPanel("closed");
+    }
+  }, [dayPlanningPending, panel]);
+
+  function resetSuggest() {
+    setHint("");
+    setPanel("closed");
+  }
+
+  if (panel === "closed") {
     return (
       <div className="mt-3 space-y-3">
         {suggestPending ? (
@@ -88,19 +107,77 @@ export function AddPlaceForm({
         <div className="flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => setOpen(true)}
-            disabled={suggestPending}
-            className="text-sm font-semibold text-teal hover:underline disabled:opacity-40"
+            onClick={() => setPanel("add")}
+            disabled={suggestBlocked}
+            className="text-sm font-semibold text-teal hover:underline disabled:opacity-40 disabled:no-underline"
           >
             + Add place
           </button>
+          {onSuggest ? (
+            <button
+              type="button"
+              onClick={() => setPanel("suggest")}
+              disabled={suggestBlocked}
+              title={
+                dayPlanningPending
+                  ? "Available after day planning finishes"
+                  : undefined
+              }
+              className="text-sm font-semibold text-teal hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline"
+            >
+              {suggestPending ? "Suggesting…" : "Suggest a place"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (panel === "suggest") {
+    return (
+      <div className="mt-3 rounded-xl border border-line bg-sand/40 p-3">
+        <p className="text-sm font-semibold text-ink">Suggest a place</p>
+        <p className="mt-0.5 text-xs text-ink-muted">
+          Optional preference steers the next stop (e.g. quiet park, ramen,
+          bookstore). Leave blank for a general pick.
+        </p>
+        <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          Preference (optional)
+          <input
+            className={fieldClass}
+            value={hint}
+            onChange={(e) => setHint(e.target.value)}
+            placeholder="e.g. a quiet park"
+            autoFocus
+            disabled={suggestBlocked}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && onSuggest && !suggestBlocked) {
+                e.preventDefault();
+                onSuggest(hint.trim() || undefined);
+                resetSuggest();
+              }
+            }}
+          />
+        </label>
+        <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={onSuggest}
-            disabled={!onSuggest || suggestPending}
-            className="text-sm font-semibold text-teal hover:underline disabled:opacity-40"
+            className="rounded-lg bg-teal px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-deep disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={suggestBlocked || !onSuggest}
+            onClick={() => {
+              onSuggest?.(hint.trim() || undefined);
+              resetSuggest();
+            }}
           >
-            {suggestPending ? "Suggesting…" : "Suggest a place"}
+            {suggestPending ? "Suggesting…" : "Suggest"}
+          </button>
+          <button
+            type="button"
+            className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold text-ink-muted"
+            disabled={suggestPending}
+            onClick={resetSuggest}
+          >
+            Cancel
           </button>
         </div>
       </div>
@@ -161,7 +238,7 @@ export function AddPlaceForm({
             setName("");
             setReason("");
             setCategory("other");
-            setOpen(false);
+            setPanel("closed");
           }}
         >
           Add
@@ -169,7 +246,7 @@ export function AddPlaceForm({
         <button
           type="button"
           className="rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-semibold text-ink-muted"
-          onClick={() => setOpen(false)}
+          onClick={() => setPanel("closed")}
         >
           Cancel
         </button>

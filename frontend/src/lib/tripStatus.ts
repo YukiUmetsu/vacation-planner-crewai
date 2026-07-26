@@ -23,23 +23,37 @@ export function tripStatusLabel(status: string): string {
 }
 
 /**
- * True when Days should kick off plan-next-day (empty itinerary, route ready).
- * Covers fresh confirm and reopening an old trip that never planned day 1.
+ * True when Days should kick off plan-next-day.
+ * Covers fresh confirm, remapped routes with day gaps, and reopen with no day 1.
  */
 export function shouldAutoStartDayPlanning(bundle: {
   trip: Pick<Trip, "status" | "day_count" | "destination_type">;
   route: Pick<Route, "status"> | null | undefined;
-  days: readonly unknown[];
+  days: readonly { day_index?: number }[];
 }): boolean {
-  if (bundle.days.length > 0) return false;
   if (bundle.trip.day_count < 1) return false;
   const status = bundle.trip.status;
   if (status === "complete") return false;
-  if (
-    status === "routing_confirmed" ||
-    status === "planning" ||
-    status === "failed"
-  ) {
+
+  const planned = new Set(
+    bundle.days
+      .map((d) => Number(d.day_index))
+      .filter((n) => Number.isFinite(n) && n >= 1),
+  );
+  let hasGap = false;
+  for (let i = 1; i <= bundle.trip.day_count; i++) {
+    if (!planned.has(i)) {
+      hasGap = true;
+      break;
+    }
+  }
+  if (!hasGap) return false;
+
+  // status=failed: require an explicit Plan next day — auto-retry loops when
+  // BFF quality gates (quality_empty / …) keep failing after crew retries.
+  if (status === "failed") return false;
+
+  if (status === "routing_confirmed" || status === "planning") {
     return true;
   }
   if (bundle.trip.destination_type === "city") return true;

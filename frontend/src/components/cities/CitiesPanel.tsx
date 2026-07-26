@@ -1,10 +1,28 @@
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  type DragEndEvent,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { CityStop } from "../../types/trip";
 import {
   canAddCityStop,
+  maxCitiesForTrip,
   maxEditableNights,
   routeWindowIssue,
 } from "../../lib/cityRoute";
 import { cityImageUrl } from "../../lib/travelAtmosphere";
+import { DragHandle } from "../DragHandle";
 import { AddCityForm } from "./AddCityForm";
 import { CityStopRow } from "./CityStopRow";
 import { FeasibilityBanner } from "./FeasibilityBanner";
@@ -22,11 +40,82 @@ type Props = {
   onNightsChange?: (index: number, nights: number) => void;
   onRemoveCity?: (index: number) => void;
   onAddCity?: (city: string, reason: string) => void;
+  onSuggestCity?: (hint?: string) => void;
+  suggestCityPending?: boolean;
+  onMoveCity?: (fromIndex: number, toIndex: number) => void;
   onKeepFeasibility?: () => void;
   onUndoFeasibility?: () => void;
   proposePending?: boolean;
   confirmPending?: boolean;
 };
+
+function SortableCityItem({
+  id,
+  index,
+  stop,
+  destination,
+  checkingCity,
+  sortable,
+  maxNights,
+  nightsLocked,
+  onNightsChange,
+  onRemoveCity,
+}: {
+  id: string;
+  index: number;
+  stop: CityStop;
+  destination: string;
+  checkingCity?: string | null;
+  sortable: boolean;
+  maxNights?: number;
+  nightsLocked: boolean;
+  onNightsChange?: (index: number, nights: number) => void;
+  onRemoveCity?: (index: number) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled: !sortable });
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.85 : 1,
+      }}
+      className="list-none"
+    >
+      <CityStopRow
+        stop={stop}
+        imageUrl={cityImageUrl(stop.city, destination || stop.country)}
+        checking={checkingCity === stop.city}
+        maxNights={maxNights}
+        nightsLocked={nightsLocked}
+        leading={
+          sortable ? (
+            <DragHandle
+              ref={setActivatorNodeRef}
+              {...attributes}
+              {...listeners}
+              label={`Reorder ${stop.city}`}
+            />
+          ) : undefined
+        }
+        onNightsChange={
+          onNightsChange ? (nights) => onNightsChange(index, nights) : undefined
+        }
+        onRemove={onRemoveCity ? () => onRemoveCity(index) : undefined}
+      />
+    </li>
+  );
+}
 
 /**
  * Presentational Cities step chrome (mockup-aligned).
@@ -44,6 +133,9 @@ export function CitiesPanel({
   onNightsChange,
   onRemoveCity,
   onAddCity,
+  onSuggestCity,
+  suggestCityPending,
+  onMoveCity,
   onKeepFeasibility,
   onUndoFeasibility,
   proposePending,
@@ -51,6 +143,28 @@ export function CitiesPanel({
 }: Props) {
   const windowIssue = routeWindowIssue(cities, dayCount || null);
   const allowAdd = canAddCityStop(cities, dayCount || null);
+  const cityCap = dayCount > 0 ? maxCitiesForTrip(dayCount) : 0;
+  const canSort = Boolean(onMoveCity) && cities.length >= 2;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  const ids = cities.map(
+    (stop, index) => stop.client_id || `${stop.city}-${index}`,
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !onMoveCity) return;
+    const from = ids.indexOf(String(active.id));
+    const to = ids.indexOf(String(over.id));
+    if (from < 0 || to < 0 || from === to) return;
+    onMoveCity(from, to);
+  }
 
   if (proposePending) {
     return (
@@ -92,7 +206,7 @@ export function CitiesPanel({
       </h2>
       <p className="mt-1 text-sm text-ink-muted">
         Review your route, trim stops you don’t want, and adjust nights in each
-        place.
+        place. Drag the grip to reorder.
         {dayCount > 0 ? (
           <>
             {" "}
@@ -108,40 +222,50 @@ export function CitiesPanel({
           No cities yet — propose a route or add a stop below.
         </p>
       ) : (
-        <ol className="mt-2">
-          {cities.map((stop, index) => {
-            const isLast = index === cities.length - 1;
-            const maxNights =
-              dayCount > 0
-                ? maxEditableNights(cities, index, dayCount)
-                : undefined;
-            return (
-              <CityStopRow
-                key={`${stop.client_id ?? stop.city}-${index}`}
-                stop={stop}
-                imageUrl={cityImageUrl(stop.city, destination || stop.country)}
-                checking={checkingCity === stop.city}
-                maxNights={maxNights}
-                nightsLocked={Boolean(dayCount > 0 && isLast)}
-                onNightsChange={
-                  onNightsChange
-                    ? (nights) => onNightsChange(index, nights)
-                    : undefined
-                }
-                onRemove={
-                  onRemoveCity ? () => onRemoveCity(index) : undefined
-                }
-              />
-            );
-          })}
-        </ol>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+            <ol className="mt-2">
+              {cities.map((stop, index) => {
+                const isLast = index === cities.length - 1;
+                const maxNights =
+                  dayCount > 0
+                    ? maxEditableNights(cities, index, dayCount)
+                    : undefined;
+                const id = ids[index]!;
+                return (
+                  <SortableCityItem
+                    key={id}
+                    id={id}
+                    index={index}
+                    stop={stop}
+                    destination={destination}
+                    checkingCity={checkingCity}
+                    sortable={canSort}
+                    maxNights={maxNights}
+                    nightsLocked={Boolean(dayCount > 0 && isLast)}
+                    onNightsChange={onNightsChange}
+                    onRemoveCity={onRemoveCity}
+                  />
+                );
+              })}
+            </ol>
+          </SortableContext>
+        </DndContext>
       )}
 
       <AddCityForm
         onAdd={allowAdd ? onAddCity : undefined}
+        onSuggest={allowAdd ? onSuggestCity : undefined}
+        suggestPending={suggestCityPending}
         disabledReason={
           !allowAdd && dayCount > 0
-            ? `A ${dayCount}-day trip can include at most ${dayCount} cities.`
+            ? `A ${dayCount}-day trip can include at most ${cityCap} ${
+                cityCap === 1 ? "city" : "cities"
+              }.`
             : undefined
         }
       />

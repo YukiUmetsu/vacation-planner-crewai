@@ -50,8 +50,12 @@ describe("DaysPanel energy warning", () => {
         complete
       />,
     );
-    expect(screen.getByRole("status")).toHaveTextContent(/energy load/i);
-    expect(screen.getByRole("status")).toHaveTextContent(/level 1/i);
+    const statuses = screen.getAllByRole("status");
+    const warning = statuses.find((el) =>
+      /energy load/i.test(el.textContent || ""),
+    );
+    expect(warning).toBeTruthy();
+    expect(warning).toHaveTextContent(/level 1/i);
   });
 
   it("stays quiet for high energy on the same day", () => {

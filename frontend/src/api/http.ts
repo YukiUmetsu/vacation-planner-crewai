@@ -21,6 +21,15 @@ const API_ERROR_MESSAGES: Record<string, string> = {
     "Free plan includes one trip. Delete it or upgrade to create another.",
   genai_quota_exceeded:
     "You've reached the planning usage limit. Try again later.",
+  quality_empty:
+    "Not enough open places remained after quality checks. Please try again.",
+  dedupe_empty: "All suggested places were already visited. Please try again.",
+  missing_meals:
+    "That day plan was missing lunch or dinner. Please try planning the day again.",
+  food_only_day:
+    "That day was all restaurants. Please try again so the plan includes at least one non-food stop.",
+  quality_hard_fail:
+    "That day plan did not meet quality checks. Please try again.",
 };
 
 export function messageForApiError(
@@ -30,6 +39,10 @@ export function messageForApiError(
 ): string {
   if (code && API_ERROR_MESSAGES[code]) {
     return API_ERROR_MESSAGES[code];
+  }
+  // Older trips may still store the internal quality_empty detail as planning_error.
+  if (/fewer than 3 open places/i.test(fallback)) {
+    return API_ERROR_MESSAGES.quality_empty;
   }
   if (status >= 500) {
     return "Something went wrong. Please try again.";

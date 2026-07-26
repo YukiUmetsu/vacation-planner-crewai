@@ -13,11 +13,16 @@ import {
 import { DEMO_PLACE_SUGGESTIONS } from "../demo/placeDetails";
 import {
   appendPlaceToDays,
+  movePlaceInDays,
   removeDayFromDays,
   removePlaceFromDays,
 } from "../lib/dayPlaces";
 import {
   addCityStop,
+  canAddCityStop,
+  cityAlreadyListed,
+  maxCitiesForTrip,
+  moveCityAtIndex,
   overnightCityForDay,
   removeCityAtIndex,
   removeCityByClientId,
@@ -79,6 +84,9 @@ export function useTripWizard(demoMode: boolean) {
     null,
   );
   const [demoProposePending, setDemoProposePending] = useState(false);
+  const [suggestCityPending, setSuggestCityPending] = useState(false);
+  /** Avoid double-insert when hydrate/resume and handleSuggestCity both see candidates. */
+  const appliedSuggestCityKeyRef = useRef<string | null>(null);
   const [profile, setProfile] = useState<UserProfile>(() => loadProfile());
   const profileSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingProfileRef = useRef<UserProfile | null>(null);
@@ -277,6 +285,24 @@ export function useTripWizard(demoMode: boolean) {
   }
 
   function handleAddCity(city: string, reason: string) {
+    if (cityAlreadyListed(cities, city)) {
+      setActionError(`“${city.trim()}” is already on your route.`);
+      return;
+    }
+    if (!canAddCityStop(cities, dayCount || undefined)) {
+      const cap =
+        typeof dayCount === "number" && dayCount > 0
+          ? maxCitiesForTrip(dayCount)
+          : null;
+      setActionError(
+        cap != null
+          ? `A ${dayCount}-day trip can include at most ${cap} ${
+              cap === 1 ? "city" : "cities"
+            }.`
+          : "Cannot add another city to this route.",
+      );
+      return;
+    }
     const clientId =
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
@@ -306,6 +332,131 @@ export function useTripWizard(demoMode: boolean) {
       setCheckingCity(null);
       setFeasibilityMessage(demoFeasibilityMessage(updated));
     }, 600);
+  }
+
+  function suggestCityCandidatesKey(
+    trip: Trip | null | undefined,
+  ): string | null {
+    const cands = trip?.suggest_city_candidates;
+    if (!trip?.trip_id || !Array.isArray(cands) || cands.length === 0) {
+      return null;
+    }
+    return `${trip.trip_id}:${cands.map((c) => c.city).join("|")}`;
+  }
+
+  /** Insert first unused candidate (shared by click path + hydrate/resume). */
+  function insertSuggestedCityCandidate(
+    pick: {
+      city: string;
+      country?: string;
+      reason?: string;
+      highlights?: string[];
+      recommended_nights: number;
+    },
+    candidatesKey: string | null,
+  ): boolean {
+    if (!pick.city) return false;
+    if (cityAlreadyListed(cities, pick.city)) {
+      if (candidatesKey) appliedSuggestCityKeyRef.current = candidatesKey;
+      return false;
+    }
+    if (!canAddCityStop(cities, dayCount || undefined)) {
+      if (candidatesKey) appliedSuggestCityKeyRef.current = candidatesKey;
+      return false;
+    }
+    const clientId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `city-${Date.now()}`;
+    const updated = addCityStop(
+      cities,
+      {
+        city: pick.city,
+        country: pick.country || undefined,
+        nights: Math.max(1, pick.recommended_nights || 1),
+        reason: pick.reason || "Suggested overnight stop",
+        highlights: pick.highlights,
+        client_id: clientId,
+      },
+      dayCount || undefined,
+    );
+    if (candidatesKey) appliedSuggestCityKeyRef.current = candidatesKey;
+    setCities(updated);
+    setLastAddedClientId(clientId);
+    return true;
+  }
+
+  // Resume: async suggest-city finished (or was already done) while we were away.
+  useEffect(() => {
+    if (demoMode || suggestCityPending) return;
+    const key = suggestCityCandidatesKey(live.trip);
+    if (!key || key === appliedSuggestCityKeyRef.current) return;
+    const pick = live.trip?.suggest_city_candidates?.[0];
+    if (!pick?.city) return;
+    insertSuggestedCityCandidate(pick, key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apply once per candidate set
+  }, [demoMode, suggestCityPending, live.trip, cities, dayCount]);
+
+  async function handleSuggestCity(hint?: string) {
+    if (suggestCityPending) return;
+    if (!canAddCityStop(cities, dayCount || undefined)) {
+      const cap =
+        typeof dayCount === "number" && dayCount > 0
+          ? maxCitiesForTrip(dayCount)
+          : null;
+      setActionError(
+        cap != null
+          ? `A ${dayCount}-day trip can include at most ${cap} ${
+              cap === 1 ? "city" : "cities"
+            }.`
+          : "Cannot add another city to this route.",
+      );
+      return;
+    }
+    setSuggestCityPending(true);
+    setActionError(null);
+    try {
+      if (demoMode) {
+        const pool = ["Osaka", "Hiroshima", "Nara", "Hakone", "Kanazawa"];
+        const pick =
+          pool.find((c) => !cityAlreadyListed(cities, c)) ?? `Side Trip ${cities.length + 1}`;
+        handleAddCity(
+          pick,
+          hint ? `Suggested for: ${hint}` : "Suggested overnight stop",
+        );
+        return;
+      }
+      if (!tripId) return;
+      const candidates = await liveActions.runSuggestCity({
+        cities,
+        hint,
+        count: 1,
+      });
+      const pick = candidates[0];
+      if (!pick?.city) {
+        setActionError("No city suggestion returned.");
+        return;
+      }
+      const key = `${tripId}:${candidates.map((c) => c.city).join("|")}`;
+      if (cityAlreadyListed(cities, pick.city)) {
+        appliedSuggestCityKeyRef.current = key;
+        setActionError(`“${pick.city}” is already on your route.`);
+        return;
+      }
+      if (!insertSuggestedCityCandidate(pick, key)) {
+        setActionError("Cannot add another city to this route.");
+      }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSuggestCityPending(false);
+    }
+  }
+
+  function handleMoveCity(fromIndex: number, toIndex: number) {
+    setCities((prev) =>
+      moveCityAtIndex(prev, fromIndex, toIndex, dayCount || undefined),
+    );
   }
 
   async function handleCreatedTrip(id: string) {
@@ -528,9 +679,16 @@ export function useTripWizard(demoMode: boolean) {
     ]);
   }
 
-  function handleSuggestPlace(dayIndex: number) {
+  function handleSuggestPlace(dayIndex: number, hint?: string) {
+    if (
+      !demoMode &&
+      (liveActions.planDayMutation.isPending ||
+        live.trip?.planning_day_index != null)
+    ) {
+      return;
+    }
     if (!demoMode) {
-      liveActions.runSuggestPlace(dayIndex);
+      liveActions.runSuggestPlace(dayIndex, hint);
       return;
     }
     const day = days.find((d) => d.day_index === dayIndex);
@@ -640,6 +798,23 @@ export function useTripWizard(demoMode: boolean) {
     setDays((prev) => removePlaceFromDays(prev, dayIndex, placeIndex));
   }
 
+  function handleMovePlace(
+    dayIndex: number,
+    fromIndex: number,
+    toIndex: number,
+  ) {
+    if (demoMode) {
+      setDays((prev) => movePlaceInDays(prev, dayIndex, fromIndex, toIndex));
+      return;
+    }
+    const previousDays = days.map((d) => ({
+      ...d,
+      places: d.places.map((p) => ({ ...p })),
+    }));
+    setDays((prev) => movePlaceInDays(prev, dayIndex, fromIndex, toIndex));
+    liveActions.runReorderPlace(dayIndex, fromIndex, toIndex, previousDays);
+  }
+
   function handleRemoveDay(dayIndex: number) {
     if (!demoMode) {
       // Allow auto-plan to run again if this empties the itinerary.
@@ -697,6 +872,9 @@ export function useTripWizard(demoMode: boolean) {
     goToCities,
     goToDays,
     handleAddCity,
+    handleSuggestCity,
+    suggestCityPending,
+    handleMoveCity,
     handlePropose,
     handleConfirm,
     handleKeepFeasibility,
@@ -707,6 +885,7 @@ export function useTripWizard(demoMode: boolean) {
     handleSuggestPlace,
     handleAddPlace,
     handleRemovePlace,
+    handleMovePlace,
     handleRemoveDay,
   };
 }

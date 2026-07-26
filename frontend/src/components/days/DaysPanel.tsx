@@ -1,4 +1,20 @@
 import { useState } from "react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  type DragEndEvent,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { DayPlan, Place } from "../../types/trip";
 import { enrichPlace } from "../../demo/placeDetails";
 import {
@@ -10,6 +26,7 @@ import {
   type EnergyLevel,
 } from "../../lib/energyLevel";
 import { TravelPlanningLoading } from "../cities/ProposeCitiesLoading";
+import { DragHandle } from "../DragHandle";
 import { AddPlaceForm, type PlaceDraft } from "./AddPlaceForm";
 import { DayEnergyWarning } from "./DayEnergyWarning";
 import { InlineDayPlanningCard } from "./InlineDayPlanningCard";
@@ -31,9 +48,11 @@ type Props = {
   complete?: boolean;
   suggestPendingDay?: number | null;
   onAddPlace?: (dayIndex: number, place: PlaceDraft) => void;
-  onSuggestPlace?: (dayIndex: number) => void;
+  onSuggestPlace?: (dayIndex: number, hint?: string) => void;
   /** Remove one place by day + index (not place_key — keys can collide). */
   onRemovePlace?: (dayIndex: number, placeIndex: number) => void;
+  /** Reorder places within a day (draft + API). */
+  onMovePlace?: (dayIndex: number, fromIndex: number, toIndex: number) => void;
   /** Remove an entire planned day. */
   onRemoveDay?: (dayIndex: number) => void;
 };
@@ -53,6 +72,7 @@ export function DaysPanel({
   onAddPlace,
   onSuggestPlace,
   onRemovePlace,
+  onMovePlace,
   onRemoveDay,
 }: Props) {
   const sorted = [...days].sort((a, b) => a.day_index - b.day_index);
@@ -123,6 +143,7 @@ export function DaysPanel({
             destination={destination}
             energyLevel={energyLevel}
             suggestPending={suggestPendingDay === day.day_index}
+            dayPlanningPending={pending}
             onSelectPlace={(placeIndex, place, previousName) =>
               setSelected({
                 dayIndex: day.day_index,
@@ -139,12 +160,17 @@ export function DaysPanel({
             }
             onSuggestPlace={
               onSuggestPlace && day.places.length < 7
-                ? () => onSuggestPlace(day.day_index)
+                ? (hint?: string) => onSuggestPlace(day.day_index, hint)
                 : undefined
             }
             onRemovePlace={
               onRemovePlace
                 ? (placeIndex) => handleRemovePlace(day.day_index, placeIndex)
+                : undefined
+            }
+            onMovePlace={
+              onMovePlace
+                ? (from, to) => onMovePlace(day.day_index, from, to)
                 : undefined
             }
             onRemoveDay={
@@ -197,28 +223,51 @@ function DayBlock({
   destination,
   energyLevel,
   suggestPending,
+  dayPlanningPending,
   onSelectPlace,
   onAddPlace,
   onSuggestPlace,
   onRemovePlace,
+  onMovePlace,
   onRemoveDay,
 }: {
   day: DayPlan;
   destination?: string;
   energyLevel: EnergyLevel;
   suggestPending?: boolean;
+  dayPlanningPending?: boolean;
   onSelectPlace: (
     placeIndex: number,
     place: Place,
     previousName: string | null,
   ) => void;
   onAddPlace?: (place: PlaceDraft) => void;
-  onSuggestPlace?: () => void;
+  onSuggestPlace?: (hint?: string) => void;
   onRemovePlace?: (placeIndex: number) => void;
+  onMovePlace?: (fromIndex: number, toIndex: number) => void;
   onRemoveDay?: () => void;
 }) {
   const times = summarizeDayTimes(day);
   const energyLoad = assessDayEnergyLoad(energyLevel, times.totalMinutes);
+  const canSort = Boolean(onMovePlace) && day.places.length >= 2;
+  const ids = day.places.map(
+    (p, index) => `${day.day_index}-${index}-${p.place_key}`,
+  );
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !onMovePlace) return;
+    const from = ids.indexOf(String(active.id));
+    const to = ids.indexOf(String(over.id));
+    if (from < 0 || to < 0 || from === to) return;
+    onMovePlace(from, to);
+  }
 
   return (
     <li className="relative">
@@ -272,53 +321,32 @@ function DayBlock({
 
       {day.places.length > 0 && <DayEnergyWarning load={energyLoad} />}
 
-      <ul className="mt-3 space-y-2">
-        {day.places.map((p: Place, index) => {
-          const prev = index > 0 ? day.places[index - 1]?.name : null;
-          const enriched = enrichPlace(p);
-          return (
-            <li
-              key={`${day.day_index}-${index}-${p.place_key}`}
-              className="flex items-start justify-between gap-3 rounded-lg border border-line/70 bg-sand/30 px-3 py-2"
-            >
-              <button
-                type="button"
-                aria-label={`View ${p.name}`}
-                className="min-w-0 flex-1 text-left transition hover:opacity-80"
-                onClick={() => onSelectPlace(index, p, prev)}
-              >
-                <p className="text-sm font-semibold text-teal underline-offset-2 hover:underline">
-                  {p.name}
-                </p>
-                <p className="text-xs text-ink-muted">
-                  {[
-                    enriched.category,
-                    enriched.estimated_minutes
-                      ? `~${enriched.estimated_minutes} min`
-                      : null,
-                    enriched.reason_to_visit,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ") || "Tap for details"}
-                </p>
-              </button>
-              {onRemovePlace && (
-                <button
-                  type="button"
-                  aria-label={`Remove ${p.name}`}
-                  className="shrink-0 text-xs font-semibold text-ink-muted hover:text-warn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRemovePlace(index);
-                  }}
-                >
-                  Remove
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+          <ul className="mt-3 space-y-2">
+            {day.places.map((p: Place, index) => {
+              const prev = index > 0 ? day.places[index - 1]?.name : null;
+              const id = ids[index]!;
+              return (
+                <SortablePlaceRow
+                  key={id}
+                  id={id}
+                  place={p}
+                  sortable={canSort}
+                  onSelect={() => onSelectPlace(index, p, prev ?? null)}
+                  onRemove={
+                    onRemovePlace ? () => onRemovePlace(index) : undefined
+                  }
+                />
+              );
+            })}
+          </ul>
+        </SortableContext>
+      </DndContext>
 
       <AddPlaceForm
         city={day.overnight_city}
@@ -326,7 +354,89 @@ function DayBlock({
         onAdd={onAddPlace}
         onSuggest={onSuggestPlace}
         suggestPending={suggestPending}
+        dayPlanningPending={dayPlanningPending}
       />
+    </li>
+  );
+}
+
+function SortablePlaceRow({
+  id,
+  place,
+  sortable,
+  onSelect,
+  onRemove,
+}: {
+  id: string;
+  place: Place;
+  sortable: boolean;
+  onSelect: () => void;
+  onRemove?: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled: !sortable });
+  const enriched = enrichPlace(place);
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.85 : 1,
+      }}
+      className="flex items-start justify-between gap-3 rounded-lg border border-line/70 bg-sand/30 px-3 py-2"
+    >
+      {sortable ? (
+        <DragHandle
+          ref={setActivatorNodeRef}
+          {...attributes}
+          {...listeners}
+          label={`Reorder ${place.name}`}
+          className="mt-0.5"
+        />
+      ) : null}
+      <button
+        type="button"
+        aria-label={`View ${place.name}`}
+        className="min-w-0 flex-1 text-left transition hover:opacity-80"
+        onClick={onSelect}
+      >
+        <p className="text-sm font-semibold text-teal underline-offset-2 hover:underline">
+          {place.name}
+        </p>
+        <p className="text-xs text-ink-muted">
+          {[
+            enriched.category,
+            enriched.estimated_minutes
+              ? `~${enriched.estimated_minutes} min`
+              : null,
+            enriched.reason_to_visit,
+          ]
+            .filter(Boolean)
+            .join(" · ") || "Tap for details"}
+        </p>
+      </button>
+      {onRemove && (
+        <button
+          type="button"
+          aria-label={`Remove ${place.name}`}
+          className="shrink-0 text-xs font-semibold text-ink-muted hover:text-warn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+        >
+          Remove
+        </button>
+      )}
     </li>
   );
 }

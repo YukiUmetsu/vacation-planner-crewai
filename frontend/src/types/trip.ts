@@ -24,6 +24,20 @@ export type Trip = {
     planning_day_index?: number | null;
     planning_started_at?: string | null;
     planning_error?: string | null;
+    /** In-flight GenAI job: propose_cities | suggest_city | suggest_place. */
+    crew_job_kind?: string | null;
+    crew_job_started_at?: string | null;
+    crew_job_error?: string | null;
+    crew_job_day_index?: number | null;
+    crew_job_baseline_place_count?: number | null;
+    /** Persisted for async suggest-city poll; cleared on next claim. */
+    suggest_city_candidates?: Array<{
+        city: string;
+        country?: string;
+        reason?: string;
+        highlights?: string[];
+        recommended_nights: number;
+    }> | null;
     /** ISO timestamp from API list/get; used for newest-first ordering. */
     created_at?: string;
     updated_at?: string;

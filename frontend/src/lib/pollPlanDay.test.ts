@@ -121,7 +121,22 @@ describe("pollUntilDayReady", () => {
     );
 
     const pending = pollUntilDayReady("t1", 1, { maxMs: 10_000 });
-    await expect(pending).rejects.toThrow(/Day planning failed/);
+    await expect(pending).rejects.toThrow(/crew_failed/);
+  });
+
+  it("rewrites legacy quality_empty planning_error copy", async () => {
+    getTripMock.mockResolvedValue(
+      bundle({
+        planning_day_index: null,
+        status: "failed",
+        planning_error:
+          "fewer than 3 open places remain after closed/visited filters; retry plan-next-day",
+        days: [],
+      }),
+    );
+
+    const pending = pollUntilDayReady("t1", 1, { maxMs: 10_000 });
+    await expect(pending).rejects.toThrow(/Not enough open places/);
   });
 
   it("pauses timeout while the tab is hidden and fetches on visible", async () => {

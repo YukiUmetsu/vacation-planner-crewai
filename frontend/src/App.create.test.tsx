@@ -99,6 +99,7 @@ describe("App live create flow", () => {
     // One shared promise so TripPanel + hydrate both wait (and teardown can finish).
     vi.mocked(getTrip).mockImplementation(() => deferredGetTrip);
     vi.mocked(proposeCities).mockResolvedValue({
+      status: 200 as const,
       trip: { ...createdTrip, status: "awaiting_city_confirm" },
       route: proposedRoute,
     });
@@ -167,6 +168,7 @@ describe("App live create flow", () => {
   it("proposes, confirms cities, and auto-plans the first day", async () => {
     const user = userEvent.setup();
     let proposeResolve: ((value: {
+      status: 200;
       trip: Trip;
       route: typeof proposedRoute;
     }) => void) | null = null;
@@ -185,6 +187,7 @@ describe("App live create flow", () => {
     vi.mocked(confirmCities).mockResolvedValue({
       trip: { ...createdTrip, status: "routing_confirmed" },
       route: { ...proposedRoute, status: "confirmed" },
+      days: [],
     });
     vi.mocked(planNextDay).mockResolvedValue({
       status: 200,
@@ -211,6 +214,7 @@ describe("App live create flow", () => {
       expect(proposeResolve).not.toBeNull();
     });
     proposeResolve!({
+      status: 200,
       trip: { ...createdTrip, status: "awaiting_city_confirm" },
       route: proposedRoute,
     });
@@ -262,6 +266,7 @@ describe("App live create flow", () => {
       days: [],
     });
     vi.mocked(proposeCities).mockResolvedValue({
+      status: 200 as const,
       trip: { ...createdTrip, status: "awaiting_city_confirm" },
       route: proposedRoute,
     });
@@ -441,12 +446,14 @@ describe("App live create flow", () => {
     });
     vi.mocked(getTrip).mockResolvedValue(proposedBundle);
     vi.mocked(proposeCities).mockResolvedValue({
+      status: 200 as const,
       trip: proposedBundle.trip,
       route: proposedRoute,
     });
     vi.mocked(confirmCities).mockResolvedValue({
       trip: confirmedBundle.trip,
       route: confirmedBundle.route!,
+      days: confirmedBundle.days ?? [],
     });
     vi.mocked(planNextDay).mockResolvedValue({
       status: 200,

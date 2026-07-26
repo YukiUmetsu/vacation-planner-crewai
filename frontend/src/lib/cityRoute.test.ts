@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   addCityStop,
   canAddCityStop,
+  cityAlreadyListed,
+  maxCitiesForTrip,
   maxEditableNights,
+  moveCityAtIndex,
   overnightCityForDay,
   recomputeCityDayRanges,
   removeCityAtIndex,
@@ -197,7 +200,9 @@ describe("maxEditableNights and routeWindowIssue", () => {
     );
     expect(maxEditableNights(cities, 0, 7)).toBe(4); // 6 expected − 2 Kyoto
     expect(maxEditableNights(cities, 2, 7)).toBe(1); // last locked to current
-    expect(canAddCityStop(cities, 7)).toBe(true);
+    expect(maxCitiesForTrip(7)).toBe(3);
+    expect(canAddCityStop(cities, 7)).toBe(false); // already at pace cap
+    expect(canAddCityStop(cities.slice(0, 2), 7)).toBe(true);
     expect(canAddCityStop(cities, 3)).toBe(false);
   });
 
@@ -211,12 +216,13 @@ describe("maxEditableNights and routeWindowIssue", () => {
     expect(routeWindowIssue(next, 7)).toBeNull();
   });
 
-  it("reports a clear issue when too many cities for the window", () => {
+  it("reports a clear issue when too many cities for the pace cap", () => {
     const cities = recomputeCityDayRanges(
       [stop("A", 1), stop("B", 1), stop("C", 1), stop("D", 1)],
       3,
     );
-    expect(routeWindowIssue(cities, 3)).toMatch(/at most 3 cities/i);
+    expect(maxCitiesForTrip(3)).toBe(1);
+    expect(routeWindowIssue(cities, 3)).toMatch(/at most 1 city/i);
   });
 });
 
@@ -229,5 +235,19 @@ describe("overnightCityForDay", () => {
     expect(overnightCityForDay(cities, 1)).toBe("Tokyo");
     expect(overnightCityForDay(cities, 4)).toBe("Kyoto");
     expect(overnightCityForDay(cities, 9)).toBeUndefined();
+  });
+});
+
+describe("moveCityAtIndex", () => {
+  it("reorders and recomputes day windows", () => {
+    const cities = recomputeCityDayRanges(
+      [stop("Tokyo", 3), stop("Kyoto", 2), stop("Osaka", 1)],
+      7,
+    );
+    const next = moveCityAtIndex(cities, 0, 2, 7);
+    expect(next.map((c) => c.city)).toEqual(["Kyoto", "Osaka", "Tokyo"]);
+    expect(next[0]!.arrival_day_index).toBe(1);
+    expect(cityAlreadyListed(next, "tokyo")).toBe(true);
+    expect(cityAlreadyListed(next, "Nara")).toBe(false);
   });
 });

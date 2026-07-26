@@ -21,6 +21,24 @@ describe("travelAtmosphere", () => {
   it("maps known cities to override thumbs", () => {
     expect(cityImageUrl("Tokyo")).toContain("photo-1540959733332");
     expect(cityImageUrl("Kyoto")).toContain("photo-1493976040374");
+    expect(cityImageUrl("Shanghai")).toContain("photo-1548919973");
+  });
+
+  it("returns China scenes for Shanghai / China destinations", () => {
+    const scenes = scenesForPlace("Shanghai", "China");
+    expect(scenes[0]!.imageUrl).not.toContain("photo-1488646953014");
+    expect(
+      scenes.some(
+        (s) =>
+          s.caption.toLowerCase().includes("shanghai") ||
+          s.caption.toLowerCase().includes("beijing") ||
+          s.caption.toLowerCase().includes("west lake") ||
+          s.caption.toLowerCase().includes("chengdu"),
+      ),
+    ).toBe(true);
+    expect(scenesForDestination("China")[0]!.caption).not.toEqual(
+      scenesForDestination("Atlantis")[0]!.caption,
+    );
   });
 
   it("prefers city hero imagery when planning a known overnight", () => {

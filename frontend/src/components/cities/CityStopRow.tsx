@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { CityStop } from "../../types/trip";
 import { CityThumb } from "./CityThumb";
 import {
@@ -18,6 +18,8 @@ type Props = {
   /** Update nights for this stop (parent recomputes day ranges). */
   onNightsChange?: (nights: number) => void;
   onRemove?: () => void;
+  /** Optional left-side control (e.g. drag handle). */
+  leading?: ReactNode;
 };
 
 const DEFAULT_HIGHLIGHTS: CityHighlightCategory[] = [
@@ -46,6 +48,7 @@ export function CityStopRow({
   nightsLocked = false,
   onNightsChange,
   onRemove,
+  leading,
 }: Props) {
   const [open, setOpen] = useState(false);
   const categories = highlights ?? highlightsForStop(stop);
@@ -53,8 +56,9 @@ export function CityStopRow({
   const atMax =
     typeof maxNights === "number" ? stop.nights >= maxNights : false;
 
+  // Outer element is a div — CitiesPanel's SortableCityItem already wraps with <li>.
   return (
-    <li
+    <div
       className="relative flex items-start gap-3 border-b border-line py-4 last:border-b-0"
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
@@ -65,6 +69,7 @@ export function CityStopRow({
         }
       }}
     >
+      {leading}
       <div className="relative shrink-0">
         <button
           type="button"
@@ -141,6 +146,6 @@ export function CityStopRow({
           </button>
         )}
       </div>
-    </li>
+    </div>
   );
 }

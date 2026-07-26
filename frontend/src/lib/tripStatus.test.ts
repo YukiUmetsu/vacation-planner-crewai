@@ -81,14 +81,24 @@ describe("shouldAutoStartDayPlanning", () => {
     ).toBe(true);
   });
 
-  it("does not start when days already exist", () => {
+  it("does not start when every day is already planned", () => {
     expect(
       shouldAutoStartDayPlanning({
-        trip: trip({ trip_id: "t", status: "planning" }),
+        trip: trip({ trip_id: "t", status: "planning", day_count: 2 }),
         route: { status: "confirmed" },
-        days: [{ day_index: 1 }],
+        days: [{ day_index: 1 }, { day_index: 2 }],
       }),
     ).toBe(false);
+  });
+
+  it("starts when remapped days leave calendar gaps", () => {
+    expect(
+      shouldAutoStartDayPlanning({
+        trip: trip({ trip_id: "t", status: "planning", day_count: 7 }),
+        route: { status: "confirmed" },
+        days: [{ day_index: 5 }],
+      }),
+    ).toBe(true);
   });
 
   it("does not start while still awaiting city confirm", () => {
@@ -96,6 +106,20 @@ describe("shouldAutoStartDayPlanning", () => {
       shouldAutoStartDayPlanning({
         trip: trip({ trip_id: "t", status: "awaiting_city_confirm" }),
         route: { status: "proposed" },
+        days: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("does not auto-restart after a terminal planning failure", () => {
+    expect(
+      shouldAutoStartDayPlanning({
+        trip: trip({
+          trip_id: "t",
+          status: "failed",
+          destination_type: "city",
+        }),
+        route: { status: "confirmed" },
         days: [],
       }),
     ).toBe(false);

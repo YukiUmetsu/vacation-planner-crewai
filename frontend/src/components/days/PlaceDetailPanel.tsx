@@ -9,6 +9,7 @@ import {
   storedPlacePhotoUrl,
 } from "../../lib/placeImage";
 import type { Place } from "../../types/trip";
+import { StableImage } from "../StableImage";
 
 type Props = {
   place: Place;
@@ -83,10 +84,7 @@ export function PlaceDetailPanel({
     }
 
     setPhotoLoading(true);
-    // Keep a durable URL visible while BFF upgrades to a data URL.
-    if (!storedPlacePhotoUrl(place) && !forceRefresh) {
-      setImageUrl(null);
-    }
+    // Keep a durable URL visible while BFF upgrades to a data URL — never blank.
     void resolvePlacePhoto({
       tripId: ownedTripId!,
       placeKey: placeKey || undefined,
@@ -162,49 +160,46 @@ export function PlaceDetailPanel({
       >
         <div className="relative h-44 shrink-0 overflow-hidden bg-gradient-to-br from-teal-soft via-sand to-sand-deep">
           {showPhoto ? (
-            <img
+            <StableImage
+              key={place.place_key}
               src={imageUrl!}
               alt=""
               className="h-full w-full object-cover"
               loading="lazy"
               // googleusercontent.com 403s when the page Referer is sent.
               referrerPolicy="no-referrer"
-              onError={() => {
-                setImageFailed(true);
-                // Broken durable URL — one BFF re-resolve per place open.
+              onDisplayError={() => {
+                // Prefer one silent BFF refresh over flashing "unavailable".
                 if (tripId?.trim() && !didRefreshRef.current) {
                   didRefreshRef.current = true;
+                  setImageUrl(null);
+                  setPhotoLoading(true);
                   setForceRefresh(true);
+                  return;
                 }
+                setImageFailed(true);
+                setImageUrl(null);
               }}
             />
           ) : null}
+          {/* Stable scrim — do not toggle with photo load/fail (avoids bottom-half flash). */}
           <div
-            className={`absolute inset-0 ${
-              showPhoto
-                ? "bg-gradient-to-t from-ink/55 via-ink/10 to-transparent"
-                : "bg-gradient-to-t from-ink/40 via-transparent to-transparent"
-            }`}
+            className="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink/55 via-ink/15 to-transparent"
+            aria-hidden
           />
           {!showPhoto && !photoLoading && canResolvePlacePhoto(place) ? (
-            <p className="absolute inset-x-0 top-4 px-5 text-xs text-ink-muted">
+            <p className="absolute inset-x-0 top-4 px-5 text-xs text-white/70">
               Photo unavailable
             </p>
           ) : null}
           <header className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 px-5 pb-4 pt-10">
             <div>
-              <p
-                className={`text-xs font-semibold uppercase tracking-wide ${
-                  showPhoto ? "text-white/80" : "text-ink-muted"
-                }`}
-              >
+              <p className="text-xs font-semibold uppercase tracking-wide text-white/80">
                 {place.category || "Place"}
               </p>
               <h2
                 id="place-detail-title"
-                className={`font-display text-2xl font-semibold drop-shadow ${
-                  showPhoto ? "text-white" : "text-ink"
-                }`}
+                className="font-display text-2xl font-semibold text-white drop-shadow"
               >
                 {place.name}
               </h2>
@@ -213,11 +208,7 @@ export function PlaceDetailPanel({
               ref={closeRef}
               type="button"
               onClick={onClose}
-              className={`rounded-lg border px-2.5 py-1 text-sm font-semibold backdrop-blur ${
-                showPhoto
-                  ? "border-white/40 bg-ink/40 text-white hover:bg-ink/55"
-                  : "border-line bg-surface/80 text-ink hover:bg-teal-soft"
-              }`}
+              className="rounded-lg border border-white/40 bg-ink/40 px-2.5 py-1 text-sm font-semibold text-white backdrop-blur hover:bg-ink/55"
             >
               Close
             </button>

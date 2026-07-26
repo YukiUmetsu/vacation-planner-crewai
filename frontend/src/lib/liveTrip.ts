@@ -5,11 +5,19 @@ import {
   getTrip,
   proposeCities,
   removePlace,
+  reorderPlace,
+  suggestCity,
   suggestPlace,
+  type CitySuggestion,
 } from "../api/trips";
 import type { CityStop, DayPlan, Route, Trip, TripBundle } from "../types/trip";
 import { useRef, type SetStateAction } from "react";
 import { executePlanDayRequest } from "./executePlanDayRequest";
+import {
+  pollUntilProposeReady,
+  pollUntilSuggestCityReady,
+  pollUntilSuggestPlaceReady,
+} from "./pollCrewJob";
 import { trackProductEvent } from "./productEvents";
 
 /** Stable fingerprint of a city route for "accepted without edit" metrics. */
@@ -145,8 +153,23 @@ export function useLiveTripActions({
     mutationFn: async (id: string) => {
       const epoch = proposeEpochRef.current;
       try {
-        const data = await proposeCities(id);
-        return { data, epoch, id, ok: true as const };
+        const started = await proposeCities(id);
+        if (started.status === 202) {
+          if (tripId === id && proposeEpochRef.current === epoch) {
+            onApplied((prev) => {
+              if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+              return { ...prev, trip: started.trip };
+            });
+          }
+          const data = await pollUntilProposeReady(id);
+          return { data, epoch, id, ok: true as const };
+        }
+        return {
+          data: { trip: started.trip, route: started.route },
+          epoch,
+          id,
+          ok: true as const,
+        };
       } catch (err) {
         return { err, epoch, id, ok: false as const };
       }
@@ -185,6 +208,8 @@ export function useLiveTripActions({
     onSuccess: (data, { id, route }) => {
       if (tripId !== id) return;
       onActionError(null);
+      // Ignore in-flight plan writes; days may have been remapped onto new indexes.
+      planEpochRef.current += 1;
       const fingerprint = routeAcceptanceFingerprint(route);
       const withoutEdit =
         lastProposedFingerprintRef.current != null &&
@@ -221,7 +246,7 @@ export function useLiveTripActions({
         return applyTripBundle({
           trip: data.trip,
           route: data.route,
-          days: prev.days,
+          days: data.days ?? [],
         });
       });
       invalidateTrip(queryClient, id);
@@ -261,6 +286,31 @@ export function useLiveTripActions({
             ? result.err.message
             : "Failed to plan next day";
         onActionError(message);
+        // Sync trip from server so a terminal failure clears stale
+        // planning_day_index (set in onAsyncStarted) and status=failed sticks.
+        void getTrip(result.id)
+          .then((bundle) => {
+            if (planEpochRef.current !== result.epoch) return;
+            if (tripId !== result.id) return;
+            onApplied((prev) => {
+              if (prev.trip?.trip_id && prev.trip.trip_id !== result.id) {
+                return prev;
+              }
+              return {
+                ...prev,
+                trip: bundle.trip,
+                days: bundle.days.length
+                  ? bundle.days.map((d) => ({
+                      ...d,
+                      places: d.places.map((p) => ({ ...p })),
+                    }))
+                  : prev.days,
+              };
+            });
+          })
+          .catch(() => {
+            /* keep local error message; hydrate can recover later */
+          });
         return;
       }
       onActionError(null);
@@ -283,8 +333,35 @@ export function useLiveTripActions({
   });
 
   const suggestPlaceMutation = useMutation({
-    mutationFn: ({ id, dayIndex }: { id: string; dayIndex: number }) =>
-      suggestPlace(id, dayIndex),
+    mutationFn: async ({
+      id,
+      dayIndex,
+      hint,
+    }: {
+      id: string;
+      dayIndex: number;
+      hint?: string;
+    }) => {
+      const started = await suggestPlace(id, dayIndex, { hint });
+      if (started.status === 202) {
+        if (tripId === id) {
+          onApplied((prev) => {
+            if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+            return { ...prev, trip: started.trip };
+          });
+        }
+        return pollUntilSuggestPlaceReady(
+          id,
+          started.day_index,
+          started.baseline_place_count,
+        );
+      }
+      return {
+        place: started.place,
+        day: started.day,
+        trip: started.trip,
+      };
+    },
     onSuccess: (data, { id }) => {
       if (tripId !== id) return;
       onActionError(null);
@@ -348,6 +425,112 @@ export function useLiveTripActions({
     },
   });
 
+  const reorderPlaceMutation = useMutation({
+    mutationFn: ({
+      id,
+      dayIndex,
+      fromIndex,
+      toIndex,
+    }: {
+      id: string;
+      dayIndex: number;
+      fromIndex: number;
+      toIndex: number;
+      previousDays?: DayPlan[];
+    }) => reorderPlace(id, dayIndex, fromIndex, toIndex),
+    onSuccess: (data, { id, dayIndex, fromIndex, toIndex }) => {
+      if (tripId !== id) return;
+      onActionError(null);
+      void trackProductEvent("place_reordered", {
+        tripId: id,
+        dayIndex,
+        payload: { from_index: fromIndex, to_index: toIndex },
+      });
+      const day = data.day;
+      onApplied((prev) => {
+        if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+        const nextDays = [
+          ...prev.days.filter((d) => d.day_index !== day.day_index),
+          day,
+        ].sort((a, b) => a.day_index - b.day_index);
+        return {
+          ...prev,
+          trip: data.trip,
+          days: nextDays,
+        };
+      });
+      invalidateTrip(queryClient, id);
+    },
+    onError: (err: Error, { id, previousDays }) => {
+      if (tripId !== id) return;
+      onActionError(err.message);
+      if (previousDays) {
+        onApplied((prev) => {
+          if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+          return { ...prev, days: previousDays };
+        });
+      }
+      invalidateTrip(queryClient, id);
+    },
+  });
+
+  const suggestCityMutation = useMutation({
+    mutationFn: async ({
+      id,
+      cities,
+      hint,
+      count,
+    }: {
+      id: string;
+      cities?: CityStop[];
+      hint?: string;
+      count?: number;
+    }) => {
+      const started = await suggestCity(id, {
+        cities: cities?.map((c) => ({
+          city: c.city,
+          country: c.country,
+          nights: c.nights,
+          reason: c.reason,
+        })),
+        hint,
+        count,
+      });
+      if (started.status === 202) {
+        if (tripId === id) {
+          onApplied((prev) => {
+            if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+            return { ...prev, trip: started.trip };
+          });
+        }
+        return pollUntilSuggestCityReady(id);
+      }
+      return {
+        candidates: started.candidates,
+        trip: started.trip,
+      };
+    },
+    onSuccess: (data, { id }) => {
+      if (tripId !== id) return;
+      onActionError(null);
+      onApplied((prev) => {
+        if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+        return {
+          ...prev,
+          trip: {
+            ...data.trip,
+            suggest_city_candidates: data.candidates,
+          },
+        };
+      });
+      invalidateTrip(queryClient, id);
+    },
+    onError: (err: Error, { id }) => {
+      if (tripId !== id) return;
+      onActionError(err.message);
+    },
+  });
+
   const deleteDayMutation = useMutation({
     mutationFn: ({ id, dayIndex }: { id: string; dayIndex: number }) =>
       deleteDay(id, dayIndex),
@@ -393,6 +576,85 @@ export function useLiveTripActions({
     if (resume != null && !planDayMutation.isPending) {
       planDayMutation.mutate({ id, resumeDayIndex: resume });
     }
+    const job = bundle.trip.crew_job_kind;
+    if (job === "propose_cities" && !proposeMutation.isPending) {
+      void pollUntilProposeReady(id).then(
+        (data) => {
+          if (hydrateEpochRef.current !== epoch) return;
+          if (tripId !== id) return;
+          lastProposedFingerprintRef.current = acceptanceBaselineFromRoute(
+            data.route,
+          );
+          proposalShownAtRef.current = proposalShownAtMs(data.route);
+          onApplied((prev) => {
+            if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+            return applyTripBundle({
+              trip: data.trip,
+              route: data.route,
+              days: prev.days,
+            });
+          });
+          invalidateTrip(queryClient, id);
+        },
+        (err: Error) => {
+          if (tripId !== id) return;
+          onActionError(err.message);
+        },
+      );
+    } else if (job === "suggest_place" && !suggestPlaceMutation.isPending) {
+      const dayIndex = Number(bundle.trip.crew_job_day_index);
+      const baseline = Number(bundle.trip.crew_job_baseline_place_count ?? 0);
+      if (Number.isFinite(dayIndex) && dayIndex >= 1) {
+        void pollUntilSuggestPlaceReady(id, dayIndex, baseline).then(
+          (data) => {
+            if (hydrateEpochRef.current !== epoch) return;
+            if (tripId !== id) return;
+            onApplied((prev) => {
+              if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+              const nextDays = [
+                ...prev.days.filter((d) => d.day_index !== data.day.day_index),
+                data.day,
+              ].sort((a, b) => a.day_index - b.day_index);
+              return { ...prev, trip: data.trip, days: nextDays };
+            });
+            invalidateTrip(queryClient, id);
+          },
+          (err: Error) => {
+            if (tripId !== id) return;
+            onActionError(err.message);
+          },
+        );
+      }
+    } else if (
+      job === "suggest_city" &&
+      !suggestCityMutation.isPending &&
+      !(
+        Array.isArray(bundle.trip.suggest_city_candidates) &&
+        bundle.trip.suggest_city_candidates.length > 0
+      )
+    ) {
+      void pollUntilSuggestCityReady(id).then(
+        (data) => {
+          if (hydrateEpochRef.current !== epoch) return;
+          if (tripId !== id) return;
+          onApplied((prev) => {
+            if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+            return {
+              ...prev,
+              trip: {
+                ...data.trip,
+                suggest_city_candidates: data.candidates,
+              },
+            };
+          });
+          invalidateTrip(queryClient, id);
+        },
+        (err: Error) => {
+          if (tripId !== id) return;
+          onActionError(err.message);
+        },
+      );
+    }
     return { bundle, applied: true as const };
   }
 
@@ -414,6 +676,8 @@ export function useLiveTripActions({
     planDayMutation.reset();
     suggestPlaceMutation.reset();
     removePlaceMutation.reset();
+    reorderPlaceMutation.reset();
+    suggestCityMutation.reset();
     deleteDayMutation.reset();
   }
 
@@ -428,14 +692,45 @@ export function useLiveTripActions({
     planDayMutation.mutate({ id });
   }
 
-  function runSuggestPlace(dayIndex: number) {
+  function runSuggestPlace(dayIndex: number, hint?: string) {
     if (!tripId) return;
-    suggestPlaceMutation.mutate({ id: tripId, dayIndex });
+    suggestPlaceMutation.mutate({ id: tripId, dayIndex, hint });
   }
 
   function runRemovePlace(dayIndex: number, placeIndex: number) {
     if (!tripId) return;
     removePlaceMutation.mutate({ id: tripId, dayIndex, placeIndex });
+  }
+
+  function runReorderPlace(
+    dayIndex: number,
+    fromIndex: number,
+    toIndex: number,
+    previousDays?: DayPlan[],
+  ) {
+    if (!tripId) return;
+    reorderPlaceMutation.mutate({
+      id: tripId,
+      dayIndex,
+      fromIndex,
+      toIndex,
+      previousDays,
+    });
+  }
+
+  async function runSuggestCity(input?: {
+    cities?: CityStop[];
+    hint?: string;
+    count?: number;
+  }): Promise<CitySuggestion[]> {
+    if (!tripId) return [];
+    const data = await suggestCityMutation.mutateAsync({
+      id: tripId,
+      cities: input?.cities,
+      hint: input?.hint,
+      count: input?.count,
+    });
+    return data.candidates ?? [];
   }
 
   function runDeleteDay(dayIndex: number) {
@@ -449,6 +744,8 @@ export function useLiveTripActions({
     planDayMutation,
     suggestPlaceMutation,
     removePlaceMutation,
+    reorderPlaceMutation,
+    suggestCityMutation,
     deleteDayMutation,
     hydrateFromApi,
     runPropose,
@@ -457,6 +754,8 @@ export function useLiveTripActions({
     runPlanNextDay,
     runSuggestPlace,
     runRemovePlace,
+    runReorderPlace,
+    runSuggestCity,
     runDeleteDay,
   };
 }

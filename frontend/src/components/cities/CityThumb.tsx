@@ -3,6 +3,7 @@ import {
   nextDefaultTravelImageUrl,
   travelImageKey,
 } from "../../lib/travelAtmosphere";
+import { StableImage } from "../StableImage";
 
 type Props = {
   city: string;
@@ -26,11 +27,11 @@ export function CityThumb({ city, imageUrl, className = "" }: Props) {
 
   if (src) {
     return (
-      <img
+      <StableImage
         src={src}
         alt=""
         className={`h-14 w-14 shrink-0 rounded-lg object-cover ${className}`}
-        onError={() => {
+        onDisplayError={() => {
           const prev = failedRef.current;
           const key = travelImageKey(src);
           if (prev.some((u) => travelImageKey(u) === key)) return;

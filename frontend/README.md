@@ -51,6 +51,7 @@ Open http://localhost:5173 and walk through:
 1. Fill **Create trip** → submit. The app jumps to Cities and starts proposing immediately (loading canvas with photos / quotes / questions).
 2. With `CREW_MODE=fake`, propose finishes quickly and shows cities with photos — **Remove** any stop, tweak nights, then **Confirm route**.
 3. Days opens and **Plan next day** starts automatically for day 1.
+4. Reload later: **Your trips** on Details lists saved plans; incomplete trips auto-resume into the wizard. Use **+ New trip** to start blank.
 
 Optional: set `CREW_MODE=agentcore` against a deployed runtime (needs `AGENT_RUNTIME_ARN` + AWS creds) to exercise the real city-route crew locally.
 
@@ -74,12 +75,11 @@ Theme: ocean teal + sand, Newsreader + DM Sans (`src/index.css`). Energy load ca
 
 ## Current limitations
 
-- Trip list: `listTrips()` exists on the API client, but the UI does not yet offer a trip picker / resume flow
 - Social login buttons only appear when Facebook/Google IdPs are enabled via Terraform secrets and the SPA is redeployed with that provider list
+- Demo mode does not call `listTrips` / Cognito — use live mode (`VITE_USE_DEMO_DATA=false`) to exercise save / resume
 
 ## Roadmap / planned improvements
 
-- Trip list / resume picker on the landing and wizard entry
 - Richer profile sync (server-backed prefs beyond local cache where still client-only)
 - Demo and live parity for add/remove place where product rules allow
 
@@ -95,7 +95,7 @@ src/
   demo/          # static Japan trip / profile / place details
   components/
     WizardLayout.tsx
-    DetailsStep.tsx / ProfileScreen.tsx / TripStatusBanner.tsx
+    DetailsStep.tsx / ProfileScreen.tsx / TripStatusBanner.tsx / TripSwitcher.tsx
     CreateTripForm.tsx
     TripGist.tsx / TripPanel.tsx
     cities/      # Cities chrome
