@@ -96,9 +96,20 @@ def run_cases(
     producer: Producer,
     *,
     preference_scorer: PreferenceScorer | None = None,
+    show_progress: bool = False,
 ) -> list[EvalResult]:
+    import sys
+
     results: list[EvalResult] = []
-    for case in cases:
+    total = len(cases)
+    for idx, case in enumerate(cases, start=1):
+        if show_progress:
+            print(
+                f"[{idx}/{total}] {case.crew} · {case.id} …",
+                end="",
+                file=sys.stderr,
+                flush=True,
+            )
         started = time.perf_counter()
         try:
             output = producer(case)
@@ -118,6 +129,8 @@ def run_cases(
                     },
                 )
             )
+            if show_progress:
+                print(f" FAIL ({latency_ms / 1000.0:.1f}s)", file=sys.stderr, flush=True)
             continue
         latency_ms = (time.perf_counter() - started) * 1000.0
         if not isinstance(output, dict):
@@ -137,13 +150,21 @@ def run_cases(
                     },
                 )
             )
+            if show_progress:
+                print(f" FAIL ({latency_ms / 1000.0:.1f}s)", file=sys.stderr, flush=True)
             continue
-        results.append(
-            run_case(
-                case,
-                output,
-                preference_scorer=preference_scorer,
-                latency_ms=latency_ms,
-            )
+        result = run_case(
+            case,
+            output,
+            preference_scorer=preference_scorer,
+            latency_ms=latency_ms,
         )
+        results.append(result)
+        if show_progress:
+            status = "PASS" if result.passed else "FAIL"
+            print(
+                f" {status} ({latency_ms / 1000.0:.1f}s)",
+                file=sys.stderr,
+                flush=True,
+            )
     return results

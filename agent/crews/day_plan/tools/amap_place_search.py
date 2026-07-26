@@ -1,13 +1,11 @@
 """Amap (高德) place text search tool for mainland China research."""
 
-from __future__ import annotations
-
 import json
 import os
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Type
+from typing import Any
 
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -27,13 +25,15 @@ class AmapPlaceSearchInput(BaseModel):
 
 
 class AmapPlaceSearchTool(BaseTool):
-    name: str = "Amap Place Search"
+    # Nova ToolUse is unreliable with spaces/hyphens in tool names.
+    name: str = "amap_place_search"
     description: str = (
         "Search mainland China points of interest via Amap (Gaode). "
         "Prefer this over generic web search when overnight_city / destination "
         "is in mainland China. Returns name, address, location, and id."
     )
-    args_schema: Type[BaseModel] = AmapPlaceSearchInput
+    # Concrete schema type (no __future__ annotations): CrewAI loads via importlib.
+    args_schema: type[AmapPlaceSearchInput] = AmapPlaceSearchInput
 
     def _run(self, keywords: str, city: str = "") -> str:
         try:
@@ -105,3 +105,6 @@ class AmapPlaceSearchTool(BaseTool):
             {"count": len(simplified), "pois": simplified},
             ensure_ascii=False,
         )
+
+
+AmapPlaceSearchTool.model_rebuild()

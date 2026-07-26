@@ -40,11 +40,19 @@ def _offline_producer(case: EvalCase) -> dict[str, Any]:
 
 def _live_producer(case: EvalCase) -> dict[str, Any]:
     # Import lazily so offline runs do not need CrewAI on PATH quirks.
+    import os
+
+    # Quiet CrewAI console; progress lines come from the compare/harness loop.
+    os.environ.setdefault("EVALS_QUIET", "1")
+    os.environ.setdefault("CREW_VERBOSE", "0")
+    os.environ["CREWAI_TRACING_ENABLED"] = "false"
+
     agent_root = Path(__file__).resolve().parents[1]
     if str(agent_root) not in sys.path:
         sys.path.insert(0, str(agent_root))
-    from crew_kickoff import run_crew
+    from crew_kickoff import install_quiet_crewai_tracing, run_crew
 
+    install_quiet_crewai_tracing()
     return run_crew(case.crew, case.inputs)
 
 
@@ -99,6 +107,36 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Optional CREW_MODEL_ID override for live / compare runs",
     )
+    parser.add_argument(
+        "--case",
+        action="append",
+        default=[],
+        metavar="ID",
+        help="Only run this fixture id (repeatable). Applied before --max-cases.",
+    )
+    parser.add_argument(
+        "--max-cases",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Cap fixtures after filtering (stable sort by id). Useful for faster live compares.",
+    )
+    parser.add_argument(
+        "--orchestration-smoke",
+        action="store_true",
+        help=(
+            "With --compare-orchestration: use a small curated day_plan subset "
+            "(~8 cases) instead of the full suite"
+        ),
+    )
+    parser.add_argument(
+        "--sequential-arms",
+        action="store_true",
+        help=(
+            "With --compare-orchestration: run day_plan then day_plan_single "
+            "sequentially (default is parallel arms per case)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.model_id:
@@ -110,6 +148,38 @@ def main(argv: list[str] | None = None) -> int:
     if not cases:
         print("No fixtures found.", file=sys.stderr)
         return 2
+
+    if args.orchestration_smoke:
+        from evals.compare_orchestration import ORCHESTRATION_SMOKE_IDS
+
+        allow = set(ORCHESTRATION_SMOKE_IDS)
+        cases = [c for c in cases if c.id in allow]
+        missing = sorted(allow - {c.id for c in cases})
+        if missing:
+            print(
+                f"WARNING: orchestration smoke missing fixtures: {', '.join(missing)}",
+                file=sys.stderr,
+            )
+    if args.case:
+        allow = set(args.case)
+        cases = [c for c in cases if c.id in allow]
+        missing = sorted(allow - {c.id for c in cases})
+        if missing:
+            print(
+                f"ERROR: unknown --case id(s): {', '.join(missing)}",
+                file=sys.stderr,
+            )
+            return 2
+    if args.max_cases is not None:
+        if args.max_cases < 1:
+            print("ERROR: --max-cases must be >= 1", file=sys.stderr)
+            return 2
+        cases = sorted(cases, key=lambda c: c.id)[: args.max_cases]
+
+    if not cases:
+        print("No fixtures left after filters.", file=sys.stderr)
+        return 2
+    print(f"Selected {len(cases)} fixture(s): {', '.join(c.id for c in cases)}")
 
     try:
         preference_scorer = resolve_preference_scorer(args.preference_judge)
@@ -133,52 +203,66 @@ def main(argv: list[str] | None = None) -> int:
             producer=_live_producer,
             preference_scorer=preference_scorer,
             runs_dir=runs_dir,
+            parallel_arms=not args.sequential_arms,
+            report_path=args.report,
         )
-        print(json.dumps(report["decision"], indent=2))
-        print("\n=== day_plan aggregates ===")
-        print(format_metrics_table(report["arms"]["day_plan"]["aggregates"]))
-        print("\n=== day_plan_single aggregates ===")
-        print(format_metrics_table(report["arms"]["day_plan_single"]["aggregates"]))
+        from evals.compare_orchestration import (
+            format_orchestration_markdown,
+            format_orchestration_summary,
+        )
+
+        # Summary always on stderr: quiet mode discards stdout for CrewAI spam.
+        print("\n=== Summary ===", file=sys.stderr)
+        print(format_orchestration_summary(report), file=sys.stderr)
+        print("\n=== day_plan aggregates ===", file=sys.stderr)
+        print(
+            format_metrics_table(report["arms"]["day_plan"]["aggregates"]),
+            file=sys.stderr,
+        )
+        print(
+            f"(passed={report['arms']['day_plan']['passed']} "
+            f"failed={report['arms']['day_plan']['failed']})",
+            file=sys.stderr,
+        )
+        print("\n=== day_plan_single aggregates ===", file=sys.stderr)
+        print(
+            format_metrics_table(report["arms"]["day_plan_single"]["aggregates"]),
+            file=sys.stderr,
+        )
+        print(
+            f"(passed={report['arms']['day_plan_single']['passed']} "
+            f"failed={report['arms']['day_plan_single']['failed']})",
+            file=sys.stderr,
+        )
+        for arm_name in ("day_plan", "day_plan_single"):
+            sample = report["arms"][arm_name].get("sample_failures") or []
+            if sample:
+                print(f"\n=== {arm_name} sample failures ===", file=sys.stderr)
+                for line in sample:
+                    print(f"- {line}", file=sys.stderr)
         if args.report is not None:
-            args.report.parent.mkdir(parents=True, exist_ok=True)
+            # Markdown is written live during the run; JSON still needs a final write.
             if args.report.suffix.lower() == ".json":
+                args.report.parent.mkdir(parents=True, exist_ok=True)
                 args.report.write_text(
                     json.dumps(report, indent=2, ensure_ascii=False),
                     encoding="utf-8",
                 )
-            else:
-                lines = [
-                    "# Orchestration compare",
-                    "",
-                    f"run_id: `{report['run_id']}`",
-                    f"cases: {report['case_count']}",
-                    "",
-                    "## Decision",
-                    "",
-                    f"- keep_three_agent: **{report['decision']['keep_three_agent']}**",
-                    *[f"- {r}" for r in report["decision"]["reasons"]],
-                    "",
-                    "## Aggregates",
-                    "",
-                    "### day_plan",
-                    "",
-                    "```",
-                    format_metrics_table(report["arms"]["day_plan"]["aggregates"]),
-                    "```",
-                    "",
-                    "### day_plan_single",
-                    "",
-                    "```",
-                    format_metrics_table(
-                        report["arms"]["day_plan_single"]["aggregates"]
-                    ),
-                    "```",
-                    "",
-                ]
-                args.report.write_text("\n".join(lines), encoding="utf-8")
-            print(f"\nWrote compare report → {args.report}")
+            elif report.get("report_path") != str(args.report):
+                args.report.parent.mkdir(parents=True, exist_ok=True)
+                args.report.write_text(
+                    format_orchestration_markdown(report),
+                    encoding="utf-8",
+                )
+            print(f"\nWrote compare report → {args.report}", file=sys.stderr)
         if report.get("runs_dir"):
-            print(f"Raw outputs → {report['runs_dir']}")
+            print(f"Raw outputs → {report['runs_dir']}", file=sys.stderr)
+        try:
+            from crew_kickoff import restore_quiet_stdout
+
+            restore_quiet_stdout()
+        except Exception:  # noqa: BLE001
+            pass
         return 0 if report["decision"]["keep_three_agent"] is not None else 0
 
     if not args.live:
@@ -195,7 +279,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     producer = _live_producer if args.live else _offline_producer
-    results = run_cases(cases, producer, preference_scorer=preference_scorer)
+    results = run_cases(
+        cases,
+        producer,
+        preference_scorer=preference_scorer,
+        show_progress=bool(args.live),
+    )
 
     failed = 0
     for result in results:

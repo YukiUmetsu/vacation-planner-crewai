@@ -191,7 +191,7 @@ fields @timestamp, event_name, payload.ms
 7. [x] Offline graded metric dashboard (`--report`) + LLM-as-judge scorer backend (same metric keys).
 8. [x] Persist offline eval runs to dedicated DynamoDB metrics table + private `/metrics` dashboard.
 9. [x] Dual-write online QUALITY/PRODUCT metrics to DynamoDB (keep CloudWatch) + Online SPA section.
-10. [ ] Live `--compare-orchestration` run (Nova Pro × `day_plan` vs `day_plan_single`) and record decision.
+10. [~] Live `--compare-orchestration` (Nova Pro × `day_plan` vs `day_plan_single`) — partial runs recorded below; **full 31-case decision still open**.
 11. [x] Mainland China Places enrich + maps via Amap (高德); researcher Amap tool.
 
 ---
@@ -209,10 +209,95 @@ fields @timestamp, event_name, payload.ms
 
 ```bash
 cd agent
+# Full suite (~31 × 2 arms; ~1h wall-clock) — decision-quality runs
 uv run python -m evals --live --compare-orchestration \
   --report reports/orchestration_compare.md
+
+# Fast smoke (~8 cases; both arms in parallel per case)
+uv run python -m evals --live --compare-orchestration --orchestration-smoke \
+  --report reports/orchestration_compare_smoke.md
+
+# Tool-heavy probe (energy / dense / Amap / closed-day)
+uv run python -m evals --live --compare-orchestration \
+  --case day_plan_energy_high --case day_plan_kyoto_dense \
+  --case day_plan_shanghai_amap --case day_plan_weekday_closed \
+  --report reports/orchestration_compare_tooluse.md
+
+# Or pick cases / cap: --case day_plan_seoul --max-cases 4
+# Serial arms if needed: --sequential-arms
 # optional: --model-id bedrock/...  --runs-dir evals/runs
 ```
+
+### Learnings (2026-07-25 → 2026-07-26)
+
+#### Correctness (multi vs single)
+
+| Run | Cases | Multi pass | Single pass | Keep 3-agent? | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Full (`20260725T212347Z`) | 31 | ~90% hard-pass | ~52% hard-pass | **True** (+39 pp) | Early single prompts; many single ValidationErrors |
+| Mid (`--max-cases 15`-ish) | 15 | 13/15 | 15/15 | **False** | After single prompt tighten; multi thin-day / dup keys |
+| Partial 20 (`20260725T234623Z`) | 20 | 19/20 (95%) | 15/20 (75%) | **True** (+20 pp) | After porting schema rules into 3-agent; report: [`orchestration_compare_smoke.md`](../agent/reports/orchestration_compare_smoke.md) |
+| Tool-heavy (`20260726T001322Z`) | 4 | 4/4 | 4/4 | **True** (pref +0.25) | Post–Nova ToolUse mitigations; [`orchestration_compare_tooluse.md`](../agent/reports/orchestration_compare_tooluse.md) |
+
+**Takeaway:** Single-call can match or beat multi on **schema validity** once prompts are explicit; multi still tends to win on **hard-constraint / preference** when both arms complete. Verdict is **sample-size sensitive** — use full ~31 for a product lock; smoke/partial runs for iteration only.
+
+Prompt versions (bump in `agent/models/vacation_planner_models/prompt_meta.py` when agent/task text changes): `day_plan` **2026-07-25.2** (schema allowlist + unique keys + fill-to-target), `day_plan_single` **2026-07-25.1** (same schema/meal harden). Invocation also records `prompt_hash` of `crew.jsonc` + `agents/*.jsonc`.
+
+#### Cost & latency (Nova Pro, parallel arms)
+
+Observed ballpark (per case, both arms when successful):
+
+| | Multi `day_plan` | Single `day_plan_single` | Ratio |
+| --- | --- | --- | --- |
+| Mean latency | ~35–40s | ~20–28s | ~1.4–1.8× |
+| Cost / case | ~$0.027–0.031 | ~$0.020–0.028 | ~1.1–1.5× |
+
+Both stay well under the decision budgets (2.5× latency / 3× cost). Multi spends more **completion** tokens (3 agents); single often spends more **prompt** tokens (one fat task). Wall-clock for full suite ≈ **1 hour** with parallel arms (2 crews per case).
+
+#### Prompt engineering (transfer single → multi)
+
+What fixed single’s early ValidationError flood, then helped multi’s thin-day / dup-key fails:
+
+1. **Schema-critical category allowlist** — only `museum|food|park|transit|lodging|nightlife|shopping|nature|other`, with remaps (`temple/shrine→other|museum`, `cafe/restaurant→food`). Do **not** teach researchers “category=temple”.
+2. **≥2 `category=food` meals** — lunch + dinner as real Places; `reason_to_visit` prefixed `Lunch —` / `Dinner —`.
+3. **Unique venue-specific `place_key`** — never generic `shopping` / `lunch` / `dinner` (caused `day_plan_exclusion_museums` fail).
+4. **Fill-to-target** — when `target_place_count ≥ 5` or `energy_level ≥ 4`, reviewer/planner must add from the brief instead of shipping a thin 3–4 stop day (`day_plan_energy_high`).
+
+Applied in: `crews/day_plan_single/*` first, then ported into `crews/day_plan` researcher / planner / reviewer + `crew.jsonc` tasks.
+
+#### Nova / Bedrock ToolUse reliability
+
+**Symptom:** `ModelErrorException` / `Model produced invalid sequence as part of ToolUse` (sometimes wrapped in `ConverterError` / `RuntimeError`). Hits tool-heavy cases hardest (`day_plan_energy_high`, dense cities, Amap). Not unique to 3-agent — both arms failed the same case before mitigations.
+
+**Mitigations in `crew_kickoff.py` (and tool modules):**
+
+| Change | Why |
+| --- | --- |
+| `temperature=0` (+ best-effort `max_tokens=4096`) | AWS: greedy decoding + enough completion tokens; truncation mid-tool-call triggers ToolUse errors |
+| Retry **only** ToolUse/ModelError (default `CREW_TOOLUSE_RETRIES=2` → 3 attempts) | Transient Bedrock flake; do not retry schema ValidationErrors |
+| Rename tool `Amap Place Search` → `amap_place_search` | Nova is unreliable with spaces/hyphens in tool names |
+| Quiet evals: stderr progress, suppress Trace Batch panels | Noise ≠ root cause, but made failures visible |
+
+Env knobs: `CREW_LLM_TEMPERATURE`, `CREW_LLM_MAX_TOKENS`, `CREW_TOOLUSE_RETRIES` (see `agent/.env.example`).
+
+**Evidence:** same energy/dense/Amap/closed slice went from ToolUse producer fails → **8/8 arm passes** after mitigations ([`orchestration_compare_tooluse.md`](../agent/reports/orchestration_compare_tooluse.md)); no retry log line that run → likely first-try success from temp/tokens/name, with retry as safety net.
+
+#### Eval UX notes
+
+- Default: **parallel arms** (2 threads / case). Case-level parallelism not enabled; soft max if added later ≈ 2 cases × 2 arms.
+- Reports rewrite live (Progress section); summary table at end. Prefer a **new** `--report` path per experiment so history isn’t overwritten.
+- Fair compare = same fixtures on both arms; `--max-cases` is alphabetical — don’t lock MVP from a truncated slice alone.
+
+#### Open decision
+
+MVP still defaults to **`day_plan` (3-agent)** in production until a clean full-suite run post–prompt+Nova fixes is filed. Re-run:
+
+```bash
+uv run python -m evals --live --compare-orchestration \
+  --report reports/orchestration_compare.md
+```
+
+Then update this section + roadmap item 10 with the final keep/simplify call.
 
 ---
 

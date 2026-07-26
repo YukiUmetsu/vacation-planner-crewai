@@ -87,6 +87,269 @@ def _disable_llm_stream(crew: Any) -> None:
             llm.stream = False
 
 
+def _configure_nova_friendly_llms(crew: Any) -> None:
+    """Prefer greedy decoding + enough completion tokens for Bedrock Nova ToolUse.
+
+    AWS docs: temperature=0 (and topK=1) reduces invalid ToolUse sequences;
+    truncated tool calls from a low maxTokens also trigger ModelErrorException.
+    """
+    try:
+        temperature = float(os.getenv("CREW_LLM_TEMPERATURE", "0"))
+    except ValueError:
+        temperature = 0.0
+    try:
+        max_tokens = int(os.getenv("CREW_LLM_MAX_TOKENS", "4096"))
+    except ValueError:
+        max_tokens = 4096
+    max_tokens = max(512, max_tokens)
+
+    llms: list[Any] = []
+    for agent in getattr(crew, "agents", None) or []:
+        llm = getattr(agent, "llm", None)
+        if llm is not None:
+            llms.append(llm)
+    for attr in ("function_calling_llm", "manager_llm"):
+        llm = getattr(crew, attr, None)
+        if llm is not None:
+            llms.append(llm)
+
+    for llm in llms:
+        for key, value in (
+            ("temperature", temperature),
+            ("max_tokens", max_tokens),
+            ("max_completion_tokens", max_tokens),
+        ):
+            if hasattr(llm, key):
+                try:
+                    setattr(llm, key, value)
+                except Exception:  # noqa: BLE001
+                    pass
+        # LiteLLM / Bedrock extra body (best-effort).
+        for extra_attr in ("additional_model_request_fields", "model_kwargs"):
+            extra = getattr(llm, extra_attr, None)
+            if not isinstance(extra, dict):
+                continue
+            try:
+                inference = dict(extra.get("inferenceConfig") or {})
+                inference["temperature"] = temperature
+                inference["maxTokens"] = max_tokens
+                extra["inferenceConfig"] = inference
+                # Nova greedy tip (topK=1) when the field dict is used.
+                extra.setdefault("topK", 1)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def _is_bedrock_tooluse_error(exc: BaseException) -> bool:
+    """True only for Nova/Bedrock malformed ToolUse failures (retryable)."""
+    needles = (
+        "invalid sequence as part of tooluse",
+        "model produced invalid sequence",
+        "modelerrorexception",
+    )
+    cur: BaseException | None = exc
+    for _ in range(8):
+        if cur is None:
+            break
+        blob = f"{type(cur).__name__}: {cur}".lower()
+        if any(n in blob for n in needles):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
+def _tooluse_retry_attempts() -> int:
+    """Total kickoff attempts when ToolUse fails (1 = no retry)."""
+    raw = os.getenv("CREW_TOOLUSE_RETRIES", "2").strip()
+    try:
+        # retries after first try → attempts = retries + 1
+        retries = int(raw)
+    except ValueError:
+        retries = 2
+    return max(1, min(retries, 5) + 1)
+
+
+def _evals_quiet_enabled() -> bool:
+    flag = os.getenv("EVALS_QUIET", "").strip().lower()
+    if flag in {"1", "true", "yes", "on"}:
+        return True
+    if flag in {"0", "false", "no", "off"}:
+        return False
+    return os.getenv("CREW_VERBOSE", "").strip().lower() in {"0", "false", "no", "off"}
+
+
+def _silence_crew_console(crew: Any) -> None:
+    """Disable CrewAI verbose panels / tracing for eval or CREW_VERBOSE=0 runs."""
+    if not _evals_quiet_enabled():
+        return
+    try:
+        crew.verbose = False
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        crew.tracing = False
+    except Exception:  # noqa: BLE001
+        pass
+    for agent in getattr(crew, "agents", None) or []:
+        try:
+            agent.verbose = False
+        except Exception:  # noqa: BLE001
+            pass
+
+
+class _DiscardingTextIO:
+    """Stdout sink that drops CrewAI/rich spam without touching stderr."""
+
+    encoding = "utf-8"
+
+    def write(self, data: Any) -> int:
+        if data is None:
+            return 0
+        if isinstance(data, (bytes, bytearray)):
+            return len(data)
+        return len(str(data))
+
+    def writelines(self, lines: Any) -> None:
+        for line in lines or []:
+            self.write(line)
+
+    def flush(self) -> None:
+        return None
+
+    def isatty(self) -> bool:
+        return False
+
+    def readable(self) -> bool:
+        return False
+
+    def writable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return False
+
+    def fileno(self) -> int:
+        raise OSError("no fileno for discarding stdout")
+
+
+_QUIET_STDOUT_INSTALLED = False
+_REAL_STDOUT: Any = None
+_QUIET_TRACING_INSTALLED = False
+
+
+def install_quiet_stdout() -> None:
+    """Replace ``sys.stdout`` once for the process (thread-safe for parallel arms).
+
+    Per-kickoff ``redirect_stdout`` races across threads and can leave the real
+    stdout pointing at a dead ``StringIO``, which swallows later progress/summary
+    prints. Progress must use stderr; install this before parallel crew runs.
+    """
+    global _QUIET_STDOUT_INSTALLED, _REAL_STDOUT
+    if not _evals_quiet_enabled() or _QUIET_STDOUT_INSTALLED:
+        return
+    _REAL_STDOUT = sys.stdout
+    sys.stdout = _DiscardingTextIO()
+    _QUIET_STDOUT_INSTALLED = True
+
+
+def restore_quiet_stdout() -> None:
+    """Restore the real stdout after a quiet eval run (optional)."""
+    global _QUIET_STDOUT_INSTALLED, _REAL_STDOUT
+    if not _QUIET_STDOUT_INSTALLED:
+        return
+    if _REAL_STDOUT is not None:
+        sys.stdout = _REAL_STDOUT
+    _REAL_STDOUT = None
+    _QUIET_STDOUT_INSTALLED = False
+
+
+def install_quiet_crewai_tracing() -> None:
+    """Hard-disable CrewAI tracing UI during quiet evals.
+
+    CrewAI's ``CREWAI_TRACING_ENABLED=false`` does **not** override prior user
+    consent, and ``Trace Batch Finalization`` panels print on stderr without
+    checking ``should_suppress_tracing_messages``. This installs process-wide
+    patches so quiet runs stay silent.
+    """
+    global _QUIET_TRACING_INSTALLED
+    if not _evals_quiet_enabled() or _QUIET_TRACING_INSTALLED:
+        return
+
+    os.environ["CREWAI_TRACING_ENABLED"] = "false"
+    os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
+    # Skip interactive first-time / trace-view prompts.
+    os.environ.setdefault("CREWAI_TESTING", "true")
+
+    try:
+        from crewai.events.listeners.tracing import utils as tracing_utils
+        from crewai.events.listeners.tracing.trace_batch_manager import (
+            TraceBatchManager,
+        )
+        from rich.console import Console
+        from rich.panel import Panel
+    except Exception:  # noqa: BLE001
+        return
+
+    tracing_utils.set_tracing_enabled(False)
+    tracing_utils.set_suppress_tracing_messages(True)
+
+    if not getattr(tracing_utils, "_vacation_planner_quiet_should_enable", False):
+        _orig_should_enable = tracing_utils.should_enable_tracing
+
+        def _should_enable_tracing(*, override: bool | None = None) -> bool:
+            if override is True:
+                return True
+            if override is False:
+                return False
+            env = os.getenv("CREWAI_TRACING_ENABLED", "").strip().lower()
+            if env in {"false", "0", "no", "off"}:
+                return False
+            return bool(_orig_should_enable(override=override))
+
+        tracing_utils.should_enable_tracing = _should_enable_tracing  # type: ignore[method-assign]
+        tracing_utils._vacation_planner_quiet_should_enable = True
+
+    if not getattr(Console, "_vacation_planner_quiet_print", False):
+        _orig_print = Console.print
+
+        def _quiet_print(self: Any, *args: Any, **kwargs: Any) -> Any:
+            if tracing_utils.should_suppress_tracing_messages():
+                for arg in args:
+                    blob = ""
+                    if isinstance(arg, Panel):
+                        blob = f"{getattr(arg, 'title', '')} {arg}"
+                    else:
+                        blob = str(arg)
+                    if any(
+                        needle in blob
+                        for needle in (
+                            "Trace Batch Finalization",
+                            "Trace Batch",
+                            "Tracing Status",
+                            "Tracing Preference",
+                            "Execution Traces",
+                        )
+                    ):
+                        return None
+            return _orig_print(self, *args, **kwargs)
+
+        Console.print = _quiet_print  # type: ignore[method-assign]
+        Console._vacation_planner_quiet_print = True
+
+    if not getattr(TraceBatchManager, "_vacation_planner_quiet_finalize", False):
+        _orig_finalize = TraceBatchManager._finalize_backend_batch
+
+        def _quiet_finalize(self: Any, events_count: int = 0) -> bool:
+            # Event-bus threads may not inherit the suppress ContextVar.
+            tracing_utils.set_suppress_tracing_messages(True)
+            return bool(_orig_finalize(self, events_count))
+
+        TraceBatchManager._finalize_backend_batch = _quiet_finalize  # type: ignore[method-assign]
+        TraceBatchManager._vacation_planner_quiet_finalize = True
+
+    _QUIET_TRACING_INSTALLED = True
+
+
 def extract_pydantic_dict(result: Any, model_cls: type) -> dict[str, Any]:
     """Turn a CrewAI kickoff result into a JSON-serializable dict."""
     pydantic_out = getattr(result, "pydantic", None)
@@ -314,6 +577,8 @@ def run_crew(crew_name: CrewName, inputs: dict[str, Any]) -> dict[str, Any]:
 
     _load_dotenv_once()
     os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
+    if _evals_quiet_enabled():
+        install_quiet_crewai_tracing()
     (Path.cwd() / "logs").mkdir(parents=True, exist_ok=True)
     (crew_dir / "logs").mkdir(parents=True, exist_ok=True)
 
@@ -326,12 +591,67 @@ def run_crew(crew_name: CrewName, inputs: dict[str, Any]) -> dict[str, Any]:
 
     from crewai.project import load_crew
 
+    # Install tracing patches before Crew construction (model validator enables tracing).
+    if _evals_quiet_enabled():
+        install_quiet_crewai_tracing()
+
     crew, default_inputs = load_crew(crew_dir / "crew.jsonc")
     _disable_llm_stream(crew)
+    _configure_nova_friendly_llms(crew)
+    _silence_crew_console(crew)
+    # Install once (not per-kickoff redirect): parallel arms share one sink.
+    install_quiet_stdout()
+    if _evals_quiet_enabled():
+        install_quiet_crewai_tracing()
+        try:
+            from crewai.events.listeners.tracing.utils import (
+                set_suppress_tracing_messages,
+                set_tracing_enabled,
+            )
+
+            set_tracing_enabled(False)
+            set_suppress_tracing_messages(True)
+        except Exception:  # noqa: BLE001
+            pass
+
+    merged_inputs = {**default_inputs, **work_inputs}
+    attempts = _tooluse_retry_attempts()
     started = time.perf_counter()
-    result = crew.kickoff(inputs={**default_inputs, **work_inputs})
+    result: Any = None
+    extracted: dict[str, Any] | None = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            if _evals_quiet_enabled():
+                import logging
+
+                prev_level = logging.root.level
+                logging.root.setLevel(logging.CRITICAL)
+                try:
+                    result = crew.kickoff(inputs=merged_inputs)
+                finally:
+                    logging.root.setLevel(prev_level)
+            else:
+                result = crew.kickoff(inputs=merged_inputs)
+            # Structured-output conversion can also raise ToolUse ModelErrors.
+            extracted = extract_pydantic_dict(result, model_cls)
+            break
+        except Exception as exc:  # noqa: BLE001
+            if _is_bedrock_tooluse_error(exc) and attempt < attempts:
+                print(
+                    f"crew={crew_name} ToolUse error (attempt {attempt}/{attempts}); "
+                    f"retrying… ({type(exc).__name__})",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                time.sleep(min(2.0 * attempt, 6.0))
+                continue
+            raise
+
+    if extracted is None or result is None:
+        raise RuntimeError(f"crew={crew_name} produced no result after ToolUse retries")
+
     latency_ms = max(0, int((time.perf_counter() - started) * 1000))
-    extracted = extract_pydantic_dict(result, model_cls)
     return _wrap_envelope(
         crew_name=crew_name,
         crew_dir=crew_dir,

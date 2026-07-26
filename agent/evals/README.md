@@ -89,11 +89,15 @@ uv run python -m evals            # score fixtures that have sibling *.output.js
 uv run python -m evals --live     # call crew_kickoff (needs credentials)
 uv run python -m evals --live --compare-orchestration \
   --report reports/orchestration_compare.md
+uv run python -m evals --live --compare-orchestration --orchestration-smoke \
+  --report reports/orchestration_compare_smoke.md
 uv run python -m evals --preference-judge llm --report reports/metrics.md
 uv run python -m evals --persist
 ```
 
-`--compare-orchestration` runs each `day_plan` fixture under both `day_plan` and `day_plan_single`, saves raw envelopes under `evals/runs/<run_id>/`, and prints a keep/simplify decision against the bar in [`docs/PLANNING_QUALITY.md`](../../docs/PLANNING_QUALITY.md).
+`--compare-orchestration` runs each `day_plan` fixture under both `day_plan` and `day_plan_single`, saves raw envelopes under `evals/runs/<run_id>/`, and prints a keep/simplify decision against the bar in [`docs/PLANNING_QUALITY.md`](../../docs/PLANNING_QUALITY.md). Live runs set `EVALS_QUIET=1` so CrewAI response panels stay silent; progress is printed to **stderr** (`[n/N] …`) and appended to the report’s **Progress** section (the `.md` is rewritten after each case). The report **Summary** table mirrors the terminal decision table. Use `--sequential-arms` if you need serial execution. Use `--orchestration-smoke` (~8 cases), `--case ID`, or `--max-cases N` for faster live iteration; reserve the full suite for a decision-quality run.
+
+**Learnings** (prompts, Nova ToolUse mitigations, cost/latency/correctness snapshots): see [Orchestration experiment → Learnings](../../docs/PLANNING_QUALITY.md#learnings-2026-07-25--2026-07-26) in `PLANNING_QUALITY.md`.
 
 Offline mode **skips** cases without `fixtures/<id>.output.json` (prints `SKIP`). A golden for `day_plan_example_shape` is included so the default command exits 0.
 
