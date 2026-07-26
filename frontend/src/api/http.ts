@@ -34,6 +34,8 @@ const API_ERROR_MESSAGES: Record<string, string> = {
     "That place is closed on this day of the week. Please try suggesting again.",
   place_closed: "That place is permanently closed. Please try suggesting again.",
   place_duplicate: "That place is already on your trip. Please try suggesting again.",
+  hint_mismatch:
+    "That suggestion did not match what you asked for. Please try again.",
 };
 
 export function messageForApiError(

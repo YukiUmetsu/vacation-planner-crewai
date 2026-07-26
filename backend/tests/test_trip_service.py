@@ -230,9 +230,56 @@ def test_suggest_place_appends_to_day(service: TripService) -> None:
     assert service.runner.last_suggest_place_inputs.get("hint") == (
         "quiet park near the station"
     )
-    assert "Suggestion preference: quiet park near the station" in str(
-        service.runner.last_suggest_place_inputs.get("preferences") or ""
-    )
+    prefs = str(service.runner.last_suggest_place_inputs.get("preferences") or "")
+    assert "Suggestion preference:" not in prefs
+    assert "Prefer a non-food Place this round" not in prefs
+
+
+def test_suggest_place_lunch_hint_allows_food_on_food_only_day(
+    service: TripService,
+) -> None:
+    """User hint 'lunch' must beat prefer_non_food day-balance nudge."""
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+    planned = service.plan_next_day(USER, trip_id)
+    places = list(planned["day"]["places"])
+    # Remove non-food from the end until only food remains (need 2+ for nudge).
+    while places and any(str(p.get("category") or "") != "food" for p in places):
+        idx = next(
+            i
+            for i, p in enumerate(places)
+            if str(p.get("category") or "") != "food"
+        )
+        service.remove_place(USER, trip_id, 1, idx)
+        bundle = service.get_trip(USER, trip_id)
+        day = next(d for d in bundle["days"] if int(d["day_index"]) == 1)
+        places = list(day["places"])
+    assert len(places) >= 2
+    assert all(str(p.get("category") or "") == "food" for p in places)
+
+    suggested = service.suggest_place(USER, trip_id, 1, {"hint": "lunch"})
+    assert service.runner.last_suggest_place_inputs is not None
+    assert service.runner.last_suggest_place_inputs.get("prefer_non_food") == "false"
+    assert service.runner.last_suggest_place_inputs.get("hint") == "lunch"
+    prefs = str(service.runner.last_suggest_place_inputs.get("preferences") or "")
+    assert "Suggestion preference:" not in prefs
+    assert "Never output food-only days" not in prefs
+    assert "Prefer a non-food Place this round" not in prefs
+    assert suggested["place"]["category"] == "food"
+
+
+def test_suggest_place_park_hint_beats_balance_nudge(service: TripService) -> None:
+    trip_id = _create_country(service)
+    _confirm_country(service, trip_id)
+    service.plan_next_day(USER, trip_id)
+    suggested = service.suggest_place(USER, trip_id, 1, {"hint": "quiet park"})
+    assert service.runner.last_suggest_place_inputs is not None
+    assert service.runner.last_suggest_place_inputs.get("prefer_non_food") == "false"
+    assert service.runner.last_suggest_place_inputs.get("hint") == "quiet park"
+    prefs = str(service.runner.last_suggest_place_inputs.get("preferences") or "")
+    assert "Suggestion preference:" not in prefs
+    assert "Prefer a non-food Place this round" not in prefs
+    assert suggested["place"]["category"] == "park"
 
 
 def test_suggest_place_atomic_when_transact_fails(

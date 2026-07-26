@@ -191,17 +191,39 @@ class FakeCrewRunner:
         day_index = str(inputs.get("day_index") or "1").strip() or "1"
         order = str(inputs.get("next_order_in_day") or "1").strip() or "1"
         prefer_non_food = str(inputs.get("prefer_non_food") or "").lower() == "true"
-        # Include day/order so repeated suggests do not collide on place_key.
-        # Always non-food so day-balance tripwires stay green in FakeCrewRunner.
-        name = f"{overnight} Extra Spot D{day_index}-{order}"
+        hint = str(inputs.get("hint") or "").strip()
+        hint_l = hint.casefold()
+        prefs = str(inputs.get("preferences") or "").casefold()
+        # Mirror BFF hint-category inference enough for unit tests.
+        if any(
+            token in hint_l or token in prefs
+            for token in ("lunch", "dinner", "breakfast", "brunch", "category=food")
+        ):
+            name = f"{overnight} Lunch Spot D{day_index}-{order}"
+            category = "food"
+            reason = "Synthetic lunch stop"
+        elif "park" in hint_l or "category=park" in prefs:
+            name = f"{overnight} Park Spot D{day_index}-{order}"
+            category = "park"
+            reason = "Synthetic park stop"
+        elif "bookstore" in hint_l or "shopping" in hint_l or "category=shopping" in prefs:
+            name = f"{overnight} Shop Spot D{day_index}-{order}"
+            category = "shopping"
+            reason = "Synthetic shopping stop"
+        elif prefer_non_food:
+            name = f"{overnight} Extra Spot D{day_index}-{order}"
+            category = "other"
+            reason = "Extra non-food stop"
+        else:
+            name = f"{overnight} Extra Spot D{day_index}-{order}"
+            category = "other"
+            reason = "Extra fake stop"
         address = f"9 Side St #{order}, {overnight}"
         place = {
             "name": name,
             "address": address,
-            "category": "other",
-            "reason_to_visit": (
-                "Extra non-food stop" if prefer_non_food else "Extra fake stop"
-            ),
+            "category": category,
+            "reason_to_visit": reason,
             "details": "Synthetic suggest_place",
             "estimated_minutes": 45,
             "has_bathroom": None,

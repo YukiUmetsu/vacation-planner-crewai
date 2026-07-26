@@ -85,6 +85,9 @@ _PUBLIC_BY_CODE: dict[str, str] = {
     "place_duplicate": (
         "That place is already on your trip. Please try suggesting again."
     ),
+    "hint_mismatch": (
+        "That suggestion did not match what you asked for. Please try again."
+    ),
 }
 
 _DEFAULT_5XX = "Something went wrong. Please try again."

@@ -24,6 +24,7 @@ from planning_quality.day_balance import (
     min_non_food_places_for,
     prefer_non_food_suggestion,
     require_suggested_place_balance,
+    require_suggested_place_matches_hint,
 )
 from shared.energy import MAX_PLACES_PER_DAY, clamp_energy_level, max_minutes_for_energy
 from planning_quality.place_quality import (
@@ -446,32 +447,33 @@ def _suggest_place_sync(
     hint = (hint or "").strip()
     if hint:
         safety.check_text(hint, source="hint")
-        merged_prefs = (
-            f"Suggestion preference: {hint} | {merged_prefs}".strip(" |")
-            if merged_prefs
-            else f"Suggestion preference: {hint}"
-        )
+    honor_user_hint = bool(hint)
     food_crawl_mode = detect_food_crawl_mode(merged_prefs, interests)
     min_non_food = min_non_food_places_for(food_crawl_mode=food_crawl_mode)
     prefer_non_food = prefer_non_food_suggestion(
-        existing, food_crawl_mode=food_crawl_mode
-    )
-    balance_line = day_balance_guidance(
+        existing,
         food_crawl_mode=food_crawl_mode,
-        min_non_food_places=min_non_food,
+        honor_user_hint=honor_user_hint,
     )
-    if prefer_non_food:
-        balance_line = (
-            f"{balance_line} Prefer a non-food Place this round "
-            "(museum, park, shrine, shopping, cultural POI) — the day still "
-            "has no non-food stop."
+    # With a one-off hint, skip day-balance preference lines so the dedicated
+    # crew ``hint`` input stays the clear priority (no duplicate pref prose).
+    if not honor_user_hint:
+        balance_line = day_balance_guidance(
+            food_crawl_mode=food_crawl_mode,
+            min_non_food_places=min_non_food,
         )
-    if balance_line not in merged_prefs:
-        merged_prefs = (
-            f"{balance_line} | {merged_prefs}".strip(" |")
-            if merged_prefs
-            else balance_line
-        )
+        if prefer_non_food:
+            balance_line = (
+                f"{balance_line} Prefer a non-food Place this round "
+                "(museum, park, shrine, shopping, cultural POI) — the day still "
+                "has no non-food stop."
+            )
+        if balance_line not in merged_prefs:
+            merged_prefs = (
+                f"{balance_line} | {merged_prefs}".strip(" |")
+                if merged_prefs
+                else balance_line
+            )
     # Pre-crew gate: safety rejection must not consume GenAI quota.
     safety.check_text(merged_prefs, source="preferences")
     if charge_genai:
@@ -592,6 +594,11 @@ def _suggest_place_sync(
                 validated,
                 existing,
                 food_crawl_mode=food_crawl_mode,
+                honor_user_hint=honor_user_hint,
+            )
+            require_suggested_place_matches_hint(
+                validated,
+                hint=hint,
             )
             last_quality_error = None
             break

@@ -19,6 +19,7 @@ def test_should_retry_weekday_closed_until_max() -> None:
     assert should_retry_suggest_place(code="place_weekday_closed", attempt=0)
     assert should_retry_suggest_place(code="place_closed", attempt=1)
     assert should_retry_suggest_place(code="place_duplicate", attempt=0)
+    assert should_retry_suggest_place(code="hint_mismatch", attempt=0)
     assert not should_retry_suggest_place(code="place_weekday_closed", attempt=2)
     assert not should_retry_suggest_place(code="day_full", attempt=0)
     assert MAX_SUGGEST_PLACE_ATTEMPTS == 3
@@ -84,3 +85,22 @@ def test_retry_inputs_for_permanently_closed() -> None:
     assert "permanently closed" in prefs
     assert "weekday=" not in prefs
     assert "Shuttered Cafe" in str(out["already_visited"])
+
+
+def test_retry_inputs_echo_user_hint_on_mismatch() -> None:
+    base = {
+        "preferences": "food and museums",
+        "hint": "quiet park",
+        "already_visited": "",
+    }
+    out = apply_suggest_place_retry_inputs(
+        base,
+        attempt=1,
+        failure_code="hint_mismatch",
+        plan_date=MONDAY,
+        banned_places=["Wrong Hall"],
+    )
+    prefs = str(out["preferences"])
+    assert "hint_mismatch" in prefs
+    assert "quiet park" in prefs
+    assert "Wrong Hall" in prefs

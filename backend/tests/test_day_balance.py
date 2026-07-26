@@ -8,11 +8,14 @@ from http_utils import ApiError
 from planning_quality.day_balance import (
     day_balance_guidance,
     detect_food_crawl_mode,
+    detect_food_suggest_hint,
+    infer_suggest_hint_category,
     min_non_food_places_for,
     non_food_count,
     prefer_non_food_suggestion,
     require_day_balance,
     require_suggested_place_balance,
+    require_suggested_place_matches_hint,
 )
 
 
@@ -100,6 +103,67 @@ def test_prefer_non_food_allows_meal_on_one_food_partial_day() -> None:
             food_crawl_mode=False,
         )
     assert exc.value.code == "food_only_day"
+
+    # Any explicit user hint overrides the non-food nudge.
+    assert not prefer_non_food_suggestion(
+        two_food, food_crawl_mode=False, honor_user_hint=True
+    )
+    require_suggested_place_balance(
+        {"name": "Dinner", "category": "food"},
+        two_food,
+        food_crawl_mode=False,
+        honor_user_hint=True,
+    )
+
+
+def test_detect_and_infer_suggest_hint() -> None:
+    assert detect_food_suggest_hint("lunch")
+    assert detect_food_suggest_hint("Somewhere for dinner")
+    assert detect_food_suggest_hint("ramen near the station")
+    assert not detect_food_suggest_hint("quiet park")
+    assert not detect_food_suggest_hint("")
+    assert infer_suggest_hint_category("lunch") == "food"
+    assert infer_suggest_hint_category("quiet park") == "park"
+    assert infer_suggest_hint_category("bookstore") == "shopping"
+    assert infer_suggest_hint_category("something chill nearby") is None
+    # Proximity fillers must not force a hard category.
+    assert infer_suggest_hint_category("near the station") is None
+    assert infer_suggest_hint_category("by the metro") is None
+    assert infer_suggest_hint_category("bar near hotel") is None
+    assert infer_suggest_hint_category("hotel stay tonight") == "lodging"
+    # Exhibit intent beats bare coffee/food words.
+    assert infer_suggest_hint_category("coffee museum") == "museum"
+    assert infer_suggest_hint_category("nightlife") == "nightlife"
+
+
+def test_require_suggested_place_matches_hint() -> None:
+    require_suggested_place_matches_hint(
+        {"name": "Ramen", "category": "food"},
+        hint="lunch",
+    )
+    with pytest.raises(ApiError) as exc:
+        require_suggested_place_matches_hint(
+            {"name": "Museum", "category": "museum"},
+            hint="lunch",
+        )
+    assert exc.value.code == "hint_mismatch"
+
+    require_suggested_place_matches_hint(
+        {"name": "Park", "category": "park"},
+        hint="quiet park",
+    )
+    with pytest.raises(ApiError) as exc_park:
+        require_suggested_place_matches_hint(
+            {"name": "Cafe", "category": "food"},
+            hint="quiet park",
+        )
+    assert exc_park.value.code == "hint_mismatch"
+
+    # Ambiguous hint: no hard category tripwire.
+    require_suggested_place_matches_hint(
+        {"name": "Museum", "category": "museum"},
+        hint="something chill nearby",
+    )
 
 
 def test_day_balance_guidance_mentions_mode() -> None:

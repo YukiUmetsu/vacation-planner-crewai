@@ -17,6 +17,7 @@ RETRYABLE_SUGGEST_PLACE_CODES: frozenset[str] = frozenset(
         "place_weekday_closed",
         "place_closed",
         "place_duplicate",
+        "hint_mismatch",
     }
 )
 
@@ -83,12 +84,14 @@ def _retry_hint(
     failure_code: str,
     plan_date: date,
     banned: str,
+    user_hint: str = "",
 ) -> str:
     weekday = plan_date.weekday()
     weekday_name = _WEEKDAY_NAMES[weekday]
     date_s = plan_date.isoformat()
     final = attempt >= 2
     prefix = "FINAL RETRY" if final else "RETRY"
+    hint_label = user_hint.strip() or "(see preferences)"
 
     if failure_code == "place_closed":
         if final:
@@ -110,6 +113,18 @@ def _retry_hint(
         return (
             f"{prefix} (place_duplicate): previous suggestion was already used. "
             f"Do NOT reuse: {banned}. Pick a different venue."
+        )
+
+    if failure_code == "hint_mismatch":
+        if final:
+            return (
+                f"{prefix} (hint_mismatch): still must match user hint {hint_label!r}. "
+                f"Banned: {banned}. Pick a venue that clearly fits that request."
+            )
+        return (
+            f"{prefix} (hint_mismatch): previous pick ignored user hint "
+            f"{hint_label!r}. Do NOT reuse: {banned}. Match that hint "
+            "(and preferred category if stated) — do not substitute an unrelated POI."
         )
 
     # Default: weekday / unknown closed-on-date failures.
@@ -151,6 +166,7 @@ def apply_suggest_place_retry_inputs(
         failure_code=code,
         plan_date=plan_date,
         banned=banned,
+        user_hint=str(inputs.get("hint") or ""),
     )
 
     prefs = str(inputs.get("preferences") or "").strip()
