@@ -515,10 +515,12 @@ export function useLiveTripActions({
       onActionError(null);
       onApplied((prev) => {
         if (prev.trip?.trip_id && prev.trip.trip_id !== id) return prev;
+        const base = data.trip ?? prev.trip;
+        if (!base) return prev;
         return {
           ...prev,
           trip: {
-            ...data.trip,
+            ...base,
             suggest_city_candidates: data.candidates,
           },
         };

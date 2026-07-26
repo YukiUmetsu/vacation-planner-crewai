@@ -458,6 +458,12 @@ describe("useLiveTripActions hydrateFromApi", () => {
       ],
       trip: {
         trip_id: "trip-suggest",
+        origin: "NYC",
+        destination: "Japan",
+        destination_type: "country",
+        start_date: "2026-08-01",
+        end_date: "2026-08-07",
+        day_count: 7,
         status: "awaiting_city_confirm",
         crew_job_kind: null,
       },

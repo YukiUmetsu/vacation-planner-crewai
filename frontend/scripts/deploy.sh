@@ -8,11 +8,23 @@
 #   SKIP_INSTALL=1              # skip npm install
 #   INFRA_DIR=...               # override path to infra/
 #   ALLOW_BROKEN_COGNITO_URLS=1 # continue even if CloudFront callback/logout missing from Cognito
+#   AWS_REGION / AWS_DEFAULT_REGION  # default us-east-1 (stack region); override if needed
 #
 # Cognito must already include this stack's CloudFront URLs (infra/main.tf merges
 # frontend_site_url automatically). If the check fails, terraform apply in infra/.
 
 set -euo pipefail
+
+# Cognito/S3 live in the stack region. A ~/.aws/config default of us-east-2
+# makes describe-user-pool-client look like the pool "does not exist".
+# Only honor an explicit env override; otherwise force us-east-1.
+if [[ -z "${AWS_REGION:-}" && -z "${AWS_DEFAULT_REGION:-}" ]]; then
+  export AWS_REGION=us-east-1
+  export AWS_DEFAULT_REGION=us-east-1
+else
+  export AWS_REGION="${AWS_REGION:-$AWS_DEFAULT_REGION}"
+  export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-$AWS_REGION}"
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -34,6 +46,7 @@ require_cmd terraform
 require_cmd npm
 
 echo "deploy: reading Terraform outputs from ${INFRA_DIR}"
+echo "deploy: AWS_REGION=${AWS_REGION}"
 API_URL="$(tf_out api_endpoint)"
 SITE_URL="$(tf_out frontend_site_url)"
 BUCKET="$(tf_out frontend_bucket_name)"
