@@ -15,7 +15,8 @@ from db.protocols import DynamoDBTable
 from http_utils import ApiError, client_facing_message, public_item
 from models.api import ConfirmCitiesRequest
 from crew_io.envelope import unwrap_crew_payload
-from safety.gate import SafetyGate
+from safety.gate import SafetyGate, check_texts
+from safety.output import check_and_sanitize_city_route
 from shared.route_windows import normalize_route_windows
 from ops.worker_observability import WorkerTimer, log_crew_duration
 from trips.route_reconfirm import remap_itinerary_for_route_reconfirm
@@ -208,8 +209,15 @@ def start_propose_cities(
     profile = ProfileService(table=table, safety=safety).get_profile(
         user_sub, email=email
     )
-    safety.check_text(str(trip.get("preferences") or ""), source="preferences")
-    safety.check_text(str(trip.get("destination") or ""), source="destination")
+    check_texts(
+        safety,
+        {
+            "preferences": str(trip.get("preferences") or ""),
+            "destination": str(trip.get("destination") or ""),
+            "origin": str(trip.get("origin") or ""),
+        },
+        trip_id=trip_id,
+    )
 
     try:
         claimed = repo.claim_crew_job(
@@ -363,8 +371,15 @@ def _propose_cities_sync(
         user_sub, email=email
     )
     # Pre-crew gates first: safety rejection must not consume GenAI quota.
-    safety.check_text(str(trip.get("preferences") or ""), source="preferences")
-    safety.check_text(str(trip.get("destination") or ""), source="destination")
+    check_texts(
+        safety,
+        {
+            "preferences": str(trip.get("preferences") or ""),
+            "destination": str(trip.get("destination") or ""),
+            "origin": str(trip.get("origin") or ""),
+        },
+        trip_id=trip_id,
+    )
     if charge_genai:
         consume_genai_action(
             user_sub=user_sub, profile=profile, email=email, table=table
@@ -394,6 +409,7 @@ def _propose_cities_sync(
     )
     route_data["status"] = "proposed"
     assert_route_fits_window(route_data, int(trip["day_count"]))
+    route_data = check_and_sanitize_city_route(safety, route_data, trip_id=trip_id)
 
     route = repo.put_route(
         user_sub=user_sub,

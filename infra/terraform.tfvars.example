@@ -39,7 +39,8 @@ genai_observability_indexing_percentage = 1
 
 # Safety: create Guardrail + optionally enable ApplyGuardrail on the API Lambda.
 enable_bedrock_guardrails = true
-safety_mode               = "keyword" # or "bedrock" / "guardrails" (requires Guardrail ID+ARN)
+safety_mode               = "bedrock" # keyword | bedrock | off — bedrock recommended when Guardrails enabled
+safety_output_mode        = "observe" # observe (log OUTPUT blocks) | enforce (reject)
 # Only needed when enable_bedrock_guardrails=false (external Guardrail):
 # bedrock_guardrail_id      = ""
 # bedrock_guardrail_version = "1"

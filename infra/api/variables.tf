@@ -37,9 +37,23 @@ variable "agent_runtime_arn" {
 }
 
 variable "safety_mode" {
-  description = "Lambda SAFETY_MODE: keyword (default), bedrock/guardrails (ApplyGuardrail), or off"
+  description = "Lambda SAFETY_MODE: bedrock/guardrails (recommended), keyword, or off"
   type        = string
-  default     = "keyword"
+  default     = "bedrock"
+}
+
+variable "safety_output_mode" {
+  description = "Lambda SAFETY_OUTPUT_MODE: observe (default) or enforce. Aliases block/reject map to enforce."
+  type        = string
+  default     = "observe"
+
+  validation {
+    condition = contains(
+      ["observe", "enforce", "block", "reject"],
+      lower(var.safety_output_mode),
+    )
+    error_message = "safety_output_mode must be observe or enforce (aliases: block, reject)."
+  }
 }
 
 variable "bedrock_guardrail_id" {

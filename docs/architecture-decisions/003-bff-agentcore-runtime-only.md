@@ -111,3 +111,4 @@ flowchart TB
 - [x] Document `CREW_MODE=agentcore` as the only production planning path
 - [x] Terraform: `guardrails/` module (content / topics / words / PII) + Lambda env; ApplyGuardrail IAM only when `SAFETY_MODE=bedrock`
 - [x] Implement `BedrockGuardrailsSafetyGate.check_text` (ApplyGuardrail) and allow `safety_mode = "bedrock"` when Guardrail ID+ARN are set
+- [x] INPUT+OUTPUT batching, `SAFETY_OUTPUT_MODE`, link sanitize, tool scrub — see [007](./007-ai-input-output-safety.md)

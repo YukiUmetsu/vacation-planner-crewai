@@ -7,7 +7,7 @@
   "settings": {
     "verbose": false,
     "allow_delegation": false,
-    "max_iter": 10,
+    "max_iter": 6,
     "planning": false
   }
 }

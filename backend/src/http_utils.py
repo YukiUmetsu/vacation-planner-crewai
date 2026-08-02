@@ -88,6 +88,10 @@ _PUBLIC_BY_CODE: dict[str, str] = {
     "hint_mismatch": (
         "That suggestion did not match what you asked for. Please try again."
     ),
+    "safety_rejected": "That text was blocked by the safety filter. Please rephrase and try again.",
+    "safety_check_unavailable": (
+        "Safety checks are temporarily unavailable. Please try again shortly."
+    ),
 }
 
 _DEFAULT_5XX = "Something went wrong. Please try again."

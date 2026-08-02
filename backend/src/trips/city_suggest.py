@@ -16,7 +16,8 @@ from http_utils import ApiError, client_facing_message, public_item
 from limits.genai import consume_genai_action
 from models.api import SuggestCityDraftStop, SuggestCityRequest
 from ops.worker_observability import WorkerTimer, log_crew_duration
-from safety.gate import SafetyGate
+from safety.gate import SafetyGate, check_texts
+from safety.output import check_and_sanitize_city_candidates
 from shared.route_windows import max_cities_for_trip
 from trips.crud import _json_safe, _load_owned_bundle
 from user_profile.service import ProfileService
@@ -83,19 +84,15 @@ def _safety_check_draft(
     hint: str,
     draft: list[SuggestCityDraftStop] | None,
 ) -> None:
-    if hint:
-        safety.check_text(hint, source="hint")
-    if not draft:
-        return
-    for index, stop in enumerate(draft):
-        safety.check_text(stop.city, source=f"cities[{index}].city")
-        if stop.country:
-            safety.check_text(stop.country, source=f"cities[{index}].country")
-        if stop.reason:
-            safety.check_text(stop.reason, source=f"cities[{index}].reason")
-        for hi, highlight in enumerate(stop.highlights):
-            safety.check_text(highlight, source=f"cities[{index}].highlights[{hi}]")
-
+    fields: dict[str, str | None] = {"hint": hint or None}
+    if draft:
+        for index, stop in enumerate(draft):
+            fields[f"cities[{index}].city"] = stop.city
+            fields[f"cities[{index}].country"] = stop.country or None
+            fields[f"cities[{index}].reason"] = stop.reason or None
+            for hi, highlight in enumerate(stop.highlights):
+                fields[f"cities[{index}].highlights[{hi}]"] = highlight
+    check_texts(safety, fields)
 
 def _dedupe_candidates(
     candidates: list[dict[str, Any]],
@@ -222,8 +219,15 @@ def start_suggest_city(
     count = max(1, min(int(req.count), _MAX_COUNT))
     count = min(count, max_cities - len(listed))
     _safety_check_draft(safety, hint=req.hint, draft=draft)
-    safety.check_text(str(trip.get("preferences") or ""), source="preferences")
-    safety.check_text(str(trip.get("destination") or ""), source="destination")
+    check_texts(
+        safety,
+        {
+            "preferences": str(trip.get("preferences") or ""),
+            "destination": str(trip.get("destination") or ""),
+            "origin": str(trip.get("origin") or ""),
+        },
+        trip_id=trip_id,
+    )
 
     profile = ProfileService(table=table, safety=safety).get_profile(
         user_sub, email=email
@@ -408,8 +412,15 @@ def _suggest_city_sync(
     count = min(count, max_cities - len(listed))
 
     _safety_check_draft(safety, hint=req.hint, draft=draft)
-    safety.check_text(str(trip.get("preferences") or ""), source="preferences")
-    safety.check_text(str(trip.get("destination") or ""), source="destination")
+    check_texts(
+        safety,
+        {
+            "preferences": str(trip.get("preferences") or ""),
+            "destination": str(trip.get("destination") or ""),
+            "origin": str(trip.get("origin") or ""),
+        },
+        trip_id=trip_id,
+    )
 
     profile = ProfileService(table=table, safety=safety).get_profile(
         user_sub, email=email
@@ -484,6 +495,9 @@ def _suggest_city_sync(
             "no new city suggestions available (duplicates or empty result)",
             code="suggest_city_empty",
         )
+    candidates = check_and_sanitize_city_candidates(
+        safety, candidates, trip_id=trip_id
+    )
 
     if complete_job:
         trip_out = repo.complete_crew_job(

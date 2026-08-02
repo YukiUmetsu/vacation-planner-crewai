@@ -119,13 +119,27 @@ variable "genai_cap_day" {
 }
 
 variable "safety_mode" {
-  description = "API Lambda SAFETY_MODE: keyword (default), bedrock/guardrails (ApplyGuardrail), or off."
+  description = "API Lambda SAFETY_MODE: bedrock/guardrails (ApplyGuardrail, recommended), keyword, or off."
   type        = string
-  default     = "keyword"
+  default     = "bedrock"
 
   validation {
     condition     = contains(["keyword", "bedrock", "guardrails", "off", "noop", "none"], var.safety_mode)
     error_message = "safety_mode must be keyword, bedrock, guardrails, or off."
+  }
+}
+
+variable "safety_output_mode" {
+  description = "SAFETY_OUTPUT_MODE: observe (log OUTPUT interventions, still persist) or enforce (reject). Aliases block/reject map to enforce at runtime."
+  type        = string
+  default     = "observe"
+
+  validation {
+    condition = contains(
+      ["observe", "enforce", "block", "reject"],
+      lower(var.safety_output_mode),
+    )
+    error_message = "safety_output_mode must be observe or enforce (aliases: block, reject)."
   }
 }
 

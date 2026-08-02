@@ -15,10 +15,12 @@ Local Vite proxies `/api/*` and strips the prefix; OpenAPI paths match Lambda/AP
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/trips` | Create trip meta (city destinations auto-confirm a synthetic route) |
-| `POST` | `/trips/{id}/propose-cities` | Propose city route via crew |
+| `POST` | `/trips/{id}/propose-cities` | Propose city route via crew (async claim → **202** by default) |
 | `PUT` | `/trips/{id}/cities` | Confirm / edit city route |
-| `POST` | `/trips/{id}/plan-next-day` | Plan + persist next day (dedupe places) |
-| `GET` | `/trips/{id}` | Trip + route + days |
+| `POST` | `/trips/{id}/suggest-city` | Overnight-city candidates (async; not persisted until confirm) |
+| `POST` | `/trips/{id}/plan-next-day` | Plan + persist next day (async on AgentCore; soft energy trim ≥150%) |
+| `POST` | `/trips/{id}/days/{n}/suggest-place` | Append one place (async; energy soft-tag only) |
+| `GET` | `/trips/{id}` | Trip + route + days (clients poll this for async jobs) |
 | `GET` | `/trips` | List current user’s trips |
 | `GET` | `/profile` | Load user profile (defaults if missing) |
 | `PUT` | `/profile` | Upsert prefs, energy_level, interests, visited_places |
@@ -62,7 +64,8 @@ Full map (local + Terraform `TF_VAR_*` + injected Lambda/AgentCore env): **[`doc
 | --- | --- | --- |
 | `AUTH_MODE` | `cognito` | **Fail closed.** Local: set `dev` (`X-Dev-User-Sub` / `DEV_USER_SUB`). Deploy: `cognito` reads `sub` from API Gateway JWT authorizer claims |
 | `CREW_MODE` | `fake` (code default) | Local/tests: `fake` (no CrewAI). `local` = CrewAI in-process (needs `agent/crews`). Deployed Lambda (Terraform): **`agentcore`** = InvokeAgentRuntime |
-| `SAFETY_MODE` | `keyword` | `keyword` deny-list; `bedrock` / `guardrails` → ApplyGuardrail (needs `BEDROCK_GUARDRAIL_ID`); `off` disables |
+| `SAFETY_MODE` | `keyword` | `keyword` deny-list; `bedrock` / `guardrails` → ApplyGuardrail (needs `BEDROCK_GUARDRAIL_ID`); `off` disables. AWS default: `bedrock`. |
+| `SAFETY_OUTPUT_MODE` | `observe` | `observe` = log OUTPUT interventions but persist; `enforce` = reject before save |
 | `BEDROCK_GUARDRAIL_ID` | unset | Required when `SAFETY_MODE=bedrock` |
 | `BEDROCK_GUARDRAIL_VERSION` | `DRAFT` | Guardrail version for ApplyGuardrail |
 | `DYNAMODB_ENDPOINT` | unset | Set to `http://localhost:8000` for DynamoDB Local |
@@ -74,6 +77,7 @@ Full map (local + Terraform `TF_VAR_*` + injected Lambda/AgentCore env): **[`doc
 | `AMAP_WEB_KEY` | unset | Optional Amap Web Service key for mainland China enrich (+ agent research tool) |
 | `PLACES_ENRICH` | `on` | `off` disables enrich even if a key is set |
 | `PLAN_NEXT_DAY_ASYNC` | `auto` | `auto` = async 202 when `CREW_MODE=agentcore`; `on`/`off` force async or sync |
+| `CREW_LLM_ASYNC` | `on` (unset → on) | Async claim → 202 for `propose-cities` / `suggest-city` / `suggest-place`. Set `off` for sync tests |
 
 ## Local API (:8787)
 

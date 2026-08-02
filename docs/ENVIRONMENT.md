@@ -52,7 +52,8 @@ Demo-only UI (no API): leave `VITE_USE_DEMO_DATA` unset and `npm run dev`.
 | --- | --- | --- | --- |
 | `AUTH_MODE` | **`dev`** (required for local API) | `cognito` | `dev` = trust `X-Dev-User-Sub` / `DEV_USER_SUB`. Deploy uses `cognito`. |
 | `CREW_MODE` | `fake` | `fake` | `fake` = no CrewAI. `local` = in-process crews (needs agent deps). `agentcore` = InvokeAgentRuntime (needs ARN). |
-| `SAFETY_MODE` | `off` or `keyword` | `keyword` | `keyword` / `bedrock` / `guardrails` / `off`. |
+| `SAFETY_MODE` | `off` or `keyword` | `keyword` | `keyword` / `bedrock` / `guardrails` / `off`. AWS Terraform default: `bedrock`. |
+| `SAFETY_OUTPUT_MODE` | `observe` | `observe` | `observe` = log OUTPUT interventions, still persist; `enforce` = reject. |
 | `BEDROCK_GUARDRAIL_ID` | unset | unset | Required for `SAFETY_MODE=bedrock`. |
 | `BEDROCK_GUARDRAIL_VERSION` | unset | `DRAFT` | Guardrail version for ApplyGuardrail. |
 | `DYNAMODB_ENDPOINT` | `http://localhost:8000` | unset (AWS) | DynamoDB Local. |
@@ -80,6 +81,7 @@ Demo-only UI (no API): leave `VITE_USE_DEMO_DATA` unset and `npm run dev`.
 | `PLACES_ENRICH` | `on` | `on` | `off` disables enrich even if key set. |
 | `CREW_INPUT_MAX_CHARS` | optional | `16000` | Soft crew-input char budget. |
 | `PLAN_NEXT_DAY_ASYNC` | `auto` / `off` | `auto` | `auto` = async only when `CREW_MODE=agentcore`. Local fake stays sync. |
+| `CREW_LLM_ASYNC` | `on` / `off` | `on` (unset → on) | Async claim → 202 for `propose-cities` / `suggest-city` / `suggest-place`. Unit tests often set `off`. |
 | `LOCAL_API_HOST` | `127.0.0.1` | `127.0.0.1` | Local HTTP bind. |
 | `LOCAL_API_PORT` | `8787` | `8787` | Local HTTP port (Vite proxies `/api`). |
 | `AWS_LAMBDA_FUNCTION_NAME` | unset locally | set by Lambda | Needed only for async Event self-invoke in AWS. |
@@ -184,7 +186,8 @@ Local/dev can still set plaintext `GOOGLE_PLACES_API_KEY`, `AMAP_WEB_KEY`, `PROD
 | `enable_genai_observability` | | no | Account/region Transaction Search singleton. |
 | `genai_observability_indexing_percentage` | | no | e.g. `1` free tier. |
 | `enable_bedrock_guardrails` | | no | Create Guardrail module. |
-| `safety_mode` | | no | Lambda `SAFETY_MODE` (`keyword` / `bedrock` / …). |
+| `safety_mode` | | no | Lambda `SAFETY_MODE` (`bedrock` default / `keyword` / …). |
+| `safety_output_mode` | | no | Lambda `SAFETY_OUTPUT_MODE` (`observe` default / `enforce`). |
 | `bedrock_guardrail_id` / `version` / `arn` | | no | Only if using an external Guardrail. |
 
 ### Example deploy exports
@@ -214,6 +217,7 @@ Also run `backend/scripts/build_lambda.sh` before `terraform apply`, then `./scr
 | `AUTH_MODE` | fixed `cognito` |
 | `CREW_MODE` | fixed `agentcore` |
 | `SAFETY_MODE` | `var.safety_mode` |
+| `SAFETY_OUTPUT_MODE` | `var.safety_output_mode` |
 | `LOG_LEVEL` | fixed `INFO` | CloudWatch log group `/aws/lambda/${project}-${env}-api`. Search with filter `API_ERROR` (see backend README). |
 | `BEDROCK_GUARDRAIL_ID` / `BEDROCK_GUARDRAIL_VERSION` | Guardrail outputs / vars |
 | `GOOGLE_PLACES_SECRET_ARN` | secrets module (runtime fetch) |

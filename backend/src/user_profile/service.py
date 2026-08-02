@@ -15,7 +15,7 @@ from limits.admin import (
 )
 from models.api import UpdateProfileRequest
 from shared.energy import clamp_energy_level, max_minutes_for_energy
-from safety.gate import SafetyGate, get_safety_gate
+from safety.gate import SafetyGate, check_texts, get_safety_gate
 
 
 def _default_profile(user_sub: str) -> dict[str, Any]:
@@ -91,10 +91,13 @@ class ProfileService:
         except Exception as exc:  # noqa: BLE001 — pydantic ValidationError
             raise ApiError(400, f"invalid profile: {exc}", code="validation_error") from exc
 
-        self.safety.check_text(req.preferences, source="preferences")
-        self.safety.check_text(req.display_name, source="display_name")
-        for interest in req.interests:
-            self.safety.check_text(interest, source="interests")
+        fields: dict[str, str | None] = {
+            "preferences": req.preferences,
+            "display_name": req.display_name,
+        }
+        for index, interest in enumerate(req.interests):
+            fields[f"interests[{index}]"] = interest
+        check_texts(self.safety, fields)
 
         # Ensure bootstrap before overwrite so admin role is preserved via put_profile merge.
         self.get_profile(user_sub, email=email)

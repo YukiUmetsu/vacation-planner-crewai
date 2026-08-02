@@ -112,6 +112,7 @@ module "api" {
   cognito_issuer                    = module.cognito.issuer
   agent_runtime_arn                 = module.agentcore.agent_runtime_arn
   safety_mode                       = var.safety_mode
+  safety_output_mode                = var.safety_output_mode
   bedrock_guardrail_id              = local.bedrock_guardrail_id
   bedrock_guardrail_version         = local.bedrock_guardrail_version
   bedrock_guardrail_arn             = local.bedrock_guardrail_arn

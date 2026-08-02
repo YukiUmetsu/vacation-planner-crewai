@@ -2,13 +2,22 @@
 
 import json
 import os
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
+
+# Crew tool files load via importlib; ensure agent/ root is on path for shared scrub.
+_AGENT_ROOT = Path(__file__).resolve().parents[3]
+if str(_AGENT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_AGENT_ROOT))
+
+from tool_result_scrub import scrub_amap_pois_payload  # noqa: E402
 
 AMAP_PLACE_TEXT_URL = "https://restapi.amap.com/v3/place/text"
 
@@ -46,36 +55,42 @@ class AmapPlaceSearchTool(BaseTool):
                 or os.getenv("AMAP_KEY", "").strip()
             )
         if not key:
-            return json.dumps(
+            return scrub_amap_pois_payload(
                 {
                     "error": "AMAP_WEB_KEY not configured",
                     "hint": "Fall back to web search; ask for street-level addresses.",
+                    "pois": [],
                 }
             )
         params: dict[str, str] = {
             "key": key,
-            "keywords": keywords.strip(),
+            "keywords": keywords.strip()[:120],
             "offset": "8",
             "page": "1",
             "extensions": "all",
         }
         if city.strip():
-            params["city"] = city.strip()
+            params["city"] = city.strip()[:80]
             params["citylimit"] = "true"
         url = f"{AMAP_PLACE_TEXT_URL}?{urllib.parse.urlencode(params)}"
         try:
             with urllib.request.urlopen(url, timeout=8.0) as resp:
                 body: dict[str, Any] = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            return json.dumps({"error": f"HTTP {exc.code}", "keywords": keywords})
+            return scrub_amap_pois_payload(
+                {"error": f"HTTP {exc.code}", "keywords": keywords, "pois": []}
+            )
         except Exception as exc:  # noqa: BLE001
-            return json.dumps({"error": str(exc), "keywords": keywords})
+            return scrub_amap_pois_payload(
+                {"error": str(exc), "keywords": keywords, "pois": []}
+            )
 
         if str(body.get("status")) != "1":
-            return json.dumps(
+            return scrub_amap_pois_payload(
                 {
                     "error": body.get("info") or "amap_error",
                     "keywords": keywords,
+                    "pois": [],
                 }
             )
         pois = body.get("pois") if isinstance(body.get("pois"), list) else []
@@ -101,10 +116,7 @@ class AmapPlaceSearchTool(BaseTool):
                     ),
                 }
             )
-        return json.dumps(
-            {"count": len(simplified), "pois": simplified},
-            ensure_ascii=False,
-        )
+        return scrub_amap_pois_payload({"pois": simplified})
 
 
 AmapPlaceSearchTool.model_rebuild()

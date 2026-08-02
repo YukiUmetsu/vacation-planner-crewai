@@ -17,7 +17,7 @@ from db import repository as repo
 from db.protocols import DynamoDBTable
 from http_utils import ApiError, public_item
 from models.api import CreateTripRequest, UpdateTripRequest
-from safety.gate import SafetyGate
+from safety.gate import SafetyGate, check_texts
 from shared.dates import validate_trip_dates
 
 from trips.city_route import synthetic_city_route
@@ -101,8 +101,14 @@ def create_trip(
 
     req = _validate(CreateTripRequest, body)
     start, end, day_count = validate_trip_dates(req.start_date, req.end_date)
-    safety.check_text(req.preferences, source="preferences")
-    safety.check_text(req.destination, source="destination")
+    check_texts(
+        safety,
+        {
+            "preferences": req.preferences,
+            "destination": req.destination,
+            "origin": req.origin,
+        },
+    )
 
     trip_id = str(uuid.uuid4())
     if req.destination_type == "city":
@@ -179,8 +185,15 @@ def update_trip(
         req.preferences if req.preferences is not None else str(trip.get("preferences") or "")
     )
 
-    safety.check_text(preferences, source="preferences")
-    safety.check_text(destination, source="destination")
+    check_texts(
+        safety,
+        {
+            "preferences": preferences,
+            "destination": destination,
+            "origin": origin,
+        },
+        trip_id=trip_id,
+    )
     start, end, day_count = validate_trip_dates(start_raw, end_raw)
 
     updates: dict[str, Any] = {

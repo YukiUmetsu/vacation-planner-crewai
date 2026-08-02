@@ -44,7 +44,8 @@ from ops.worker_observability import log_plan_day_retry, log_quality_metrics
 from places.client import PlacesTransientError
 from places.enrich import enrich_place
 from user_profile.service import ProfileService
-from safety.gate import SafetyGate
+from safety.gate import SafetyGate, check_texts
+from safety.output import check_and_sanitize_place
 
 from trips.crud import _json_safe, _load_owned_bundle, _require_trip
 from trips.prompts import _merge_preferences, _profile_visited_keys
@@ -163,9 +164,16 @@ def start_suggest_place(
         str(profile.get("preferences") or ""),
         interests,
     )
-    safety.check_text(merged_prefs, source="preferences")
-    if hint:
-        safety.check_text(hint, source="hint")
+    check_texts(
+        safety,
+        {
+            "preferences": merged_prefs,
+            "hint": hint or None,
+            "origin": str(trip.get("origin") or ""),
+            "destination": str(trip.get("destination") or ""),
+        },
+        trip_id=trip_id,
+    )
 
     try:
         claimed = repo.claim_crew_job(
@@ -426,8 +434,6 @@ def _suggest_place_sync(
         interests,
     )
     hint = (hint or "").strip()
-    if hint:
-        safety.check_text(hint, source="hint")
     honor_user_hint = bool(hint)
     food_crawl_mode = detect_food_crawl_mode(merged_prefs, interests)
     min_non_food = min_non_food_places_for(food_crawl_mode=food_crawl_mode)
@@ -456,14 +462,25 @@ def _suggest_place_sync(
                 else balance_line
             )
     # Pre-crew gate: safety rejection must not consume GenAI quota.
-    safety.check_text(merged_prefs, source="preferences")
+    check_texts(
+        safety,
+        {
+            "preferences": merged_prefs,
+            "hint": hint or None,
+            "origin": str(trip.get("origin") or ""),
+            "destination": str(trip.get("destination") or ""),
+            "prior_days_summary": str(trip.get("prior_days_summary") or ""),
+        },
+        trip_id=trip_id,
+    )
     if charge_genai:
         consume_genai_action(
             user_sub=user_sub, profile=profile, email=email, table=table
         )
 
     current_total = day_total_minutes(existing)
-    remaining = max_minutes - current_total
+    # Comfort remaining only — never send negative minutes into the crew.
+    remaining = max(0, max_minutes - current_total)
 
     visited = list(trip.get("visited_place_keys") or [])
     for key in _profile_visited_keys(list(profile.get("visited_places") or [])):
@@ -605,6 +622,7 @@ def _suggest_place_sync(
         raise last_quality_error
     if validated is None:
         raise ApiError(500, "suggest place missing after retries", code="internal_error")
+    validated = check_and_sanitize_place(safety, validated, trip_id=trip_id)
     if energy_soft_tags:
         log_quality_metrics(
             trip_id=trip_id,

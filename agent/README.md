@@ -2,6 +2,8 @@
 
 CrewAI crews packaged for **Amazon Bedrock AgentCore Runtime**.
 
+**Safety:** Serper and Amap tool results are treated as untrusted in the BFF/runtime (scrub/cap Amap JSON via `tool_result_scrub.py`; OUTPUT/INPUT gates). Production invoke allows BFF crews only; set `ALLOW_EVAL_CREWS=1` for `day_plan_single` (orchestration evals). Crew **prompt text** is not used as the primary security control — see [ADR 007](../docs/architecture-decisions/007-ai-input-output-safety.md).
+
 ## Layout
 
 | Path | Purpose |

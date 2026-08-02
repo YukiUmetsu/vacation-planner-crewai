@@ -125,6 +125,11 @@ resource "aws_lambda_function" "api" {
         AUTH_MODE                         = "cognito"
         CREW_MODE                         = "agentcore"
         SAFETY_MODE                       = var.safety_mode
+        # Canonicalize aliases (block/reject → enforce); Python also accepts them.
+        SAFETY_OUTPUT_MODE = contains(
+          ["enforce", "block", "reject"],
+          lower(var.safety_output_mode),
+        ) ? "enforce" : "observe"
         LOG_LEVEL                         = "INFO"
         BEDROCK_GUARDRAIL_ID              = var.bedrock_guardrail_id
         BEDROCK_GUARDRAIL_VERSION         = var.bedrock_guardrail_version
