@@ -42,6 +42,8 @@ export type OnlineQualityEvent = {
   crew_name?: string;
   model_id?: string;
   places_count?: number;
+  /** Terminal quality events: optional stops dropped by BFF energy auto-trim. */
+  energy_places_trimmed?: number;
   /** Terminal quality events: 1-based attempt that produced the outcome. */
   plan_day_attempt?: number;
   /** Retry events: 1-based failed attempt / next crew attempt. */

@@ -57,7 +57,8 @@ from planning_quality.quality_policy import (
 )
 from places.enrich import enrich_places
 from user_profile.service import ProfileService
-from safety.gate import SafetyGate
+from safety.gate import SafetyGate, SafetyRejected, check_texts
+from safety.output import check_and_sanitize_day_plan
 from ops.worker_observability import log_plan_day_retry, log_quality_metrics
 
 from trips.city_route import _route_payload, overnight_city_for_day
@@ -203,8 +204,6 @@ def _run_plan_day_and_persist(
     day_date = date_for_day_index(start, next_index)
     overnight = overnight_city_for_day(route, next_index, str(trip["destination"]))
 
-    safety.check_text(str(trip.get("preferences") or ""), source="preferences")
-
     profile = ProfileService(table=table, safety=safety).get_profile(
         user_sub, email=email
     )
@@ -234,15 +233,6 @@ def _run_plan_day_and_persist(
                 if merged_prefs
                 else line
             )
-    safety.check_text(merged_prefs, source="preferences")
-
-    # Sync path only: charge after pre-crew safety. Async already charged at claim.
-    if not async_claimed:
-        from limits.genai import consume_genai_action
-
-        consume_genai_action(
-            user_sub=user_sub, profile=profile, email=email, table=table
-        )
 
     visited = list(trip.get("visited_place_keys") or [])
     for key in _profile_visited_keys(list(profile.get("visited_places") or [])):
@@ -285,11 +275,35 @@ def _run_plan_day_and_persist(
     if context_was_slimmed:
         base_inputs = {**base_inputs, "__context_was_slimmed": "true"}
 
+    # One INPUT batch on the final crew-bound strings (before GenAI spend).
+    check_texts(
+        safety,
+        {
+            "preferences": str(base_inputs.get("preferences") or ""),
+            "origin": str(base_inputs.get("origin") or ""),
+            "destination": str(base_inputs.get("destination") or ""),
+            "interests": str(base_inputs.get("interests") or ""),
+            "already_visited": str(base_inputs.get("already_visited") or ""),
+            "prior_days_summary": str(base_inputs.get("prior_days_summary") or ""),
+            "city_route_json": str(base_inputs.get("city_route_json") or ""),
+        },
+        trip_id=trip_id,
+    )
+
+    # Sync path only: charge after pre-crew safety. Async already charged at claim.
+    if not async_claimed:
+        from limits.genai import consume_genai_action
+
+        consume_genai_action(
+            user_sub=user_sub, profile=profile, email=email, table=table
+        )
+
     day_data: dict[str, Any] | None = None
     crew_quality: Any = None
     invocation: dict[str, Any] | None = None
     filtered: list[dict[str, Any]] = []
     energy_soft_tags: list[str] = []
+    energy_places_trimmed = 0
     banned: list[str] = []
     last_quality_error: ApiError | None = None
     profile_visited_names = profile_visited_name_keys(
@@ -374,6 +388,8 @@ def _run_plan_day_and_persist(
             # BFF wall clock includes AgentCore RTT; agent may also set latency_ms.
             "latency_ms": bff_latency_ms,
         }
+        energy_soft_tags = []
+        energy_places_trimmed = 0
         places = list((day_data or {}).get("places") or [])
         filtered = dedupe_places(places, visited)
         if len(filtered) < 1:
@@ -400,7 +416,7 @@ def _run_plan_day_and_persist(
                 continue
             _raise_dedupe_empty_terminal()
         try:
-            filtered, energy_soft_tags = filter_quality_places(
+            filtered, energy_soft_tags, energy_places_trimmed = filter_quality_places(
                 filtered,
                 plan_date=day_date,
                 max_comfortable_minutes=max_minutes,
@@ -454,6 +470,7 @@ def _run_plan_day_and_persist(
                 invocation=invocation,
                 guardrail_code=exc.code,
                 places_count=len(filtered) if filtered else 0,
+                energy_places_trimmed=energy_places_trimmed,
             )
             raise
 
@@ -476,15 +493,9 @@ def _run_plan_day_and_persist(
             invocation=invocation,
             guardrail_code=exc.code,
             places_count=len(filtered),
+            energy_places_trimmed=energy_places_trimmed,
         )
         raise
-    log_quality_metrics(
-        trip_id=trip_id,
-        day_index=next_index,
-        quality=merged_quality,
-        invocation=invocation,
-        places_count=len(filtered),
-    )
     day_data = {
         **day_data,
         "day_index": next_index,
@@ -492,6 +503,31 @@ def _run_plan_day_and_persist(
         "overnight_city": overnight,
         "places": filtered,
     }
+    try:
+        day_data = check_and_sanitize_day_plan(safety, day_data, trip_id=trip_id)
+    except SafetyRejected as exc:
+        log_quality_metrics(
+            trip_id=trip_id,
+            day_index=next_index,
+            quality=merge_quality_reports(
+                merged_quality,
+                {"failure_tags": ["safety_rejected"]},
+            ),
+            invocation=invocation,
+            guardrail_code=exc.code or "safety_rejected",
+            places_count=len(filtered),
+            energy_places_trimmed=energy_places_trimmed,
+        )
+        raise
+    filtered = list(day_data.get("places") or [])
+    log_quality_metrics(
+        trip_id=trip_id,
+        day_index=next_index,
+        quality=merged_quality,
+        invocation=invocation,
+        places_count=len(filtered),
+        energy_places_trimmed=energy_places_trimmed,
+    )
 
     trip_visited = list(trip.get("visited_place_keys") or [])
     new_keys = [str(p.get("place_key")) for p in filtered if p.get("place_key")]
@@ -544,4 +580,3 @@ def _run_plan_day_and_persist(
         "day": public_item(day_item),
         "trip": public_item(trip_out),
     }
-

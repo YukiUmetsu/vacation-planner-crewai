@@ -258,6 +258,7 @@ def _public_online_quality(item: dict[str, Any]) -> dict[str, Any]:
         "guardrail_code": plain.get("guardrail_code"),
         "failure_code": plain.get("failure_code"),
         "places_count": plain.get("places_count"),
+        "energy_places_trimmed": _num("energy_places_trimmed"),
         "plan_day_attempt": plain.get("plan_day_attempt"),
         "attempt": plain.get("attempt"),
         "next_attempt": plain.get("next_attempt"),

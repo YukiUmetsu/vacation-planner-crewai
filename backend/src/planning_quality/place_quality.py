@@ -6,7 +6,12 @@ from datetime import date
 from typing import Any
 
 from db.place_keys import normalize_place_text
-from shared.energy import MAX_PLACES_PER_DAY
+from shared.energy import (
+    MAX_PLACES_PER_DAY,
+    MIN_PLACES_PER_DAY,
+    classify_energy_load,
+    energy_overload_limit_minutes,
+)
 from http_utils import ApiError
 from planning_quality.dedupe import (
     ensure_place_key,
@@ -48,6 +53,19 @@ def place_total_minutes(place: dict[str, Any]) -> int:
 
 def day_total_minutes(places: list[dict[str, Any]]) -> int:
     return sum(place_total_minutes(p) for p in places)
+
+
+def _apply_energy_budget(
+    places: list[dict[str, Any]],
+    *,
+    max_comfortable_minutes: int,
+) -> list[str]:
+    """Soft-tag any overage; energy no longer blocks persistence."""
+    total = day_total_minutes(places)
+    band = classify_energy_load(total, max_comfortable_minutes)
+    if band in {"caution", "overloaded"}:
+        return ["energy_overload"]
+    return []
 
 
 def is_permanently_closed(place: dict[str, Any]) -> bool:
@@ -147,6 +165,86 @@ def infer_meal_role(place: dict[str, Any]) -> str | None:
     return None
 
 
+def _required_meal_indices(
+    places: list[dict[str, Any]],
+    *,
+    include_breakfast: bool,
+) -> set[int]:
+    required = (
+        ["breakfast", "lunch", "dinner"]
+        if include_breakfast
+        else ["lunch", "dinner"]
+    )
+    food_indices = [i for i, place in enumerate(places) if is_food_place(place)]
+    roles = {i: infer_meal_role(places[i]) for i in food_indices}
+    used: set[int] = set()
+    protected: set[int] = set()
+
+    for meal in required:
+        matched = next(
+            (i for i in food_indices if i not in used and roles.get(i) == meal),
+            None,
+        )
+        if matched is None:
+            matched = next(
+                (i for i in food_indices if i not in used and roles.get(i) is None),
+                None,
+            )
+        if matched is not None:
+            used.add(matched)
+            protected.add(matched)
+    return protected
+
+
+def _protected_trim_indices(
+    places: list[dict[str, Any]],
+    *,
+    include_breakfast: bool,
+    food_crawl_mode: bool,
+) -> set[int]:
+    protected = _required_meal_indices(
+        places,
+        include_breakfast=include_breakfast,
+    )
+    if not food_crawl_mode:
+        non_food = [i for i, place in enumerate(places) if not is_food_place(place)]
+        if non_food:
+            protected.add(non_food[0])
+    return protected
+
+
+def _trim_energy_overload(
+    places: list[dict[str, Any]],
+    *,
+    max_comfortable_minutes: int,
+    include_breakfast: bool,
+    food_crawl_mode: bool,
+) -> tuple[list[dict[str, Any]], int]:
+    """Drop optional tail stops until below 150% comfort when possible.
+
+    Returns ``(places, dropped_count)``. May still leave total ≥150% when every
+    remaining stop is protected (meals / required non-food) or at the 3-stop floor.
+    """
+    limit = energy_overload_limit_minutes(max_comfortable_minutes)
+    trimmed = list(places)
+    dropped = 0
+    while len(trimmed) > MIN_PLACES_PER_DAY and day_total_minutes(trimmed) >= limit:
+        protected = _protected_trim_indices(
+            trimmed,
+            include_breakfast=include_breakfast,
+            food_crawl_mode=food_crawl_mode,
+        )
+        drop_index = next(
+            (i for i in range(len(trimmed) - 1, -1, -1) if i not in protected),
+            None,
+        )
+        if drop_index is None:
+            break
+        trimmed.pop(drop_index)
+        dropped += 1
+    return trimmed, dropped
+
+
 def require_meal_stops(
     places: list[dict[str, Any]],
     *,
@@ -206,15 +304,14 @@ def filter_quality_places(
     profile_visited_names: set[str] | None = None,
     include_breakfast: bool = False,
     food_crawl_mode: bool = False,
-) -> tuple[list[dict[str, Any]], list[str]]:
+) -> tuple[list[dict[str, Any]], list[str], int]:
     """Drop closed / weekday-closed / profile-visited places.
 
-    Raises ApiError if fewer than 3 usable places remain. Over-budget energy is
-    a soft ``energy_overload`` warning only — places are not trimmed.
-    ``include_breakfast`` / ``food_crawl_mode`` are accepted for call-site
-    compatibility (meal / balance gates run separately).
+    Raises ApiError if fewer than 3 usable places remain. Energy overage is a
+    soft ``energy_overload`` tag only; days at ≥150% of comfort are trimmed by
+    dropping optional tail stops where possible.
+    Returns ``(places, soft_tags, energy_places_trimmed)``.
     """
-    _ = (include_breakfast, food_crawl_mode)
     visited_names = profile_visited_names or set()
     kept: list[dict[str, Any]] = []
     for place in places:
@@ -234,10 +331,18 @@ def filter_quality_places(
             code="quality_empty",
         )
 
-    soft_tags: list[str] = []
-    if day_total_minutes(kept) > max_comfortable_minutes:
-        soft_tags.append("energy_overload")
-    return _reindex_order_in_day(kept), soft_tags
+    kept, energy_places_trimmed = _trim_energy_overload(
+        kept,
+        max_comfortable_minutes=max_comfortable_minutes,
+        include_breakfast=include_breakfast,
+        food_crawl_mode=food_crawl_mode,
+    )
+    soft_tags = _apply_energy_budget(
+        kept, max_comfortable_minutes=max_comfortable_minutes
+    )
+    if energy_places_trimmed > 0 and "energy_overload" not in soft_tags:
+        soft_tags = [*soft_tags, "energy_overload"]
+    return _reindex_order_in_day(kept), soft_tags, energy_places_trimmed
 
 
 def validate_suggested_place(
@@ -251,8 +356,8 @@ def validate_suggested_place(
 ) -> tuple[dict[str, Any], list[str]]:
     """Validate one Place before appending it to an existing day.
 
-    Raises ApiError on day-full, closed/visited conflicts. Over-budget energy
-    is a soft warning only (``energy_overload`` tag).
+    Raises ApiError on day-full or closed/visited conflicts. Energy overage is
+    a soft ``energy_overload`` tag only.
     """
     if len(existing_places) >= MAX_PLACES_PER_DAY:
         raise ApiError(
@@ -305,9 +410,8 @@ def validate_suggested_place(
     order = len(existing_places) + 1
     enriched["order_in_day"] = order
 
-    soft_tags: list[str] = []
     combined = [*existing_places, enriched]
-    total = day_total_minutes(combined)
-    if total > max_comfortable_minutes:
-        soft_tags.append("energy_overload")
+    soft_tags = _apply_energy_budget(
+        combined, max_comfortable_minutes=max_comfortable_minutes
+    )
     return enriched, soft_tags

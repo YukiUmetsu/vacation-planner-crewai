@@ -308,6 +308,11 @@ function MetricsDashboard() {
                 value={formatNumber(qualitySummary.meanTerminalAttempt)}
                 hint="On terminal outcomes with attempt set"
               />
+              <StatCard
+                label="Auto-trimmed stops"
+                value={String(qualitySummary.energyPlacesTrimmed)}
+                hint="Optional stops dropped by energy trim"
+              />
             </div>
 
             <div className="mt-4 grid gap-4 lg:grid-cols-2">

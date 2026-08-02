@@ -15,6 +15,7 @@ export type QualityEventLike = {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  energy_places_trimmed?: number;
 };
 
 export type ProductEventLike = {
@@ -52,6 +53,8 @@ export type QualitySummary = {
   meanPromptTokens: number | null;
   meanCompletionTokens: number | null;
   tokenSampleSize: number;
+  /** Total optional stops dropped by BFF energy auto-trim on terminal events. */
+  energyPlacesTrimmed: number;
   failByCode: CountRow[];
   retryByCode: CountRow[];
   softTags: CountRow[];
@@ -133,6 +136,7 @@ export function summarizeQualityEvents(
   let promptTokN = 0;
   let completionTokN = 0;
   let totalTokN = 0;
+  let energyPlacesTrimmed = 0;
 
   for (const ev of events) {
     const day = dayKey(ev.occurred_at);
@@ -192,6 +196,11 @@ export function summarizeQualityEvents(
       attemptN += 1;
     }
 
+    const trimmed = asNonNegNumber(ev.energy_places_trimmed);
+    if (trimmed !== null) {
+      energyPlacesTrimmed += trimmed;
+    }
+
     for (const tag of ev.failure_tags || []) {
       const t = String(tag || "").trim();
       if (t) bump(softTags, t);
@@ -221,6 +230,7 @@ export function summarizeQualityEvents(
     meanCompletionTokens:
       completionTokN > 0 ? completionTokSum / completionTokN : null,
     tokenSampleSize: totalTokN,
+    energyPlacesTrimmed,
     failByCode: countMapToRows(failByCode),
     retryByCode: countMapToRows(retryByCode),
     softTags: countMapToRows(softTags),

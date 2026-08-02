@@ -18,6 +18,7 @@ describe("summarizeQualityEvents", () => {
         prompt_tokens: 100,
         completion_tokens: 50,
         total_tokens: 150,
+        energy_places_trimmed: 2,
       },
       {
         event: "plan_day_quality",
@@ -28,6 +29,7 @@ describe("summarizeQualityEvents", () => {
         prompt_tokens: 200,
         completion_tokens: 100,
         total_tokens: 300,
+        energy_places_trimmed: 1,
       },
       {
         event: "plan_day_retry",
@@ -53,6 +55,7 @@ describe("summarizeQualityEvents", () => {
     expect(summary.meanTotalTokens).toBe(225);
     expect(summary.meanPromptTokens).toBe(150);
     expect(summary.tokenSampleSize).toBe(2);
+    expect(summary.energyPlacesTrimmed).toBe(3);
     expect(summary.failByCode).toEqual([
       { label: "missing_meals", count: 1 },
     ]);

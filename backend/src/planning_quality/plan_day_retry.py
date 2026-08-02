@@ -164,6 +164,7 @@ def apply_plan_day_retry_inputs(
                 "food_crawl_mode=true. Aim for target_place_count or more "
                 "open candidates."
             )
+        # More candidates help quality_empty / composition fills.
         try:
             target = int(str(inputs.get("target_place_count") or "5"))
         except ValueError:

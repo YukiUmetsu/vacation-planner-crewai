@@ -11,9 +11,10 @@ export const ENERGY_LEVEL_LABELS: Record<EnergyLevel, string> = {
   5: "Very high — packed itineraries OK",
 };
 
-/** Soft warning threshold: total day minutes (activity + travel) by energy level.
+/** Soft comfort threshold: total day minutes (activity + travel) by energy level.
  * Canonical table: docs/PLANNING_QUALITY.md — keep in sync.
- * Caution starts above this; overloaded above 1.2×.
+ * UI caution: above this up to 1.2×; UI overloaded: above 1.2× (soft).
+ * BFF trims generated days at ≥1.5× comfort when optional stops can be cut.
  */
 export const MAX_COMFORTABLE_TOTAL_MINUTES: Record<EnergyLevel, number> = {
   1: 270, // 4.5h

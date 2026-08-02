@@ -464,7 +464,7 @@ def test_enrich_then_filter_drops_permanently_closed() -> None:
         {"name": "Park C", "estimated_minutes": 60, "operational_status": "unknown"},
     ]
     enriched = enrich_places(places, overnight_city="Tokyo", client=client)
-    kept, _soft = filter_quality_places(
+    kept, _soft, _trim = filter_quality_places(
         enriched,
         plan_date=date(2026, 9, 1),
         max_comfortable_minutes=510,

@@ -64,6 +64,7 @@ def test_log_quality_persists_to_metrics_table(metrics_table: Any) -> None:
             "total_tokens": 1500,
         },
         places_count=4,
+        energy_places_trimmed=2,
     )
     events = repo.list_online_events(kind="quality", table=metrics_table)
     assert len(events) == 1
@@ -72,6 +73,7 @@ def test_log_quality_persists_to_metrics_table(metrics_table: Any) -> None:
     assert events[0]["plan_day_attempt"] == 2
     assert events[0]["latency_ms"] == 4500
     assert events[0]["total_tokens"] == 1500
+    assert events[0]["energy_places_trimmed"] == 2
     assert events[0]["experiment_key"]
 
 

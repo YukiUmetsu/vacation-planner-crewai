@@ -211,6 +211,7 @@ def log_quality_metrics(
     invocation: dict[str, Any] | None,
     guardrail_code: str | None = None,
     places_count: int | None = None,
+    energy_places_trimmed: int | None = None,
 ) -> None:
     """CloudWatch + DynamoDB terminal quality outcome (success or hard fail).
 
@@ -232,6 +233,8 @@ def log_quality_metrics(
         "places_count": places_count,
         **_invocation_metric_fields(inv),
     }
+    if energy_places_trimmed is not None and energy_places_trimmed > 0:
+        payload["energy_places_trimmed"] = int(energy_places_trimmed)
     attempt = inv.get("plan_day_attempt")
     if attempt is not None:
         payload["plan_day_attempt"] = attempt
