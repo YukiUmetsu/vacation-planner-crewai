@@ -9,7 +9,11 @@ from typing import Any, Callable, Sequence
 from evals.case import EvalCase
 from evals.cost import estimate_cost_usd
 from evals.preference_scorer import PreferenceScorer
-from evals.scorers import collect_day_plan_metrics, score_output
+from evals.scorers import (
+    collect_day_plan_metrics,
+    score_day_plan_schema,
+    score_output,
+)
 
 Producer = Callable[[EvalCase], dict[str, Any]]
 
@@ -42,8 +46,14 @@ def run_case(
 ) -> EvalResult:
     domain = unwrap_eval_output(output)
     failures = tuple(score_output(domain, case))
+    schema_failures: tuple[str, ...] = ()
+    if case.crew in {"day_plan", "day_plan_single"}:
+        schema_failures = tuple(score_day_plan_schema(domain, case))
+    elif case.crew in {"suggest_place", "city_route"}:
+        # Non-day crews: schema_valid tracks the same hard scorer for now.
+        schema_failures = failures
     metrics: dict[str, float | int | bool] = {
-        "schema_valid": 1.0 if len(failures) == 0 else 0.0,
+        "schema_valid": 1.0 if len(schema_failures) == 0 else 0.0,
         "hard_constraint_pass": 1.0 if len(failures) == 0 else 0.0,
     }
     if case.crew in {"day_plan", "day_plan_single"}:

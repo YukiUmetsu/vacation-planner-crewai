@@ -1,7 +1,7 @@
 # ADR 001: Async plan-next-day with client polling
 
-- **Status:** Accepted. **Deployed AgentCore path:** async claim + **202** + client poll. **Local `CREW_MODE=fake` / `local`:** sync **200** for fast tests.
-- **Date:** 2026-07-21 (async implemented 2026-07-22)
+- **Status:** Accepted. **Long LLM routes:** async claim + **202** + client poll (`plan-next-day`, `propose-cities`, `suggest-city`, `suggest-place`). **Tests / opt-out:** sync **200** when `CREW_LLM_ASYNC=off` or fake/local plan-day.
+- **Date:** 2026-07-21 (plan-day async 2026-07-22; crew-job async extended 2026-07-26)
 - **Deciders:** Project maintainers
 
 ## Context
@@ -38,25 +38,29 @@ sequenceDiagram
 
 ## Decision
 
-Use an **async job + client polling** pattern for long LLM work on **`CREW_MODE=agentcore`**:
+Use an **async job + client polling** pattern for long LLM work:
 
-1. **Accept quickly** — API Lambda authenticates, validates, **claims** the day via `planning_day_index` (without advancing `next_day_index` yet), and returns **202** `{ trip, planning_day_index }`.
-2. **Run long work off the request path** — same Lambda package, **`InvocationType=Event` self-invoke** (worker payload). Worker calls AgentCore, enriches/filters, Puts DAY, then clears the claim and advances `next_day_index`.
-3. **Client polls** — Frontend polls `GET /trips/{id}` with backoff until the DAY appears, `planning_error` / `failed`, or timeout.
+1. **Accept quickly** — API Lambda authenticates, validates, **claims** work on the TRIP item, and returns **202**.
+2. **Run long work off the request path** — same Lambda package, **`InvocationType=Event` self-invoke** (worker payload). Worker calls AgentCore, persists results, then clears the claim.
+3. **Client polls** — Frontend polls `GET /trips/{id}` with backoff until the result appears, an error field is set, or timeout.
 
-**`CREW_MODE=fake` / `local`:** keep sync **200** `{ day, trip }` for fast tests and local DX.
+**Claim fields:**
 
-Shorter routes (`create trip`, `GET`, confirm cities, suggest-place) stay **synchronous** for now.
+| Work | Claim | Async gate |
+| --- | --- | --- |
+| `plan-next-day` | `planning_day_index` / `planning_started_at` / `planning_error` | `CREW_MODE=agentcore` (`PLAN_NEXT_DAY_ASYNC=auto`); fake/local sync **200** |
+| `propose-cities`, `suggest-city`, `suggest-place` | `crew_job_kind` / `crew_job_started_at` / `crew_job_error` | `CREW_LLM_ASYNC` default **on** (tests often set `off`) |
 
-In-progress lock lives on the **TRIP item** (`planning_day_index`, `planning_started_at`, `planning_error`), not in a queue. Stale claims (~6 min) can be reclaimed.
+Only one of day-planning claim **or** a crew-job claim may be held at a time. Stale claims (~6 min) can be reclaimed. Short non-LLM routes (`create trip`, `GET`, confirm cities) stay **synchronous**.
 
 ### MVP vs deploy
 
-| Layer | `CREW_MODE=fake` / `local` | `CREW_MODE=agentcore` (deploy) |
+| Layer | Sync (tests / local default) | Async (deploy / forced) |
 | --- | --- | --- |
-| `POST /trips/{id}/plan-next-day` | Sync wait → **200** `{ day, trip }` | Claim + Event worker → **202** `{ trip, planning_day_index }` |
-| Frontend | Use day from response | Poll `GET /trips/{id}` until day appears / failed |
-| AgentCore | N/A | Invoked inside worker (not on API GW sync path) |
+| `POST …/plan-next-day` | **200** `{ day, trip }` when fake/local | Claim + Event → **202**; poll until DAY |
+| `POST …/propose-cities` (and suggest-*) | **200** when `CREW_LLM_ASYNC=off` | Claim + Event → **202**; poll trip |
+| Frontend | Use payload from response | Poll `GET /trips/{id}` until ready / failed |
+| AgentCore | N/A (fake) or in-process (local) | Invoked inside worker (not on API GW sync path) |
 
 ### Target sequence
 
@@ -238,4 +242,4 @@ flowchart LR
 - [x] Keep AgentCore invoke out of the sync request path in production (Lambda Event worker)
 - [x] Document pros/cons of sync vs Event self-invoke vs SQS vs push (this section)
 - [x] Worker Event retries: re-raise while claim held; mark AgentCore transport/throttle as `ApiError.retryable` (do not `fail_planning` on those)
-- [ ] **Async `propose-cities`** — still sync AgentCore on the API Gateway path in production; same ~30s timeout class of risk as pre-async plan-next-day. Acceptable for MVP if city-route crews stay short; otherwise claim + 202 + poll (or SQS) like plan-next-day.
+- [x] **Async `propose-cities` / `suggest-city` / `suggest-place`** — same claim → 202 → Event worker → poll pattern via `crew_job_kind` (`CREW_LLM_ASYNC` default on; opt out with `off` for tests)

@@ -2,7 +2,7 @@
 
 Plumbing for golden-set checks against crew JSON outputs. **No AWS required** for harness tests.
 
-Traveler energy hour caps (for future scorers): [`docs/PLANNING_QUALITY.md`](../../docs/PLANNING_QUALITY.md).
+Traveler energy: soft overage above comfort; plan-next-day auto-trims at ≥150% when possible; offline `energy_overage_rate` only — see [`docs/PLANNING_QUALITY.md`](../../docs/PLANNING_QUALITY.md).
 
 ## Layout
 
@@ -96,6 +96,8 @@ uv run python -m evals --persist
 ```
 
 `--compare-orchestration` runs each `day_plan` fixture under both `day_plan` and `day_plan_single`, saves raw envelopes under `evals/runs/<run_id>/`, and prints a keep/simplify decision against the bar in [`docs/PLANNING_QUALITY.md`](../../docs/PLANNING_QUALITY.md). Live runs set `EVALS_QUIET=1` so CrewAI response panels stay silent; progress is printed to **stderr** (`[n/N] …`) and appended to the report’s **Progress** section (the `.md` is rewritten after each case). The report **Summary** table mirrors the terminal decision table. Use `--sequential-arms` if you need serial execution. Use `--orchestration-smoke` (~8 cases), `--case ID`, or `--max-cases N` for faster live iteration; reserve the full suite for a decision-quality run.
+
+When comparing via **AgentCore** (not in-process kickoff), set `ALLOW_EVAL_CREWS=1` so `day_plan_single` is accepted by `invoke_payload` (production defaults exclude it).
 
 **Learnings** (prompts, Nova ToolUse mitigations, cost/latency/correctness snapshots): see [Orchestration experiment → Learnings](../../docs/PLANNING_QUALITY.md#learnings-2026-07-25--2026-07-26) in `PLANNING_QUALITY.md`.
 

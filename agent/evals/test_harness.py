@@ -107,7 +107,7 @@ def test_scorer_accepts_valid_suggest_place() -> None:
     assert result.passed is True
 
 
-def test_scorer_rejects_suggest_place_over_remaining() -> None:
+def test_scorer_allows_suggest_place_over_remaining_as_soft_energy() -> None:
     case = EvalCase(
         id="suggest_heavy",
         crew="suggest_place",
@@ -124,8 +124,7 @@ def test_scorer_rejects_suggest_place_over_remaining() -> None:
             "operational_status": "open",
         },
     )
-    assert result.passed is False
-    assert any("remaining_minutes" in msg for msg in result.failures)
+    assert result.passed is True
 
 
 def test_scorer_rejects_suggest_place_duplicate_existing() -> None:
@@ -214,7 +213,7 @@ def test_scorer_rejects_malformed_nights_without_raising() -> None:
     assert any("total_nights" in msg for msg in result.failures)
 
 
-def test_scorer_rejects_closed_venues_not_energy() -> None:
+def test_scorer_rejects_closed_venues_not_mild_energy() -> None:
     case = EvalCase(
         id="quality",
         crew="day_plan",
@@ -226,6 +225,7 @@ def test_scorer_rejects_closed_venues_not_energy() -> None:
         expected={"min_places": 1},
         source_path=Path("quality.json"),
     )
+    # Keep load above comfort but below the overloaded UI band.
     result = run_case(
         case,
         {
@@ -240,14 +240,14 @@ def test_scorer_rejects_closed_venues_not_energy() -> None:
                 {
                     "name": "Monday Closed Museum",
                     "place_key": "museum|tokyo",
-                    "estimated_minutes": 200,
+                    "estimated_minutes": 120,
                     "operational_status": "open",
                     "closed_weekdays": [0],
                 },
                 {
-                    "name": "Long Hike",
-                    "place_key": "hike|tokyo",
-                    "estimated_minutes": 300,
+                    "name": "Short Walk",
+                    "place_key": "walk|tokyo",
+                    "estimated_minutes": 100,
                     "travel_minutes_from_previous": 0,
                     "operational_status": "open",
                 },
@@ -257,7 +257,59 @@ def test_scorer_rejects_closed_venues_not_energy() -> None:
     assert result.passed is False
     assert any("permanently closed" in msg for msg in result.failures)
     assert any("closed on weekday 0" in msg for msg in result.failures)
-    assert not any("energy warning" in msg for msg in result.failures)
+    assert not any("energy overloaded" in msg for msg in result.failures)
+    assert result.metrics["schema_valid"] == 1.0
+    assert result.metrics["hard_constraint_pass"] == 0.0
+    assert result.metrics["energy_overage_rate"] == 1.0
+
+
+def test_scorer_tracks_energy_overage_without_hard_failure() -> None:
+    case = EvalCase(
+        id="energy_overage",
+        crew="day_plan",
+        inputs={
+            "overnight_city": "Tokyo",
+            "energy_level": "1",
+            "date": "2026-09-07",
+        },
+        expected={"min_places": 1},
+        source_path=Path("energy_overage.json"),
+    )
+    result = run_case(
+        case,
+        {
+            "overnight_city": "Tokyo",
+            "places": [
+                {
+                    "name": "Lunch",
+                    "place_key": "lunch|tokyo",
+                    "category": "food",
+                    "estimated_minutes": 90,
+                    "operational_status": "open",
+                },
+                {
+                    "name": "Museum",
+                    "place_key": "museum|tokyo",
+                    "category": "museum",
+                    "estimated_minutes": 200,
+                    "operational_status": "open",
+                },
+                {
+                    "name": "Dinner",
+                    "place_key": "dinner|tokyo",
+                    "category": "food",
+                    "estimated_minutes": 120,
+                    "operational_status": "open",
+                },
+            ],
+        },
+    )
+    # 410 ≥ 405 (150% of 270), but energy is product-soft.
+    assert result.passed is True
+    assert not any("energy overloaded" in msg for msg in result.failures)
+    assert result.metrics["schema_valid"] == 1.0
+    assert result.metrics["hard_constraint_pass"] == 1.0
+    assert result.metrics["energy_overage_rate"] == 1.0
 
 
 def test_example_offline_output_passes_scorer() -> None:

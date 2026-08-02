@@ -121,8 +121,8 @@ def _truthy_flag(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes"}
 
 
-def score_day_plan(output: dict[str, Any], case: EvalCase) -> list[str]:
-    """Return failure messages for a ``day_plan`` crew output."""
+def score_day_plan_schema(output: dict[str, Any], case: EvalCase) -> list[str]:
+    """Structural / shape checks only (place count, keys, overnight city)."""
     failures: list[str] = []
     expected = case.expected
     places = output.get("places")
@@ -141,9 +141,6 @@ def score_day_plan(output: dict[str, Any], case: EvalCase) -> list[str]:
     if want_city and overnight != want_city:
         failures.append(f"overnight_city {overnight!r} != {want_city!r}")
 
-    plan_date = _parse_plan_date(case)
-    weekday = plan_date.weekday() if plan_date else None
-
     keys: list[str] = []
     for i, place in enumerate(places):
         if not isinstance(place, dict):
@@ -157,6 +154,30 @@ def score_day_plan(output: dict[str, Any], case: EvalCase) -> list[str]:
         else:
             keys.append(key)
 
+    if len(keys) != len(set(keys)):
+        failures.append("place_key values must be unique within the day")
+    return failures
+
+
+def score_day_plan(output: dict[str, Any], case: EvalCase) -> list[str]:
+    """Hard-constraint failures for a ``day_plan`` output (includes schema)."""
+    failures = score_day_plan_schema(output, case)
+    expected = case.expected
+    places = output.get("places")
+    if not isinstance(places, list):
+        return failures
+
+    plan_date = _parse_plan_date(case)
+    weekday = plan_date.weekday() if plan_date else None
+
+    keys: list[str] = []
+    for i, place in enumerate(places):
+        if not isinstance(place, dict):
+            continue
+        key = str(place.get("place_key") or "").strip()
+        if key:
+            keys.append(key)
+
         status = str(place.get("operational_status") or "unknown").strip().lower()
         if status == "closed":
             failures.append(
@@ -168,9 +189,6 @@ def score_day_plan(output: dict[str, Any], case: EvalCase) -> list[str]:
                 f"places[{i}] ({place.get('name')!r}) is closed on weekday {weekday} "
                 f"for date {plan_date.isoformat()}"
             )
-
-    if len(keys) != len(set(keys)):
-        failures.append("place_key values must be unique within the day")
 
     food_count = sum(
         1
@@ -344,7 +362,7 @@ def score_suggest_place(output: dict[str, Any], case: EvalCase) -> list[str]:
             "suggested place must be non-food when the day still has no non-food stop"
         )
 
-    # Product BFF treats energy as soft; offline eval still fails so regressions show up.
+    # Energy overage is product-soft; track it in metrics, not hard failures.
     remaining_raw = case.inputs.get("remaining_minutes")
     if remaining_raw is not None and remaining_raw != "":
         remaining, err = _parse_nonneg_int(
@@ -352,20 +370,6 @@ def score_suggest_place(output: dict[str, Any], case: EvalCase) -> list[str]:
         )
         if err:
             failures.append(err)
-        elif remaining is not None:
-            est, _ = _parse_nonneg_int(
-                place.get("estimated_minutes"), label="estimated_minutes"
-            )
-            travel, _ = _parse_nonneg_int(
-                place.get("travel_minutes_from_previous"),
-                label="travel_minutes_from_previous",
-            )
-            need = (est or 0) + (travel or 0)
-            if need > remaining:
-                failures.append(
-                    f"suggested place needs {need} minutes "
-                    f"(exceeds remaining_minutes {remaining})"
-                )
 
     return failures
 
@@ -424,6 +428,7 @@ def collect_day_plan_metrics(
 
     max_minutes = _resolve_max_minutes(case)
     total = _day_total_minutes([p for p in places if isinstance(p, dict)])
+    # Soft overage rate: any minutes above comfort (includes caution band).
     energy_overage = (
         1.0 if max_minutes is not None and total > max_minutes else 0.0
     )

@@ -68,7 +68,7 @@ planning_quality/      # deterministic post-generation policy
   dedupe.py            # place_key ensure/dedupe (not trip identity)
 
 shared/                # tiny cross-domain leaves (no orchestration)
-  energy.py            # caps / clamp / target place count (profile + quality + trips)
+  energy.py            # comfort thresholds / clamp / target place count / overload ratio
   route_windows.py     # max_cities_for_trip, normalize windows (crews + trips)
   dates.py             # parse/validate trip dates, day_index helpers (trips + tests)
 
@@ -160,7 +160,7 @@ Do **not** pull `places_enrich` / quality / retry back into `TripService` — ca
 
 ### Note on `energy.py`
 
-`profile_service` and `place_quality` (and trip plan-day) all use energy caps/helpers. Putting `energy` under `planning_quality` would force **`user_profile → planning_quality`**, which couples profile CRUD to day-plan policy.
+`profile_service` and `place_quality` (and trip plan-day) all use energy thresholds/helpers. Putting `energy` under `planning_quality` would force **`user_profile → planning_quality`**, which couples profile CRUD to day-plan policy.
 
 | Choice | Shape | Verdict |
 | --- | --- | --- |

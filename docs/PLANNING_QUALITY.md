@@ -7,10 +7,23 @@ Canonical product rules for how we judge a day’s plan. Package READMEs hold im
 | Topic | Where |
 | --- | --- |
 | **Traveler energy ↔ day load** | This file (canonical thresholds) |
-| **Input safety (prompt injection / harmful prefs)** | [`backend/README.md`](../backend/README.md) (`SAFETY_MODE`), [`backend/src/safety/bedrock.py`](../backend/src/safety/bedrock.py) |
+| **Input safety (prompt injection / harmful prefs)** | [`backend/src/safety/`](../backend/src/safety/), [ADR 007](./architecture-decisions/007-ai-input-output-safety.md), [`backend/README.md`](../backend/README.md) (`SAFETY_MODE`, `SAFETY_OUTPUT_MODE`) |
 | **Bedrock Guardrail policies + IAM** | [`infra/README.md`](../infra/README.md) (Guardrails section), [`infra/guardrails/`](../infra/guardrails/) |
 | **Offline crew evals** | [`agent/evals/README.md`](../agent/evals/README.md) |
 | **AgentCore trust boundary** | [ADR 003](./architecture-decisions/003-bff-agentcore-runtime-only.md) |
+
+### Safety metrics (CloudWatch)
+
+`SAFETY_METRIC` JSON lines (never include full traveler/AI text):
+
+```
+fields @timestamp, direction, source, mode, intervened, output_mode, unavailable, safety_latency_ms, trip_id
+| filter @message like /SAFETY_METRIC/
+| sort @timestamp desc
+| limit 50
+```
+
+Ship with `SAFETY_OUTPUT_MODE=observe` (would-block logged, plans still persist); flip to `enforce` after soak.
 
 ---
 
@@ -41,26 +54,27 @@ Canonical minute table (keep in sync):
 
 Soft target (`target_place_count`) is passed to the day_plan crew. Lunch and dinner count toward the total, so energy **3** aims for ~5 stops (e.g. lunch + ~3 activities + dinner), not a thin 3-stop day. Hard schema remains **3–7**; BFF does not reject under-target counts.
 
-### Soft vs hard enforcement
+### Energy Enforcement
 
 | Layer | Behavior |
 | --- | --- |
 | **Frontend** | Soft banner via `assessDayEnergyLoad` (`ok` / `caution` / `overloaded`) |
 | **Crew prompts** | `energy_level` + `max_comfortable_minutes` + `target_place_count` / `remaining_minutes` in day_plan + suggest_place |
-| **API hard gate** | `place_quality.filter_quality_places` (plan-next-day) and `validate_suggested_place` (suggest-place) reject over-budget days |
-| **Offline evals** | Scorers fail when day/suggestion exceeds the threshold |
+| **API** | Soft `energy_overload` tag above comfort; **plan-next-day** at ≥ **150%** trims optional tail stops when possible (`energy_places_trimmed` on `QUALITY_METRIC`). **Suggest-place** never removes existing stops; `remaining_minutes` is clamped to ≥0 |
+| **Offline evals** | Overage tracked as `energy_overage_rate` (&gt; comfort); energy does **not** fail `hard_constraint_pass`. Scorers score raw crew JSON (no BFF trim simulation) |
 
-### Severity bands (UI)
+### Severity bands (product)
 
 Let `ratio = totalMinutes / comfortMaxMinutes`.
 
-| Band | Condition | UI |
-| --- | --- | --- |
-| `ok` | `ratio ≤ 1` | No warning |
-| `caution` | `1 < ratio ≤ 1.2` | Soft “a bit packed” message |
-| `overloaded` | `ratio > 1.2` | Stronger “too full” message |
+| Band | Condition | Persist? | UI / tags |
+| --- | --- | --- | --- |
+| `ok` | `ratio ≤ 1` | Yes | No warning |
+| `caution` (soft) | `1 < ratio ≤ 1.2` | Yes | Soft “a bit packed”; BFF soft tag `energy_overload` |
+| `overloaded` (soft UI) | `1.2 < ratio < 1.5` | Yes | Stronger “too full” banner; still soft-tagged, still persists |
+| `auto-trim target` | `ratio ≥ 1.5` | Yes when still valid | BFF trims optional generated day stops when possible; otherwise persists with soft `energy_overload` (3-stop / all-protected edge may remain at exactly 150%) |
 
-Example: energy **3** → warn after **510** min. Day with **540** min → caution. Day with **620** min → overloaded.
+Example: energy **3** → comfort **510** min. **540** → soft caution. **620** → soft overloaded UI (persist). **770** (≥765) → generated day plans are trimmed when optional stops can be removed.
 
 ---
 
@@ -72,7 +86,7 @@ Example: energy **3** → warn after **510** min. Day with **540** min → cauti
 | Crew input size (token proxy) | BFF `crew_io.context_budget.slim_crew_inputs` — only when over `CREW_INPUT_MAX_CHARS`; cut order: `already_visited` → `prior_days_summary` → `city_route_json` → `preferences`. Full visited list still used for dedupe / quality. Large context fields (`already_visited`, `preferences`, `interests`) are interpolated once in the research task; later tasks remind without re-listing. |
 | Place count 3–7 / schema | Agent `DayPlan` Pydantic + eval scorers |
 | Permanently closed / weekday-closed | Crew reviewer + **Places BFF enrich** (Google outside mainland China; Amap for mainland) + `place_quality` + scorers |
-| Energy budget | Crew prompts + `place_quality` / `validate_suggested_place` + scorers |
+| Energy budget | Crew prompts + BFF soft tag above comfort; generated day auto-trim at ≥150% where possible + scorer metrics |
 | Lunch + dinner food stops | Crew prompts + `DayPlan` Pydantic (≥2 `category=food`) + BFF `require_meal_stops` + scorers |
 | Day balance (≥1 non-food unless food crawl) | Crew prompts (`food_crawl_mode` / `min_non_food_places`) + BFF `require_day_balance` / `require_suggested_place_balance` + scorers |
 | Structured relevance (MVP) | Reviewer `QualityReport` in CrewEnvelope; BFF blocks **hard** tags only; soft tags logged (`QUALITY_METRIC`) |
@@ -88,7 +102,7 @@ Example: energy **3** → warn after **510** min. Day with **540** min → cauti
 
 | Layer | What it does | Blocks persist? |
 | --- | --- | --- |
-| **1. Deterministic BFF** | Dedupe, Places enrich, closed/weekday, energy, meal stops, day balance (`place_quality` / `require_meal_stops` / `require_day_balance`) | Yes (existing `ApiError` codes) |
+| **1. Deterministic BFF** | Dedupe, Places enrich, closed/weekday, energy soft-tag + generated-day trimming at ≥150%, meal stops, day balance (`place_quality` / `require_meal_stops` / `require_day_balance`) | Yes for existing hard `ApiError` codes; energy overage does **not** block |
 | **2. Reviewer `QualityReport`** | Scores + `failure_tags` on CrewEnvelope; soft preference fit | Hard tags only (see table below) |
 | **3. Offline / online metrics** | Eval `metrics` aggregates; `QUALITY_METRIC` / `PRODUCT_METRIC` logs | No (observe only) |
 
@@ -101,7 +115,7 @@ Unless the traveler explicitly asked for a **food crawl / restaurant tour / tast
 | Layer | Behavior |
 | --- | --- |
 | **Crew inputs** | BFF sets `food_crawl_mode`, `min_non_food_places`, `day_shape_hint`; guidance prepended into `preferences` |
-| **Energy budget** | Soft `energy_overload` / `too_packed` when over comfortable minutes — no auto-trim |
+| **Energy budget** | Soft `energy_overload` above comfort; plan-next-day trims optional tail stops at ≥150% when possible; suggest-place soft-tags only |
 | **BFF tripwire** | `require_day_balance` → `food_only_day`; suggest-place rejects another food when the day still has zero non-food |
 | **Offline evals** | Scorers fail food-only days; metrics `non_food_place_count`, `food_only_day_rate` |
 
@@ -111,11 +125,12 @@ Unless the traveler explicitly asked for a **food crawl / restaurant tour / tast
 | --- | --- | --- |
 | `duplicate_place`, `wrong_city`, `closed_place`, `excluded_category`, `food_only_day` | **Hard** | Fail / regenerate; log `QUALITY_METRIC` |
 | `missing_meals` | **Soft** | Retry for better meals; if still incomplete, **persist the day** and log `missing_meals` |
-| `preference_mismatch`, `too_far`, `weak_reason`, `ungrounded_place`, `weak_day_balance`, `too_packed`, `energy_overload` | **Soft** | Log only; still persist if hard gates pass (no energy auto-trim) |
+| `too_packed`, `energy_overload` | **Soft** | Log / UI caution; **persist**. Plan-next-day may trim optional stops first at ≥150%; suggest-place never auto-removes existing stops |
+| `preference_mismatch`, `too_far`, `weak_reason`, `ungrounded_place`, `weak_day_balance` | **Soft** | Log only; still persist if hard gates pass |
 
 ### Metric catalog
 
-**Runtime (`QUALITY_METRIC` JSON line)** — terminal day outcome only (`event=plan_day_quality`): `trip_id`, `day_index`, `passes_relevance`, `relevance_score`, `constraint_score`, `failure_tags`, `guardrail_code` (set only on hard fail), `places_count`, `plan_day_attempt` (1-based attempt that produced this outcome), `latency_ms` (BFF wall clock for that crew call), `prompt_tokens` / `completion_tokens` / `total_tokens` (from CrewAI when AgentCore/local; absent in fake mode), plus invocation `crew_name`, `prompt_version`, `prompt_hash`, `model_id`, `git_sha`, `input_context_chars`, `context_was_slimmed`, `output_schema_version`.
+**Runtime (`QUALITY_METRIC` JSON line)** — terminal day outcome only (`event=plan_day_quality`): `trip_id`, `day_index`, `passes_relevance`, `relevance_score`, `constraint_score`, `failure_tags`, `guardrail_code` (set only on hard fail), `places_count`, optional `energy_places_trimmed` (optional stops dropped by BFF auto-trim at ≥150%), `plan_day_attempt` (1-based attempt that produced this outcome), `latency_ms` (BFF wall clock for that crew call), `prompt_tokens` / `completion_tokens` / `total_tokens` (from CrewAI when AgentCore/local; absent in fake mode), plus invocation `crew_name`, `prompt_version`, `prompt_hash`, `model_id`, `git_sha`, `input_context_chars`, `context_was_slimmed`, `output_schema_version`.
 
 **Runtime (`RETRY_METRIC` JSON line)** — intermediate recovery (`event=plan_day_retry`): emitted when a hard gate fails **and** another crew attempt will run. Fields: `attempt`, `next_attempt`, `failure_code` (`quality_empty` / `dedupe_empty` / `missing_meals` / `food_only_day`), `places_count`, same latency/token dims when present, plus the same invocation dims. **Do not** count these as terminal failures; pair with a later `QUALITY_METRIC` for the final outcome.
 
@@ -125,11 +140,11 @@ Useful rates (derive in Logs Insights): empty/dedupe/closed/energy/meals/safety/
 
 | Key | Meaning |
 | --- | --- |
-| `schema_valid` / `schema_valid_rate` | Binary scorer pass |
-| `hard_constraint_pass` / `_rate` | Same as schema for MVP |
+| `schema_valid` / `schema_valid_rate` | Shape checks only (place count bounds, keys, overnight city) |
+| `hard_constraint_pass` / `_rate` | No hard scorer failures: schema **plus** closed/weekday, meals, day balance, visited/forbidden (energy is **not** a hard scorer failure) |
 | `preference_relevance_score` | Interest/keyword overlap (0–1) |
 | `explicit_exclusion_violation_rate` | `already_visited` or `excluded_categories` hit |
-| `duplicate_rate`, `closed_place_rate`, `closed_place_case_rate`, `energy_overage_rate`, `grounding_rate` | Structural rates (`closed_place_rate` = closed/n; `closed_place_case_rate` = any closed on the day) |
+| `duplicate_rate`, `closed_place_rate`, `closed_place_case_rate`, `energy_overage_rate`, `grounding_rate` | Structural rates (`energy_overage_rate` = any minutes above comfort on raw crew output; production may later trim ≥150% days) |
 | `missing_meals_rate`, `wrong_city_rate` | Meal / overnight mismatches |
 | `non_food_place_count`, `food_only_day_rate` | Day-balance rates (food-only days should be 0 unless crawl) |
 | `latency_ms` | Wall-clock per case (offline harness); online uses BFF `latency_ms` on quality events |
@@ -184,7 +199,7 @@ fields @timestamp, event_name, payload.ms
 ## Roadmap (quality)
 
 1. [x] Persist profile (prefs, energy, interests) in DynamoDB; inject into `plan-next-day`.
-2. [x] Enforce energy caps + closed / weekday-closed checks in offline scorers **and** API post-crew `place_quality` filter; reviewer crew task (brief-only swaps, no new research tools).
+2. [x] Track energy bands + closed / weekday-closed checks in offline scorers **and** API post-crew `place_quality` filter; trim generated day overages at ≥150% where possible; reviewer crew task (brief-only swaps, no new research tools).
 3. [x] Suggest one more place: `suggest_place` crew + `POST /trips/{id}/days/{n}/suggest-place` with `validate_suggested_place` + offline scorer.
 3b. [x] Suggest a city (draft candidate): single-agent `suggest_city` crew + `POST /trips/{id}/suggest-city` → `{ candidates }` (default count 1); FE inserts via `addCityStop`; confirm still required. Optional `hint`; server + FE dedupe; FE add gate mirrors `max_cities_for_trip`.
 3c. [x] Reorder places (handle-only DnD) + `POST .../places/reorder` + `place_reordered` product event; reorder cities on draft route only.

@@ -25,8 +25,9 @@ code constants — see env / Terraform / `docs/ENVIRONMENT.md`):
 | GenAI actions | Hour + day caps from env (later: per `plan`) | Unlimited (bypass) |
 | Later | Raise limits when PROFILE `plan` changes (paid) | Unchanged |
 
-GenAI surfaces today: `propose-cities`, `plan-next-day` (async + up to 3 crew
-retries), `suggest-place`. Plan-next-day must not double-count HTTP claim + worker.
+GenAI surfaces today: `propose-cities`, `suggest-city`, `suggest-place`,
+`plan-next-day` (async claim + up to 3 crew retries). Async routes must not
+double-count HTTP claim + worker.
 
 ## Decision
 
@@ -99,12 +100,14 @@ Clients must **not** be allowed to set `role` / `plan` via `PUT /profile`
      **not** in the Event worker, **not** per quality retry
    - `POST /trips/{id}/days/{n}/suggest-place`
 5. **Charge timing (MVP product rule):**
-   - **Sync paths** (`propose-cities`, `suggest-place`, sync `plan-next-day`):
+   - **Sync paths** (when `CREW_LLM_ASYNC=off` / sync `plan-next-day`):
      run cheap pre-crew gates first (status / day_full / safety text). **Do not
      increment** if safety rejects — those attempts never reach a crew.
-   - **Async `plan-next-day`:** increment after a successful planning **claim**
-     and before enqueue (fail-closed before AgentCore). Worker-side safety /
-     crew failure still counts — the action was already committed to the queue.
+   - **Async paths** (`plan-next-day` on agentcore; `propose-cities` /
+     `suggest-city` / `suggest-place` when `CREW_LLM_ASYNC` on): increment after
+     a successful **claim** and before enqueue (fail-closed before AgentCore).
+     Worker-side safety / crew failure still counts — the action was already
+     committed to the queue.
    - **Do not count:** `CREW_MODE=fake`, Places enrich, standalone
      Guardrails-only pref checks, photo proxy, CRUD, metrics reads.
 6. **Admin** (`role=admin`) skips check and increment.
