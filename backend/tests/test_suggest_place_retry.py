@@ -104,3 +104,5 @@ def test_retry_inputs_echo_user_hint_on_mismatch() -> None:
     assert "hint_mismatch" in prefs
     assert "quiet park" in prefs
     assert "Wrong Hall" in prefs
+    assert "kids/family/activity" not in prefs
+    assert "food/a meal" in prefs

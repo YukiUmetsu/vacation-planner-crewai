@@ -104,28 +104,50 @@ def test_prefer_non_food_allows_meal_on_one_food_partial_day() -> None:
         )
     assert exc.value.code == "food_only_day"
 
-    # Any explicit user hint overrides the non-food nudge.
+    # Food-like one-off hint overrides the non-food nudge; non-food hints do not.
     assert not prefer_non_food_suggestion(
-        two_food, food_crawl_mode=False, honor_user_hint=True
+        two_food, food_crawl_mode=False, honor_food_hint=True
     )
     require_suggested_place_balance(
         {"name": "Dinner", "category": "food"},
         two_food,
         food_crawl_mode=False,
-        honor_user_hint=True,
+        honor_food_hint=True,
     )
+    assert prefer_non_food_suggestion(
+        two_food, food_crawl_mode=False, honor_food_hint=False
+    )
+    with pytest.raises(ApiError) as kids_exc:
+        require_suggested_place_balance(
+            {"name": "Ramen", "category": "food"},
+            two_food,
+            food_crawl_mode=False,
+            honor_food_hint=False,
+        )
+    assert kids_exc.value.code == "food_only_day"
 
 
 def test_detect_and_infer_suggest_hint() -> None:
+    from planning_quality.day_balance import (
+        hint_requires_non_food,
+        is_ambiguous_location_or_vibe_hint,
+        is_food_like_suggest_hint,
+    )
+
     assert detect_food_suggest_hint("lunch")
     assert detect_food_suggest_hint("Somewhere for dinner")
     assert detect_food_suggest_hint("ramen near the station")
+    assert detect_food_suggest_hint("food for kids")
+    assert detect_food_suggest_hint("pizza near the hotel")
     assert not detect_food_suggest_hint("quiet park")
     assert not detect_food_suggest_hint("")
     assert infer_suggest_hint_category("lunch") == "food"
     assert infer_suggest_hint_category("quiet park") == "park"
     assert infer_suggest_hint_category("bookstore") == "shopping"
     assert infer_suggest_hint_category("something chill nearby") is None
+    assert infer_suggest_hint_category("fun place for kids") is None
+    assert infer_suggest_hint_category("food for kids") == "food"
+    assert infer_suggest_hint_category("pizza") == "food"
     # Proximity fillers must not force a hard category.
     assert infer_suggest_hint_category("near the station") is None
     assert infer_suggest_hint_category("by the metro") is None
@@ -134,6 +156,30 @@ def test_detect_and_infer_suggest_hint() -> None:
     # Exhibit intent beats bare coffee/food words.
     assert infer_suggest_hint_category("coffee museum") == "museum"
     assert infer_suggest_hint_category("nightlife") == "nightlife"
+    assert is_food_like_suggest_hint("lunch")
+    assert is_food_like_suggest_hint("ramen")
+    assert is_food_like_suggest_hint("family dinner")
+    assert is_food_like_suggest_hint("food for kids")
+    assert not is_food_like_suggest_hint("fun place for kids")
+    assert not is_food_like_suggest_hint("coffee museum")
+    assert is_ambiguous_location_or_vibe_hint("near the station")
+    assert is_ambiguous_location_or_vibe_hint("something chill nearby")
+    assert is_ambiguous_location_or_vibe_hint("something nearby")
+    assert is_ambiguous_location_or_vibe_hint("near Shinjuku station")
+    assert is_ambiguous_location_or_vibe_hint("somewhere in Ueno")
+    assert is_ambiguous_location_or_vibe_hint("close to Times Square")
+    assert not is_ambiguous_location_or_vibe_hint("fun place for kids")
+    assert not is_ambiguous_location_or_vibe_hint("fun place near Shinjuku")
+    assert not is_ambiguous_location_or_vibe_hint("lunch")
+    assert hint_requires_non_food("fun place for kids")
+    assert hint_requires_non_food("quiet park")
+    assert not hint_requires_non_food("near the station")
+    assert not hint_requires_non_food("near Shinjuku station")
+    assert not hint_requires_non_food("somewhere in Ueno")
+    assert not hint_requires_non_food("close to Times Square")
+    assert not hint_requires_non_food("something chill nearby")
+    assert not hint_requires_non_food("family dinner")
+    assert not hint_requires_non_food("")
 
 
 def test_require_suggested_place_matches_hint() -> None:
@@ -159,10 +205,52 @@ def test_require_suggested_place_matches_hint() -> None:
         )
     assert exc_park.value.code == "hint_mismatch"
 
-    # Ambiguous hint: no hard category tripwire.
+    # Substantive non-food free-text: reject food, allow any non-food stop.
+    require_suggested_place_matches_hint(
+        {"name": "Kids Park", "category": "park"},
+        hint="fun place for kids",
+    )
+    with pytest.raises(ApiError) as kids_exc:
+        require_suggested_place_matches_hint(
+            {"name": "Ramen", "category": "food"},
+            hint="fun place for kids",
+        )
+    assert kids_exc.value.code == "hint_mismatch"
+
+    # Explicit food phrasing still allows food (including kids/family meals).
+    require_suggested_place_matches_hint(
+        {"name": "Trattoria", "category": "food"},
+        hint="family dinner",
+    )
+    require_suggested_place_matches_hint(
+        {"name": "Kids Cafe", "category": "food"},
+        hint="food for kids",
+    )
+    require_suggested_place_matches_hint(
+        {"name": "Pizzeria", "category": "food"},
+        hint="pizza",
+    )
+
+    # Proximity/vibe-only: ambiguous — food or non-food both OK.
     require_suggested_place_matches_hint(
         {"name": "Museum", "category": "museum"},
         hint="something chill nearby",
+    )
+    require_suggested_place_matches_hint(
+        {"name": "Cafe", "category": "food"},
+        hint="something chill nearby",
+    )
+    require_suggested_place_matches_hint(
+        {"name": "Station Cafe", "category": "food"},
+        hint="near the station",
+    )
+    require_suggested_place_matches_hint(
+        {"name": "Shinjuku Ramen", "category": "food"},
+        hint="near Shinjuku station",
+    )
+    require_suggested_place_matches_hint(
+        {"name": "Ueno Bistro", "category": "food"},
+        hint="somewhere in Ueno",
     )
 
 

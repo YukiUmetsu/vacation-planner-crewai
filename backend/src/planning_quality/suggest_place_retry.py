@@ -119,12 +119,14 @@ def _retry_hint(
         if final:
             return (
                 f"{prefix} (hint_mismatch): still must match user hint {hint_label!r}. "
-                f"Banned: {banned}. Pick a venue that clearly fits that request."
+                f"Banned: {banned}. Pick a venue that clearly fits that request "
+                "(only use a restaurant if the hint asks for food/a meal)."
             )
         return (
             f"{prefix} (hint_mismatch): previous pick ignored user hint "
             f"{hint_label!r}. Do NOT reuse: {banned}. Match that hint "
-            "(and preferred category if stated) — do not substitute an unrelated POI."
+            "(and preferred category if stated) — do not substitute an unrelated POI "
+            "(restaurant/cafe only if the hint asks for food/a meal)."
         )
 
     # Default: weekday / unknown closed-on-date failures.

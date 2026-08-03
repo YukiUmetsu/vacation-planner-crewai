@@ -119,6 +119,16 @@ Unless the traveler explicitly asked for a **food crawl / restaurant tour / tast
 | **BFF tripwire** | `require_day_balance` → `food_only_day`; suggest-place rejects another food when the day still has zero non-food |
 | **Offline evals** | Scorers fail food-only days; metrics `non_food_place_count`, `food_only_day_rate` |
 
+### Suggest-place one-off hint vs trip preferences
+
+When the user sends a one-off `hint` on suggest-place, that hint is the **primary** request for that stop:
+
+| Rule | Behavior |
+| --- | --- |
+| **Crew inputs** | `hint` stays its own field; trip/profile `preferences` / `interests` are labeled secondary (only if compatible with the hint) |
+| **Day-balance waive** | Only **food-like** hints (`lunch`, `ramen`, …) waive `prefer_non_food`; kids/activity hints do not |
+| **Hard match check** | Food-like hints require food; clear non-food categories must match; substantive free-text without a food phrase rejects food (`hint_mismatch`, retried). Proximity/vibe-only hints (“near Shinjuku station”, “somewhere in Ueno”) stay ambiguous even with named places. |
+
 ### Hard vs soft failure tags
 
 | Tag | Class | MVP behavior |

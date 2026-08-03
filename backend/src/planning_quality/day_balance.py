@@ -33,6 +33,8 @@ _FOOD_CRAWL_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
 
 # One-off suggest-place hints that clearly ask for a meal / restaurant.
 # Keep high-precision: avoid words that often appear as location/atmosphere.
+# Food matching uses these phrases; clear non-food categories and substantive
+# free-text hints reject food; proximity/vibe-only hints stay ambiguous.
 _FOOD_HINT_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (
@@ -62,6 +64,24 @@ _FOOD_HINT_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"\bbakery\b",
         r"\bdessert\b",
         r"\bcuisine\b",
+        r"\bpizzas?\b",
+        r"\btacos?\b",
+        r"\bburgers?\b",
+        r"\bpasta\b",
+        r"\bsteaks?\b",
+        r"\bseafood\b",
+        r"\bpho\b",
+        r"\bcurry\b",
+        r"\btapas\b",
+        r"\bsandwiches?\b",
+        r"\bpastr(?:y|ies)\b",
+        r"\bgelatos?\b",
+        r"\bice\s*creams?\b",
+        r"\byakitori\b",
+        r"\btempura\b",
+        r"\budon\b",
+        r"\bsoba\b",
+        r"\bgyoza\b",
     )
 )
 
@@ -145,6 +165,126 @@ _CATEGORY_HINT_PATTERNS: tuple[tuple[str, tuple[re.Pattern[str], ...]], ...] = (
 )
 
 
+# Location / vibe fillers — alone they do not force non-food (ambiguous hint).
+_LOCATION_VIBE_FILLER_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bnear(?:by)?\b",
+        r"\bclose\s+to\b",
+        r"\bclose\s*by\b",
+        r"\bby\s+the\b",
+        r"\baround(?:\s+the)?\b",
+        r"\bwithin\s+walking\s+distance\b",
+        r"\bsomething\b",
+        r"\bsomewhere\b",
+        r"\banywhere\b",
+        r"\bchill\b",
+        r"\bquiet\b",
+        r"\brelaxed\b",
+        r"\bnice\b",
+        r"\beasy\b",
+    )
+)
+
+_LOCATION_VIBE_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "for",
+        "to",
+        "of",
+        "in",
+        "on",
+        "at",
+        "or",
+        "and",
+        "place",
+        "spot",
+        "area",
+        "stop",
+        "option",
+        "please",
+    }
+)
+
+# Leftover tokens that still count as location-only (not activity intent).
+_LOCATION_NOUNS: frozenset[str] = frozenset(
+    {
+        "station",
+        "hotel",
+        "hostel",
+        "metro",
+        "subway",
+        "airport",
+        "lobby",
+        "entrance",
+        "exit",
+        "terminal",
+        "platform",
+        "square",
+        "plaza",
+        "district",
+        "neighborhood",
+        "neighbourhood",
+        "ward",
+    }
+)
+
+# Proximity framing — with these, leftover named places (Shinjuku, Ueno, …) stay
+# ambiguous unless a substantive activity token is also present.
+_PROXIMITY_FRAME_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bnear(?:by)?\b",
+        r"\bclose\s+to\b",
+        r"\bclose\s*by\b",
+        r"\bby\s+the\b",
+        r"\baround(?:\s+the)?\b",
+        r"\bwithin\s+walking\s+distance\b",
+        r"\bsomewhere(?:\s+in)?\b",
+        r"\banywhere(?:\s+in)?\b",
+    )
+)
+
+# Activity / intent tokens that make a free-text hint non-food (not proximity-only).
+_SUBSTANTIVE_ACTIVITY_TOKENS: frozenset[str] = frozenset(
+    {
+        "fun",
+        "kids",
+        "kid",
+        "children",
+        "child",
+        "family",
+        "families",
+        "playground",
+        "arcade",
+        "amusement",
+        "zoo",
+        "aquarium",
+        "activity",
+        "activities",
+        "explore",
+        "sightseeing",
+        "attraction",
+        "attractions",
+        "temple",
+        "shrine",
+        "hike",
+        "hiking",
+        "trail",
+        "walk",
+        "walking",
+        "view",
+        "views",
+        "viewpoint",
+        "photo",
+        "photos",
+        "instagram",
+    }
+)
+
+
 def detect_food_crawl_mode(
     preferences: str,
     interests: Iterable[str] | None = None,
@@ -194,16 +334,16 @@ def prefer_non_food_suggestion(
     existing: list[dict[str, Any]],
     *,
     food_crawl_mode: bool,
-    honor_user_hint: bool = False,
+    honor_food_hint: bool = False,
 ) -> bool:
     """Suggest-place should add a non-food stop when the day still lacks one.
 
     Only kicks in once the day already has 2+ stops (aligned with the hard
     day-balance gate at 3+ places). A single leftover food stop after delete
-    must still allow dinner / another meal. An explicit one-off user hint always
-    wins over this balance nudge.
+    must still allow dinner / another meal. A food-like one-off hint waives
+    this balance nudge; any other one-off hint does not.
     """
-    if honor_user_hint or food_crawl_mode:
+    if honor_food_hint or food_crawl_mode:
         return False
     if len(existing) < 2:
         return False
@@ -216,6 +356,58 @@ def detect_food_suggest_hint(hint: str) -> bool:
     if not text:
         return False
     return any(pat.search(text) for pat in _FOOD_HINT_PATTERNS)
+
+
+def is_food_like_suggest_hint(hint: str) -> bool:
+    """True when the one-off hint resolves to a food venue request.
+
+    Food is judged only via food-category phrases (lunch, ramen, …). Words like
+    kids/family alone are not food — but "food for kids" / "family dinner" are.
+    """
+    return infer_suggest_hint_category(hint) == "food"
+
+
+def is_ambiguous_location_or_vibe_hint(hint: str) -> bool:
+    """True for proximity/vibe-only hints that should not hard-ban food.
+
+    Examples: "near the station", "near Shinjuku station", "somewhere in Ueno",
+    "something chill nearby". Substantive free-text like "fun place for kids"
+    is not ambiguous (even with a location suffix).
+    """
+    text = str(hint or "").strip()
+    if not text:
+        return False
+    if infer_suggest_hint_category(text) is not None:
+        return False
+    has_proximity = any(pat.search(text) for pat in _PROXIMITY_FRAME_PATTERNS)
+    cleaned = text
+    for pat in _LOCATION_VIBE_FILLER_PATTERNS:
+        cleaned = pat.sub(" ", cleaned)
+    tokens = [
+        tok
+        for tok in re.findall(r"[A-Za-z0-9']+", cleaned.lower())
+        if tok not in _LOCATION_VIBE_STOPWORDS and tok not in _LOCATION_NOUNS
+    ]
+    if has_proximity:
+        # Named places may remain (Shinjuku, Ueno, Times…); only activity intent
+        # makes the hint require non-food.
+        return not any(tok in _SUBSTANTIVE_ACTIVITY_TOKENS for tok in tokens)
+    # Pure vibe with no proximity frame: ambiguous only when nothing substantive
+    # is left after stripping fillers.
+    return not tokens
+
+
+def hint_requires_non_food(hint: str) -> bool:
+    """True when a non-empty hint must not resolve to category=food."""
+    text = str(hint or "").strip()
+    if not text:
+        return False
+    expected = infer_suggest_hint_category(text)
+    if expected == "food":
+        return False
+    if expected is not None:
+        return True
+    return not is_ambiguous_location_or_vibe_hint(text)
 
 
 def infer_suggest_hint_category(hint: str) -> str | None:
@@ -293,13 +485,13 @@ def require_suggested_place_balance(
     existing: list[dict[str, Any]],
     *,
     food_crawl_mode: bool,
-    honor_user_hint: bool = False,
+    honor_food_hint: bool = False,
 ) -> None:
     """Reject another food stop when the day still has zero non-food."""
     if not prefer_non_food_suggestion(
         existing,
         food_crawl_mode=food_crawl_mode,
-        honor_user_hint=honor_user_hint,
+        honor_food_hint=honor_food_hint,
     ):
         return
     if not is_food_place(place):
@@ -317,14 +509,17 @@ def require_suggested_place_matches_hint(
     *,
     hint: str,
 ) -> None:
-    """When the hint clearly implies a category, reject obvious mismatches.
+    """Reject places that conflict with the one-off hint.
 
-    Ambiguous free-text hints are honored via crew guidance + waived balance
-    nudge only (no hard category tripwire).
+    - Food-like hints require a food place.
+    - Clear non-food category hints must match that category (and reject food).
+    - Substantive free-text without a food phrase rejects food.
+    - Proximity/vibe-only hints stay ambiguous (no hard food ban).
     """
-    expected = infer_suggest_hint_category(hint)
-    if expected is None:
+    text = str(hint or "").strip()
+    if not text:
         return
+    expected = infer_suggest_hint_category(text)
     if expected == "food":
         if is_food_place(place):
             return
@@ -333,6 +528,14 @@ def require_suggested_place_matches_hint(
             "suggestion did not match the user hint",
             code="hint_mismatch",
         )
+    if hint_requires_non_food(text) and is_food_place(place):
+        raise ApiError(
+            422,
+            "suggestion did not match the user hint",
+            code="hint_mismatch",
+        )
+    if expected is None:
+        return
     actual = str(place.get("category") or "").strip().lower()
     if actual == expected:
         return

@@ -21,6 +21,8 @@ from shared.dates import date_for_day_index, parse_iso_date
 from planning_quality.day_balance import (
     day_balance_guidance,
     detect_food_crawl_mode,
+    hint_requires_non_food,
+    is_food_like_suggest_hint,
     min_non_food_places_for,
     prefer_non_food_suggestion,
     require_suggested_place_balance,
@@ -435,12 +437,13 @@ def _suggest_place_sync(
     )
     hint = (hint or "").strip()
     honor_user_hint = bool(hint)
+    honor_food_hint = is_food_like_suggest_hint(hint)
     food_crawl_mode = detect_food_crawl_mode(merged_prefs, interests)
     min_non_food = min_non_food_places_for(food_crawl_mode=food_crawl_mode)
     prefer_non_food = prefer_non_food_suggestion(
         existing,
         food_crawl_mode=food_crawl_mode,
-        honor_user_hint=honor_user_hint,
+        honor_food_hint=honor_food_hint,
     )
     # With a one-off hint, skip day-balance preference lines so the dedicated
     # crew ``hint`` input stays the clear priority (no duplicate pref prose).
@@ -461,11 +464,38 @@ def _suggest_place_sync(
                 if merged_prefs
                 else balance_line
             )
+    crew_preferences = merged_prefs
+    crew_interests = ", ".join(interests)
+    if honor_user_hint:
+        # Trip/profile prefs stay secondary to the one-off hint.
+        if crew_preferences:
+            crew_preferences = (
+                "One-off hint for THIS stop is the primary request — do not "
+                "override it with trip preferences. Trip background "
+                f"(secondary, only if compatible with the hint): {crew_preferences}"
+            )
+        else:
+            crew_preferences = (
+                "One-off hint for THIS stop is the primary request — do not "
+                "override it with trip preferences."
+            )
+        if hint_requires_non_food(hint):
+            # Steer first crew attempt; prompts only ban food when hint is empty
+            # + prefer_non_food, so put the rule in the preferences payload.
+            non_food_line = (
+                "Use a non-food category; avoid restaurants and cafes."
+            )
+            crew_preferences = f"{non_food_line} {crew_preferences}".strip()
+        if crew_interests:
+            crew_interests = (
+                "Interests (secondary to hint, only if compatible): "
+                f"{crew_interests}"
+            )
     # Pre-crew gate: safety rejection must not consume GenAI quota.
     check_texts(
         safety,
         {
-            "preferences": merged_prefs,
+            "preferences": crew_preferences,
             "hint": hint or None,
             "origin": str(trip.get("origin") or ""),
             "destination": str(trip.get("destination") or ""),
@@ -505,9 +535,9 @@ def _suggest_place_sync(
             "overnight_city": overnight,
             "day_index": str(day_index),
             "date": day_date.isoformat(),
-            "preferences": merged_prefs,
+            "preferences": crew_preferences,
             "hint": hint,
-            "interests": ", ".join(interests),
+            "interests": crew_interests,
             "food_crawl_mode": "true" if food_crawl_mode else "false",
             "prefer_non_food": "true" if prefer_non_food else "false",
             "min_non_food_places": str(min_non_food),
@@ -589,15 +619,17 @@ def _suggest_place_sync(
                     list(profile.get("visited_places") or [])
                 ),
             )
+            require_suggested_place_matches_hint(
+                validated,
+                hint=hint,
+            )
+            # Hint check first so food/category mismatches use retryable
+            # hint_mismatch instead of non-retryable food_only_day.
             require_suggested_place_balance(
                 validated,
                 existing,
                 food_crawl_mode=food_crawl_mode,
-                honor_user_hint=honor_user_hint,
-            )
-            require_suggested_place_matches_hint(
-                validated,
-                hint=hint,
+                honor_food_hint=honor_food_hint,
             )
             last_quality_error = None
             break
