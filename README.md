@@ -133,62 +133,71 @@ Only one of day-planning claim **or** a crew-job claim may be held at a time. St
 
 API contract: [`backend/openapi.yaml`](./backend/openapi.yaml).
 
-### Planning sequence (cities, then days)
+### Planning sequence
+
+#### Overview
+
+```mermaid
+flowchart TD
+  createTrip[CreateTrip]
+  needRoute{CountryOrRegion?}
+  proposeCities[ProposeAndConfirmRoute]
+  syntheticRoute[SyntheticConfirmedRoute]
+  planDays[PlanDaysOneByOne]
+  complete[TripComplete]
+  createTrip --> needRoute
+  needRoute -->|yes| proposeCities
+  needRoute -->|no| syntheticRoute
+  proposeCities --> planDays
+  syntheticRoute --> planDays
+  planDays --> complete
+```
+
+City destinations skip propose-cities; country/region must confirm a ROUTE before any day is planned.
+
+#### Cities
 
 ```mermaid
 sequenceDiagram
-  participant UI as React
-  participant API as API Lambda
-  participant DDB as DynamoDB
+  participant UI as TravelerUI
+  participant API as APILambda
   participant AC as AgentCore
-
-  UI->>API: POST /trips origin destination dates
-  API->>DDB: Put TRIP meta
-  alt destination is country or multi-city region
-    UI->>API: POST /trips/id/propose-cities
-    API->>DDB: Claim crew_job_kind propose_cities
-    API->>API: Event self-invoke worker
-    API-->>UI: 202 trip plus job
-    par Worker
-      API->>AC: city_route
-      AC-->>API: CityRouteProposal
-      API->>DDB: Put ROUTE clear claim
-    and Client poll
-      loop until ROUTE ready or failed
-        UI->>API: GET /trips/id
-        API->>DDB: Load trip bundle
-        API-->>UI: trip plus route
-      end
-    end
-    opt suggest another city
-      UI->>API: POST /trips/id/suggest-city
-      Note over UI,AC: Same claim → 202 → poll pattern
-    end
-    UI->>API: PUT /trips/id/cities confirmed route
-    API->>DDB: Update ROUTE plus TRIP
+  UI->>API: ProposeCities
+  API-->>UI: 202 JobClaimed
+  Note over API: Run may exceed API Gateway ~30s
+  API->>AC: city_route crew
+  AC-->>API: CityRouteProposal
+  Note over API: Persist proposed ROUTE clear claim
+  loop UntilReadyOrFailed
+    UI->>API: GET trip
+    API-->>UI: trip plus route status
   end
-  loop Each day until complete
-    UI->>API: POST /trips/id/plan-next-day
-    API->>DDB: Claim planning_day_index
-    API->>API: Event self-invoke worker
-    API-->>UI: 202 trip plus planning_day_index
-    par Worker
-      API->>AC: day_plan
-      AC-->>API: DayPlan
-      API->>DDB: Put DAY clear claim
-    and Client poll
-      loop until DAY ready or failed
-        UI->>API: GET /trips/id
-        API->>DDB: Load trip bundle
-        API-->>UI: trip plus days
-      end
-    end
-    opt suggest another place
-      UI->>API: POST /trips/id/days/n/suggest-place
-      Note over UI,AC: Same claim → 202 → poll pattern
-    end
+  UI->>API: ConfirmCities
+  Note over API: Persist confirmed ROUTE
+```
+
+Optional `POST /trips/{id}/suggest-city` uses the same claim → 202 → poll pattern; candidates are inserted only after the user confirms.
+
+#### Days
+
+```mermaid
+sequenceDiagram
+  participant UI as TravelerUI
+  participant API as APILambda
+  participant AC as AgentCore
+  UI->>API: PlanNextDay
+  API-->>UI: 202 JobClaimed
+  Note over API: Claim planning_day_index
+  API->>AC: day_plan crew
+  AC-->>API: DayPlan
+  Note over API: Persist DAY clear claim
+  loop UntilReadyOrFailed
+    UI->>API: GET trip
+    API-->>UI: trip plus day status
   end
 ```
+
+Repeat until the trip is complete. Optional `POST /trips/{id}/days/{n}/suggest-place` uses the same async pattern to append one stop.
 
 **City detection (MVP):** user selects `destination_type` (`city` \| `country` \| `region`). City destinations skip propose-cities and get a **synthetic confirmed** `ROUTE` on create so day planning always has an overnight city.
 
